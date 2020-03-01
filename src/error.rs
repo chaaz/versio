@@ -2,13 +2,17 @@
 
 #[macro_export]
 macro_rules! versio_err {
-  ($($arg:tt)*) => (crate::error::Error::new(format!($($arg)*)))
+  ($($arg:tt)*) => (Err(crate::error::Error::new(format!($($arg)*))))
 }
 
 #[derive(Debug)]
 pub struct Error {
   description: String
 }
+
+// impl Error {
+//   pub fn new<S: ToString>(s: S) -> Error { Error { description: s.to_string() } }
+// }
 
 impl From<std::num::ParseIntError> for Error {
   fn from(err: std::num::ParseIntError) -> Error { Error { description: err.to_string() } }
@@ -20,6 +24,10 @@ impl From<std::io::Error> for Error {
 
 impl From<git2::Error> for Error {
   fn from(err: git2::Error) -> Error { Error { description: format!("git {:?}", err) } }
+}
+
+impl From<yaml_rust::scanner::ScanError> for Error {
+  fn from(err: yaml_rust::scanner::ScanError) -> Error { Error { description: format!("git {:?}", err) } }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
