@@ -1,0 +1,14 @@
+condense_wildcard_suffixes = true
+fn_args_layout = "Compressed"
+fn_single_line = true
+force_multiline_blocks = false
+format_strings = true
+match_block_trailing_comma = false
+max_width = 120
+normalize_comments = true
+spaces_around_ranges = true
+tab_spaces = 2
+trailing_comma = "Never"
+use_field_init_shorthand = true
+use_small_heuristics = "Max"
+use_try_shorthand = true

@@ -13,7 +13,7 @@ named `.versio/numbers.yaml` checked into the top level of your git
 repository. The file should look something like this:
 
 ```
-numbers:
+projects:
   - name: everything
     id: 1
     covers: ["**"]
@@ -30,13 +30,10 @@ numbers:
 
   - name: "combined a and b"
     id: 3
-    covers: ["project1/**"]
-    located:
-      file: "project1/info.txt"
-      line_pattern: "v(\n+\.\n+\.\n+) .*"
     covers: ["nested/project_a/**", "nested/project_b/**"]
     located:
       file: "nested/version.txt"
+      pattern: "v([0-9]+\\.[0-9]+\\.[0-9]+) .*"
 
   - name: "build image"
     id: 4

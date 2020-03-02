@@ -1,41 +1,58 @@
 //! Utilities to find a mark in a YAML file.
 
 use crate::error::Result;
-use crate::Mark;
-use yaml_rust::parser::{Parser, MarkedEventReceiver, Event};
-use yaml_rust::scanner::{Marker, TScalarStyle};
+use crate::{convert_mark, CharMark, Load, MarkedData};
+use std::fs::read_to_string;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use yaml_rust::parser::{Event, MarkedEventReceiver, Parser};
+use yaml_rust::scanner::{Marker, TScalarStyle};
 
-pub fn scan_yaml<P: ToPartVec>(file: &str, loc: P) -> Result<Mark> {
-  let mut rcvr = Receiver::new(loc.to_part_vec());
-  let mut parser = Parser::new(rcvr.shortcut(file.chars()));
+pub struct YamlLoad {
+  target: Vec<Part>
+}
+
+impl YamlLoad {
+  pub fn new<P: IntoPartVec>(target: P) -> YamlLoad { YamlLoad { target: target.into_part_vec() } }
+}
+
+impl Load for YamlLoad {
+  fn load<P: AsRef<Path>>(&self, filename: P) -> Result<MarkedData> {
+    let data = read_to_string(&filename)?;
+    self.read(data, Some(filename.as_ref().to_path_buf()))
+  }
+
+  fn read(&self, data: String, fname: Option<PathBuf>) -> Result<MarkedData> {
+    let char_mark = scan_yaml(&data, self.target.clone())?;
+    let byte_mark = convert_mark(&data, char_mark);
+
+    Ok(MarkedData::new(fname, data.to_string(), byte_mark))
+  }
+}
+
+fn scan_yaml<P: IntoPartVec>(data: &str, loc: P) -> Result<CharMark> {
+  let mut rcvr = Receiver::new(loc.into_part_vec());
+  let mut parser = Parser::new(rcvr.shortcut(data.chars()));
 
   parser.load(&mut rcvr, false)?;
 
   Ok(rcvr.result.unwrap())
 }
 
-pub trait ToPartVec {
-  fn to_part_vec(&self) -> Vec<Part>;
+pub trait IntoPartVec {
+  fn into_part_vec(self) -> Vec<Part>;
 }
 
-impl ToPartVec for str {
-  fn to_part_vec(&self) -> Vec<Part> {
-    self.split('.').map(|d| {
-      match d.parse() {
-        Ok(i) => Part::Seq(i),
-        Err(_) => Part::Map(d.to_string())
-      }
-    }).collect()
-  }
+impl IntoPartVec for Vec<Part> {
+  fn into_part_vec(self) -> Vec<Part> { self }
 }
 
-impl ToPartVec for &str {
-  fn to_part_vec(&self) -> Vec<Part> { (*self).to_part_vec() }
+impl IntoPartVec for &str {
+  fn into_part_vec(self) -> Vec<Part> { self.split('.').map(|d| d.to_part()).collect() }
 }
 
-impl ToPartVec for [&dyn ToPart] {
-  fn to_part_vec(&self) -> Vec<Part> { self.iter().map(|d| d.to_part()).collect() }
+impl IntoPartVec for &[&dyn ToPart] {
+  fn into_part_vec(self) -> Vec<Part> { self.iter().map(|d| d.to_part()).collect() }
 }
 
 pub trait ToPart {
@@ -43,7 +60,7 @@ pub trait ToPart {
 }
 
 impl ToPart for str {
-  fn to_part(&self) -> Part { 
+  fn to_part(&self) -> Part {
     match self.parse() {
       Ok(i) => Part::Seq(i),
       Err(_) => Part::Map(self.to_string())
@@ -52,11 +69,10 @@ impl ToPart for str {
 }
 
 impl ToPart for usize {
-  fn to_part(&self) -> Part { 
-    Part::Seq(*self)
-  }
+  fn to_part(&self) -> Part { Part::Seq(*self) }
 }
 
+#[derive(Clone)]
 pub enum Part {
   Seq(usize),
   Map(String)
@@ -76,7 +92,7 @@ struct Receiver {
   stack: Vec<Loc>,
   depth: usize,
   complete: Arc<Mutex<bool>>,
-  result: Option<Mark>
+  result: Option<CharMark>
 }
 
 impl Receiver {
@@ -84,13 +100,9 @@ impl Receiver {
     Receiver { parts, stack: Vec::new(), depth: 0, complete: Arc::new(Mutex::new(false)), result: None }
   }
 
-  pub fn shortcut<T: Iterator<Item = char>>(&self, t: T) -> Shortcut<T> {
-    Shortcut::new(self.complete.clone(), t)
-  }
+  pub fn shortcut<T: Iterator<Item = char>>(&self, t: T) -> Shortcut<T> { Shortcut::new(self.complete.clone(), t) }
 
-  fn found_key(&mut self) {
-    self.depth += 1;
-  }
+  fn found_key(&mut self) { self.depth += 1; }
 
   fn before_object(&mut self) {
     if self.stack.is_empty() {
@@ -142,12 +154,12 @@ impl Receiver {
       } else {
         match self.parts.get(self.depth).unwrap() {
           Part::Map(_) => Expect::Map,
-          Part::Seq(_) => Expect::Seq,
+          Part::Seq(_) => Expect::Seq
         }
       }
     } else if self.stack.len() == self.depth + 1 {
       match self.parts.get(self.depth).unwrap() {
-        Part::Map(key) =>  {
+        Part::Map(key) => {
           if !self.stack.last().unwrap().is_map_value() {
             Expect::Key(key.clone())
           } else {
@@ -174,9 +186,7 @@ impl MarkedEventReceiver for Receiver {
         match self.expecting() {
           Expect::Map => (),
           Expect::None => (),
-          _ => {
-            panic!("Got unexpected map.")
-          }
+          _ => panic!("Got unexpected map.")
         }
         self.stack.push(Loc::Map(false));
       }
@@ -201,12 +211,14 @@ impl MarkedEventReceiver for Receiver {
         self.before_object();
         match self.expecting() {
           Expect::Scalar => {
-            let mut index = mark.index() - 1;
+            let mut index = mark.index();
             match style {
-              TScalarStyle::SingleQuoted | TScalarStyle::DoubleQuoted => { index += 1; }
+              TScalarStyle::SingleQuoted | TScalarStyle::DoubleQuoted => {
+                index += 1;
+              }
               _ => ()
             }
-            self.result = Some(Mark::new(val.to_string(), index));
+            self.result = Some(CharMark::new(val.to_string(), index));
             *self.complete.lock().unwrap() = true;
           }
           Expect::Key(key) => {
@@ -215,7 +227,7 @@ impl MarkedEventReceiver for Receiver {
             }
           }
           Expect::None => (),
-          _ => panic!("Got unexpected scalar.")
+          _ => panic!("Got unexpected scalar. {}, {:?}", self.depth, self.stack)
         }
         self.after_object(false);
       }
@@ -266,4 +278,53 @@ enum Expect {
   Scalar,
   Key(String),
   None
+}
+
+#[cfg(test)]
+mod test {
+  use super::{scan_yaml, Load, YamlLoad};
+
+  #[test]
+  fn test_yaml() {
+    let doc = r#"version: 1.2.3"#;
+
+    let char_mark = scan_yaml(doc, "version").unwrap();
+    assert_eq!("1.2.3", char_mark.value());
+    assert_eq!(9, char_mark.char_start());
+  }
+
+  #[test]
+  fn test_long_yaml() {
+    let doc = r#"
+name: "Bob"
+thing:
+  - first
+  - second: 1
+  - third: |
+      yo
+      ho
+  - fourth: >
+      hey
+      yo
+    other_x: '2.4.6'
+  - hmmm
+  - version: 1.2.3
+  - this is long"#;
+
+    let char_mark = scan_yaml(doc, "thing.3.other_x").unwrap();
+    assert_eq!("2.4.6", char_mark.value());
+    assert_eq!(122, char_mark.char_start());
+  }
+
+  #[test]
+  fn test_yaml_load_utf8() {
+    let doc = r#"
+name: "Bób"
+thing:
+  - version: 1.2.3"#;
+
+    let marked_data = YamlLoad::new("thing.0.version").read(doc.to_string(), None).unwrap();
+    assert_eq!("1.2.3", marked_data.value());
+    assert_eq!(34, marked_data.start());
+  }
 }

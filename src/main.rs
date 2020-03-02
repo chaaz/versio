@@ -1,43 +1,83 @@
-mod error;
-mod yaml;
+pub mod config;
+#[macro_use]
+pub mod error;
+pub mod json;
+pub mod opts;
+pub mod yaml;
 
 use crate::error::Result;
-use crate::yaml::scan_yaml;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct Mark {
   value: String,
-  char_start: usize,
+  byte_start: usize
 }
 
 impl Mark {
-  pub fn new(value: String, char_start: usize) -> Mark {
-    Mark { value, char_start }
+  pub fn new(value: String, byte_start: usize) -> Mark { Mark { value, byte_start } }
+  pub fn value(&self) -> &str { &self.value }
+  pub fn set_value(&mut self, new_val: String) { self.value = new_val; }
+  pub fn start(&self) -> usize { self.byte_start }
+}
+
+#[derive(Debug)]
+pub struct CharMark {
+  value: String,
+  char_start: usize
+}
+
+impl CharMark {
+  pub fn new(value: String, char_start: usize) -> CharMark { CharMark { value, char_start } }
+  pub fn value(&self) -> &str { &self.value }
+  pub fn char_start(&self) -> usize { self.char_start }
+}
+
+pub fn convert_mark(data: &str, cmark: CharMark) -> Mark {
+  let start = data.char_indices().skip(cmark.char_start()).next().unwrap().0;
+  Mark::new(cmark.value, start)
+}
+
+pub struct MarkedData {
+  fname: Option<PathBuf>,
+  data: String,
+  mark: Mark
+}
+
+impl MarkedData {
+  pub fn new(fname: Option<PathBuf>, data: String, mark: Mark) -> MarkedData { MarkedData { fname, data, mark } }
+
+  pub fn update_file(&mut self, new_val: &str) -> Result<()> {
+    self.update(new_val)?;
+    self.write()?;
+    Ok(())
   }
 
-  pub fn value(&self) -> &str { &self.value }
-  pub fn start(&self) -> usize { self.char_start }
+  pub fn update(&mut self, new_val: &str) -> Result<()> {
+    self.data.replace_range(self.mark.start() .. self.mark.value().len(), &new_val);
+    self.mark.set_value(new_val.to_string());
+    Ok(())
+  }
+
+  pub fn write(&self) -> Result<()> {
+    self
+      .fname
+      .as_ref()
+      .ok_or_else(|| versio_error!("Can't write file: none exists."))
+      .and_then(|fname| Ok(std::fs::write(fname, &self.data)?))?;
+
+    Ok(())
+  }
+
+  pub fn value(&self) -> &str { self.mark.value() }
+  pub fn start(&self) -> usize { self.mark.start() }
+  pub fn data(&self) -> &str { &self.data }
+  pub fn filename(&self) -> &Option<PathBuf> { &self.fname }
 }
 
-fn main() -> Result<()> {
-  let doc = r#"name: "bob"
-thing:
-  - first
-  - second: 1
-  - third: |
-      yo
-      ho
-  - fourth: >
-      hey
-      yo
-    other_x: 123
-  - hmmm
-  - version: 1.2.3
-  - this is long"#;
-
-  let value = scan_yaml(doc, "thing.5.version")?;
-  println!("Got {:?}", value);
-
-  Ok(())
+pub trait Load {
+  fn load<P: AsRef<Path>>(&self, filename: P) -> Result<MarkedData>;
+  fn read(&self, data: String, fname: Option<PathBuf>) -> Result<MarkedData>;
 }
 
+fn main() -> Result<()> { opts::execute() }
