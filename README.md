@@ -44,15 +44,15 @@ projects:
 
 ```
 commands:
-
-  show
-  get comb
+  get --name 1
   get --id 4  
-  set comb 1.2.3
-  run
-  run --dry-run
+  show
+  set --name comb 1.2.3
+  check
   check comb
   check --id 2
+  bump comb --commit
+  run --commit --push
 ```
 
 How it works:

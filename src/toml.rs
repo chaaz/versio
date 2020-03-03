@@ -1,45 +1,41 @@
-//! Utilities to find a mark in a JSON file.
+//! Utilities to find a mark in a TOML file.
 
 use crate::error::Result;
 use crate::{Load, Mark, MarkedData};
 use serde::de::{self, DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Unexpected, Visitor};
 use std::fs::read_to_string;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use toml::Spanned;
 
-pub type TraceRef = Arc<Mutex<Trace>>;
-
-pub struct JsonLoad {
+pub struct TomlLoad {
   target: Vec<Part>
 }
 
-impl JsonLoad {
-  pub fn new<P: IntoPartVec>(target: P) -> JsonLoad { JsonLoad { target: target.into_part_vec() } }
+impl TomlLoad {
+  pub fn new<P: IntoPartVec>(target: P) -> TomlLoad { TomlLoad { target: target.into_part_vec() } }
 }
 
-impl Load for JsonLoad {
+impl Load for TomlLoad {
   fn load<P: AsRef<Path>>(&self, filename: P) -> Result<MarkedData> {
     let data = read_to_string(&filename)?;
     self.read(data, Some(filename.as_ref().to_path_buf()))
   }
 
   fn read(&self, data: String, fname: Option<PathBuf>) -> Result<MarkedData> {
-    let byte_mark = scan_json(&data, self.target.clone())?;
+    let byte_mark = scan_toml(&data, self.target.clone())?;
     Ok(MarkedData::new(fname, data.to_string(), byte_mark))
   }
 }
 
-fn scan_json<P: IntoPartVec>(data: &str, loc: P) -> Result<Mark> {
+fn scan_toml<P: IntoPartVec>(data: &str, loc: P) -> Result<Mark> {
   let mut parts = loc.into_part_vec();
   parts.reverse();
 
-  let trace = Arc::new(Mutex::new(Trace::new()));
-  let reader = MeteredReader::new(data.as_bytes(), trace.clone());
+  let value = pop(parts).deserialize(&mut toml::Deserializer::new(data))?;
+  let index = value.span().0;
 
-  let value = pop(parts, trace.clone()).deserialize(&mut serde_json::Deserializer::from_reader(reader))?;
-  let index = trace.lock()?.find_start()?;
-
-  Ok(Mark::new(value, index))
+  // TODO: handle triple quotes
+  Ok(Mark::new(value.into_inner(), index + 1))
 }
 
 pub trait IntoPartVec {
@@ -81,23 +77,22 @@ pub enum Part {
   Map(String)
 }
 
-fn pop(mut parts: Vec<Part>, trace: TraceRef) -> NthElement {
+fn pop(mut parts: Vec<Part>) -> NthElement {
   let part = parts.pop().unwrap();
-  NthElement::new(part, parts, trace)
+  NthElement::new(part, parts)
 }
 
 pub struct NthElement {
   part: Part,
-  remains: Vec<Part>,
-  trace: TraceRef
+  remains: Vec<Part>
 }
 
 impl NthElement {
-  pub fn new(part: Part, remains: Vec<Part>, trace: TraceRef) -> NthElement { NthElement { part, remains, trace } }
+  pub fn new(part: Part, remains: Vec<Part>) -> NthElement { NthElement { part, remains } }
 }
 
 impl<'de> Visitor<'de> for NthElement {
-  type Value = String;
+  type Value = Spanned<String>;
 
   fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
     write!(formatter, "a part that is {:?}", self.part)
@@ -112,19 +107,17 @@ impl<'de> Visitor<'de> for NthElement {
       _ => return Err(de::Error::invalid_type(Unexpected::Map, &self))
     };
 
-    let mut got_val: Option<String> = None;
+    let mut got_val: Option<Spanned<String>> = None;
 
     while let Some(key) = map.next_key::<String>()? {
       if key == expected_key {
         let nth = match self.remains.is_empty() {
           true => {
-            self.trace.lock().unwrap().set_active(true);
             let r = map.next_value()?;
-            self.trace.lock().unwrap().set_active(false);
             r
           }
           false => {
-            let next = pop(std::mem::replace(&mut self.remains, Vec::new()), self.trace.clone());
+            let next = pop(std::mem::replace(&mut self.remains, Vec::new()));
             map.next_value_seed(next)?
           }
         };
@@ -159,13 +152,11 @@ impl<'de> Visitor<'de> for NthElement {
 
     let nth = match self.remains.is_empty() {
       true => {
-        self.trace.lock().unwrap().set_active(true);
         let r = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(n, &self))?;
-        self.trace.lock().unwrap().set_active(false);
         r
       }
       false => {
-        let next = pop(std::mem::replace(&mut self.remains, Vec::new()), self.trace.clone());
+        let next = pop(std::mem::replace(&mut self.remains, Vec::new()));
         seq.next_element_seed(next)?.ok_or_else(|| de::Error::invalid_length(n, &self))?
       }
     };
@@ -177,7 +168,7 @@ impl<'de> Visitor<'de> for NthElement {
 }
 
 impl<'de> DeserializeSeed<'de> for NthElement {
-  type Value = String;
+  type Value = Spanned<String>;
 
   fn deserialize<D>(self, deserializer: D) -> std::result::Result<Self::Value, D::Error>
   where
@@ -187,118 +178,49 @@ impl<'de> DeserializeSeed<'de> for NthElement {
   }
 }
 
-pub struct Trace {
-  active: bool,
-  leader: usize,
-  bytes: Vec<u8>
-}
-
-impl Trace {
-  pub fn new() -> Trace { Trace { active: false, leader: 0, bytes: Vec::new() } }
-
-  pub fn set_active(&mut self, active: bool) { self.active = active; }
-
-  pub fn accept(&mut self, buf: &[u8], amt: usize, leader: usize) {
-    if self.active {
-      if self.bytes.is_empty() {
-        self.leader = leader;
-      }
-      self.bytes.extend_from_slice(&buf[.. amt]);
-    }
-  }
-
-  pub fn find_start(&self) -> crate::error::Result<usize> {
-    Ok(
-      self.bytes.iter().position(|b| *b == b'"').ok_or_else(|| versio_error!("No quote found in value"))?
-        + self.leader
-        + 1
-    )
-  }
-}
-
-struct MeteredReader<'a> {
-  data: &'a [u8],
-  got: usize,
-  trace: TraceRef
-}
-
-impl<'a> MeteredReader<'a> {
-  pub fn new(data: &'a [u8], trace: TraceRef) -> MeteredReader { MeteredReader { data, got: 0, trace } }
-}
-
-impl<'a> std::io::Read for MeteredReader<'a> {
-  fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-    let amt = self.data.read(buf)?;
-    self.trace.lock().unwrap().accept(buf, amt, self.got);
-
-    self.got += amt;
-    Ok(amt)
-  }
-}
-
 #[cfg(test)]
 mod test {
-  use super::JsonLoad;
+  use super::TomlLoad;
   use crate::Load;
 
   #[test]
-  fn test_json() {
+  fn test_toml() {
     let doc = r#"
-{
-  "version": "1.2.3"
-}"#;
+version = "1.2.3""#;
 
-    let marked_data = JsonLoad::new("version").read(doc.to_string(), None).unwrap();
+    let marked_data = TomlLoad::new("version").read(doc.to_string(), None).unwrap();
     assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(17, marked_data.start());
+    assert_eq!(12, marked_data.start());
   }
 
   #[test]
-  fn test_json_seq() {
+  fn test_toml_seq() {
     let doc = r#"
-[
-  "thing",
-  [
-    "thing2",
-    "1.2.3"
-  ]
-]"#;
+thing = [ "thing2", "1.2.3" ]"#;
 
-    let marked_data = JsonLoad::new("1.1").read(doc.to_string(), None).unwrap();
+    let marked_data = TomlLoad::new("thing.1").read(doc.to_string(), None).unwrap();
     assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(37, marked_data.start());
+    assert_eq!(22, marked_data.start());
   }
 
   #[test]
-  fn test_json_complex() {
+  fn test_toml_complex() {
     let doc = r#"
-{
-  "version": {
-    "thing": [
-      "2.4.6",
-      { "version": "1.2.3" }
-    ]
-  }
-}"#;
+[version]
+"thing" = [ "2.4.6", { "version" = "1.2.3" } ]"#;
 
-    let marked_data = JsonLoad::new("version.thing.1.version").read(doc.to_string(), None).unwrap();
+    let marked_data = TomlLoad::new("version.thing.1.version").read(doc.to_string(), None).unwrap();
     assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(68, marked_data.start());
+    assert_eq!(47, marked_data.start());
   }
 
   #[test]
-  fn test_json_utf8() {
+  fn test_toml_utf8() {
     let doc = r#"
-[
-  "thíng",
-  [
-    "thíng2",
-    "1.2.3"
-  ]
-]"#;
+"thíng" = [ "thíng2", "1.2.3" ]"#;
 
-    let marked_data = JsonLoad::new("1.1").read(doc.to_string(), None).unwrap();
+    let marked_data = TomlLoad::new("thíng.1").read(doc.to_string(), None).unwrap();
     assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(39, marked_data.start());
+    assert_eq!(26, marked_data.start());
   }
 }

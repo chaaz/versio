@@ -1,8 +1,10 @@
-pub mod config;
 #[macro_use]
 pub mod error;
+pub mod config;
+pub mod git;
 pub mod json;
 pub mod opts;
+pub mod toml;
 pub mod yaml;
 
 use crate::error::Result;
@@ -54,7 +56,9 @@ impl MarkedData {
   }
 
   pub fn update(&mut self, new_val: &str) -> Result<()> {
-    self.data.replace_range(self.mark.start() .. self.mark.value().len(), &new_val);
+    let st = self.mark.start();
+    let ed = st + self.mark.value().len();
+    self.data.replace_range(st .. ed, &new_val);
     self.mark.set_value(new_val.to_string());
     Ok(())
   }

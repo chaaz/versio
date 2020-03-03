@@ -49,6 +49,14 @@ impl From<serde_json::Error> for Error {
   fn from(err: serde_json::Error) -> Error { Error { description: format!("serde yaml error {:?}", err) } }
 }
 
+impl From<toml::de::Error> for Error {
+  fn from(err: toml::de::Error) -> Error { Error { description: format!("serde toml error {:?}", err) } }
+}
+
+impl From<regex::Error> for Error {
+  fn from(err: regex::Error) -> Error { Error { description: format!("regex error {:?}", err) } }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]
