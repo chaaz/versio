@@ -1,32 +1,29 @@
 //! Utilities to find a mark in a YAML file.
 
 use crate::error::Result;
-use crate::{convert_mark, CharMark, Load, MarkedData};
-use std::fs::read_to_string;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use crate::{convert_mark, CharMark, MarkedData, NamedData, Scanner};
+use std::sync::{
+  atomic::{AtomicBool, Ordering},
+  Arc
+};
 use yaml_rust::parser::{Event, MarkedEventReceiver, Parser};
 use yaml_rust::scanner::{Marker, TScalarStyle};
 
-pub struct YamlLoad {
+type Watcher = Arc<AtomicBool>;
+
+pub struct YamlScanner {
   target: Vec<Part>
 }
 
-impl YamlLoad {
-  pub fn new<P: IntoPartVec>(target: P) -> YamlLoad { YamlLoad { target: target.into_part_vec() } }
+impl YamlScanner {
+  pub fn new<P: IntoPartVec>(target: P) -> YamlScanner { YamlScanner { target: target.into_part_vec() } }
 }
 
-impl Load for YamlLoad {
-  fn load<P: AsRef<Path>>(&self, filename: P) -> Result<MarkedData> {
-    let data = read_to_string(&filename)?;
-    self.read(data, Some(filename.as_ref().to_path_buf()))
-  }
-
-  fn read(&self, data: String, fname: Option<PathBuf>) -> Result<MarkedData> {
-    let char_mark = scan_yaml(&data, self.target.clone())?;
-    let byte_mark = convert_mark(&data, char_mark);
-
-    Ok(MarkedData::new(fname, data.to_string(), byte_mark))
+impl Scanner for YamlScanner {
+  fn scan(&self, data: NamedData) -> Result<MarkedData> {
+    let char_mark = scan_yaml(&data.data(), self.target.clone())?;
+    let byte_mark = convert_mark(data.data(), char_mark);
+    Ok(data.mark(byte_mark))
   }
 }
 
@@ -91,13 +88,13 @@ struct Receiver {
   parts: Vec<Part>,
   stack: Vec<Loc>,
   depth: usize,
-  complete: Arc<Mutex<bool>>,
+  complete: Watcher,
   result: Option<CharMark>
 }
 
 impl Receiver {
   pub fn new(parts: Vec<Part>) -> Receiver {
-    Receiver { parts, stack: Vec::new(), depth: 0, complete: Arc::new(Mutex::new(false)), result: None }
+    Receiver { parts, stack: Vec::new(), depth: 0, complete: Arc::new(AtomicBool::new(false)), result: None }
   }
 
   pub fn shortcut<T: Iterator<Item = char>>(&self, t: T) -> Shortcut<T> { Shortcut::new(self.complete.clone(), t) }
@@ -114,15 +111,10 @@ impl Receiver {
       _ => None
     };
 
-    match i {
-      Some(i) => {
-        if self.stack.len() == self.depth + 1 {
-          if self.parts.get(self.depth).unwrap().seq_ind() == i {
-            self.depth += 1;
-          }
-        }
+    if let Some(i) = i {
+      if self.stack.len() == self.depth + 1 && self.parts.get(self.depth).unwrap().seq_ind() == i {
+        self.depth += 1;
       }
-      _ => ()
     }
   }
 
@@ -218,8 +210,8 @@ impl MarkedEventReceiver for Receiver {
               }
               _ => ()
             }
-            self.result = Some(CharMark::new(val.to_string(), index));
-            *self.complete.lock().unwrap() = true;
+            self.result = Some(CharMark::new(val, index));
+            self.complete.store(true, Ordering::SeqCst);
           }
           Expect::Key(key) => {
             if val == key {
@@ -237,21 +229,22 @@ impl MarkedEventReceiver for Receiver {
 }
 
 struct Shortcut<T> {
-  complete: Arc<Mutex<bool>>,
+  complete: Watcher,
   iter: T
 }
 
 impl<T> Shortcut<T> {
-  pub fn new(complete: Arc<Mutex<bool>>, iter: T) -> Shortcut<T> { Shortcut { complete, iter } }
+  pub fn new(complete: Watcher, iter: T) -> Shortcut<T> { Shortcut { complete, iter } }
 }
 
 impl<T: Iterator<Item = char>> Iterator for Shortcut<T> {
   type Item = char;
 
   fn next(&mut self) -> Option<char> {
-    match *self.complete.lock().unwrap() {
-      true => None,
-      false => self.iter.next()
+    if self.complete.load(Ordering::SeqCst) {
+      None
+    } else {
+      self.iter.next()
     }
   }
 }
@@ -282,7 +275,8 @@ enum Expect {
 
 #[cfg(test)]
 mod test {
-  use super::{scan_yaml, Load, YamlLoad};
+  use super::{scan_yaml, YamlScanner};
+  use crate::{NamedData, Scanner};
 
   #[test]
   fn test_yaml() {
@@ -323,7 +317,7 @@ name: "Bób"
 thing:
   - version: 1.2.3"#;
 
-    let marked_data = YamlLoad::new("thing.0.version").read(doc.to_string(), None).unwrap();
+    let marked_data = YamlScanner::new("thing.0.version").scan(NamedData::new(None, doc.to_string())).unwrap();
     assert_eq!("1.2.3", marked_data.value());
     assert_eq!(34, marked_data.start());
   }

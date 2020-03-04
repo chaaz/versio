@@ -57,6 +57,10 @@ impl From<regex::Error> for Error {
   fn from(err: regex::Error) -> Error { Error { description: format!("regex error {:?}", err) } }
 }
 
+impl From<std::str::Utf8Error> for Error {
+  fn from(err: std::str::Utf8Error) -> Error { Error { description: format!("utf8 error {:?}", err) } }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]

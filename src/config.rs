@@ -1,62 +1,48 @@
 //! The configuration and top-level commands for Versio.
 
 use crate::error::Result;
-use crate::json::JsonLoad;
-use crate::toml::TomlLoad;
-use crate::yaml::YamlLoad;
-use crate::{Load, Mark, MarkedData};
+use crate::json::JsonScanner;
+use crate::toml::TomlScanner;
+use crate::yaml::YamlScanner;
+use crate::{Mark, MarkedData, NamedData, Scanner, Source, CONFIG_FILENAME};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fs::read_to_string;
-use std::path::{Path, PathBuf};
 
-pub fn load_config<P: AsRef<Path>>(dir: P) -> Result<Config> {
-  let dir = dir.as_ref();
-  let rc = dir.join(".versio.yaml");
-  let data = read_to_string(rc)?;
-  let mut config = read_config(&data)?;
-  config.dirname = dir.to_path_buf();
-  Ok(config)
+pub struct Config<S: Source> {
+  source: S,
+  file: ConfigFile
 }
 
-pub fn read_config(data: &str) -> Result<Config> {
-  let config: Config = serde_yaml::from_str(&data)?;
-  config.validate()?;
+impl<S: Source> Config<S> {
+  pub fn from_source(source: S) -> Result<Config<S>> {
+    let file = ConfigFile::load(&source)?;
+    Ok(Config { source, file })
+  }
 
-  Ok(config)
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Config {
-  #[serde(skip)]
-  dirname: PathBuf,
-  projects: Vec<Project>
-}
-
-impl Config {
   pub fn show(&self) -> Result<()> {
-    let name_width = self.projects.iter().map(|p| p.name.len()).max().unwrap_or(0);
+    let name_width = self.file.projects.iter().map(|p| p.name.len()).max().unwrap_or(0);
 
-    for project in &self.projects {
-      project.show(&self.dirname, name_width, false)?;
+    for project in &self.file.projects {
+      project.show(&self.source, name_width, false)?;
     }
     Ok(())
   }
 
   pub fn get_name(&self, name: &str, vonly: bool) -> Result<()> {
     let filter = |p: &&Project| p.name.contains(name);
-    let name_width = self.projects.iter().filter(filter).map(|p| p.name.len()).max().unwrap_or(0);
+    let name_width = self.file.projects.iter().filter(filter).map(|p| p.name.len()).max().unwrap_or(0);
 
-    for project in self.projects.iter().filter(filter) {
-      project.show(&self.dirname, name_width, vonly)?;
+    for project in self.file.projects.iter().filter(filter) {
+      project.show(&self.source, name_width, vonly)?;
     }
     Ok(())
   }
 
   pub fn get_id(&self, id: u32, vonly: bool) -> Result<()> {
-    let project = self.projects.iter().find(|p| p.id == id).ok_or_else(|| versio_error!("No such project {}", id))?;
-    project.show(&self.dirname, 0, vonly)
+    let project =
+      self.file.projects.iter().find(|p| p.id == id).ok_or_else(|| versio_error!("No such project {}", id))?;
+    project.show(&self.source, 0, vonly)
   }
 
   pub fn set_by_name(&self, name: &str, val: &str) -> Result<()> {
@@ -65,21 +51,44 @@ impl Config {
   }
 
   pub fn set_by_id(&self, id: u32, val: &str) -> Result<()> {
-    let project = self.projects.iter().find(|p| p.id == id).ok_or_else(|| versio_error!("No such project {}", id))?;
-    project.set_value(&self.dirname, val)
+    let project =
+      self.file.projects.iter().find(|p| p.id == id).ok_or_else(|| versio_error!("No such project {}", id))?;
+    project.set_value(&self.source, val)
   }
 
   fn find_unique(&self, name: &str) -> Result<u32> {
-    let mut iter = self.projects.iter().filter(|p| p.name.contains(name)).map(|p| p.id);
+    let mut iter = self.file.projects.iter().filter(|p| p.name.contains(name)).map(|p| p.id);
     let id = iter.next().ok_or_else(|| versio_error!("No project named {}", name))?;
     if iter.next().is_some() {
       return versio_err!("Multiple projects with name {}", name);
     }
     Ok(id)
   }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ConfigFile {
+  projects: Vec<Project>
+}
+
+impl ConfigFile {
+  pub fn load(source: &dyn Source) -> Result<ConfigFile> {
+    match source.load(CONFIG_FILENAME.as_ref())? {
+      Some(data) => ConfigFile::read(data.data()),
+      None => Ok(ConfigFile::empty())
+    }
+  }
+
+  pub fn empty() -> ConfigFile { ConfigFile { projects: Vec::new() } }
+
+  pub fn read(data: &str) -> Result<ConfigFile> {
+    let file: ConfigFile = serde_yaml::from_str(data)?;
+    file.validate()?;
+    Ok(file)
+  }
 
   /// Check that IDs are unique, etc.
-  pub fn validate(&self) -> Result<()> {
+  fn validate(&self) -> Result<()> {
     let mut ids = HashSet::new();
     for p in &self.projects {
       if ids.contains(&p.id) {
@@ -104,8 +113,8 @@ struct Project {
 }
 
 impl Project {
-  pub fn show(&self, dirname: &Path, name_width: usize, vonly: bool) -> Result<()> {
-    let mark = self.located.get_mark(dirname)?;
+  pub fn show(&self, source: &dyn Source, name_width: usize, vonly: bool) -> Result<()> {
+    let mark = self.located.get_mark(source)?;
     if vonly {
       println!("{}", mark.value());
     } else {
@@ -114,9 +123,9 @@ impl Project {
     Ok(())
   }
 
-  pub fn set_value(&self, dirname: &Path, val: &str) -> Result<()> {
-    let mut mark = self.located.get_mark(dirname)?;
-    mark.update_file(val)
+  pub fn set_value(&self, source: &dyn Source, val: &str) -> Result<()> {
+    let mut mark = self.located.get_mark(source)?;
+    mark.write_new_value(val)
   }
 }
 
@@ -128,8 +137,9 @@ struct Location {
 }
 
 impl Location {
-  pub fn get_mark(&self, dirname: &Path) -> Result<MarkedData> {
-    self.picker.get_mark(&dirname.join(&self.file)).map_err(|e| versio_error!("Can't mark {}: {:?}", self.file, e))
+  pub fn get_mark(&self, source: &dyn Source) -> Result<MarkedData> {
+    let data = source.load(&self.file.as_ref())?.ok_or_else(|| versio_error!("No file at {}.", self.file))?;
+    self.picker.get_mark(data).map_err(|e| versio_error!("Can't mark {}: {:?}", self.file, e))
   }
 }
 
@@ -154,13 +164,13 @@ impl Picker {
     }
   }
 
-  pub fn get_mark(&self, filename: &Path) -> Result<MarkedData> {
+  pub fn get_mark(&self, data: NamedData) -> Result<MarkedData> {
     match self {
-      Picker::Json(p) => p.load(filename),
-      Picker::Yaml(p) => p.load(filename),
-      Picker::Toml(p) => p.load(filename),
-      Picker::Line(p) => p.load(filename),
-      Picker::File(p) => p.load(filename)
+      Picker::Json(p) => p.scan(data),
+      Picker::Yaml(p) => p.scan(data),
+      Picker::Toml(p) => p.scan(data),
+      Picker::Line(p) => p.scan(data),
+      Picker::File(p) => p.scan(data)
     }
   }
 }
@@ -171,7 +181,7 @@ struct JsonPicker {
 }
 
 impl JsonPicker {
-  pub fn load(&self, filename: &Path) -> Result<MarkedData> { JsonLoad::new(self.json.as_str()).load(filename) }
+  pub fn scan(&self, data: NamedData) -> Result<MarkedData> { JsonScanner::new(self.json.as_str()).scan(data) }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -180,7 +190,7 @@ struct YamlPicker {
 }
 
 impl YamlPicker {
-  pub fn load(&self, filename: &Path) -> Result<MarkedData> { YamlLoad::new(self.yaml.as_str()).load(filename) }
+  pub fn scan(&self, data: NamedData) -> Result<MarkedData> { YamlScanner::new(self.yaml.as_str()).scan(data) }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -189,7 +199,7 @@ struct TomlPicker {
 }
 
 impl TomlPicker {
-  pub fn load(&self, filename: &Path) -> Result<MarkedData> { TomlLoad::new(self.toml.as_str()).load(filename) }
+  pub fn scan(&self, data: NamedData) -> Result<MarkedData> { TomlScanner::new(self.toml.as_str()).scan(data) }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -198,38 +208,35 @@ struct LinePicker {
 }
 
 impl LinePicker {
-  pub fn load(&self, filename: &Path) -> Result<MarkedData> {
-    let data = std::fs::read_to_string(&filename)?;
-    find_reg_data(data, &self.pattern, Some(filename.to_path_buf()))
-  }
+  pub fn scan(&self, data: NamedData) -> Result<MarkedData> { find_reg_data(data, &self.pattern) }
 }
 
-fn find_reg_data(data: String, pattern: &str, filename: Option<PathBuf>) -> Result<MarkedData> {
+fn find_reg_data(data: NamedData, pattern: &str) -> Result<MarkedData> {
   let pattern = Regex::new(pattern)?;
-  let found = pattern.captures(&data).ok_or_else(|| versio_error!("No match for {}", pattern))?;
+  let found = pattern.captures(data.data()).ok_or_else(|| versio_error!("No match for {}", pattern))?;
   let item = found.get(1).ok_or_else(|| versio_error!("No capture group in {}.", pattern))?;
   let value = item.as_str().to_string();
   let index = item.start();
-  Ok(MarkedData::new(filename, data, Mark::new(value, index)))
+  Ok(data.mark(Mark::new(value, index)))
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 struct FilePicker {}
 
 impl FilePicker {
-  pub fn load(&self, filename: &Path) -> Result<MarkedData> {
-    let data = std::fs::read_to_string(&filename)?;
-    let value = data.trim_end().to_string();
-    Ok(MarkedData::new(Some(filename.to_path_buf()), data, Mark::new(value, 0)))
+  pub fn scan(&self, data: NamedData) -> Result<MarkedData> {
+    let value = data.data().trim_end().to_string();
+    Ok(data.mark(Mark::new(value, 0)))
   }
 }
 
 #[cfg(test)]
 mod test {
-  use super::{find_reg_data, read_config};
+  use super::{find_reg_data, ConfigFile};
+  use crate::NamedData;
 
   #[test]
-  fn test_load() {
+  fn test_scan() {
     let data = r#"
 projects:
   - name: everything
@@ -259,7 +266,7 @@ projects:
     located:
       file: "build/VERSION""#;
 
-    let config = read_config(data).unwrap();
+    let config = ConfigFile::read(data).unwrap();
 
     assert_eq!(config.projects[0].id, 1);
     assert_eq!("line", config.projects[2].located.picker._type());
@@ -280,7 +287,7 @@ projects:
     located: { file: f2 }
     "#;
 
-    assert!(read_config(config).is_err());
+    assert!(ConfigFile::read(config).is_err());
   }
 
   #[test]
@@ -289,7 +296,7 @@ projects:
 This is text.
 Current rev is "v1.2.3" because it is."#;
 
-    let marked_data = find_reg_data(data.to_string(), "v(\\d+\\.\\d+\\.\\d+)", None).unwrap();
+    let marked_data = find_reg_data(NamedData::new(None, data.to_string()), "v(\\d+\\.\\d+\\.\\d+)").unwrap();
     assert_eq!("1.2.3", marked_data.value());
     assert_eq!(32, marked_data.start());
   }

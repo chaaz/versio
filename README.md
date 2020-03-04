@@ -44,12 +44,12 @@ projects:
 
 ```
 commands:
-  get --name 1
-  get --id 4  
-  show
-  set --name comb 1.2.3
+  get --prev --name 1
+  get --prev --id 4  
+  show --prev --no-fetch
+  set --name comb --value 1.2.3
   check
-  check comb
+  check --name comb
   check --id 2
   bump comb --commit
   run --commit --push
@@ -61,11 +61,11 @@ How it works:
 Git Pull
 
 Looks for (versio) tag ancestor, and gets all versions from that commit
-(reading the **old** .versio) (or none, if it can't find a (versio) tag
-in the branch). Then examines conventional commit history since then,
-using **current** covers (TODO: adapted covers?) to determine the
+(reading the **previous** .versio) (or none, if it can't find a (versio)
+tag in the branch). Then examines conventional commit history since
+then, using **current** covers (TODO: adapted covers?) to determine the
 minimum value that each new ID should have. (If the new ID isn't in the
-old map, it's assumed at '0.0.0').
+previous map, it's assumed at '0.0.0').
 
 It then looks at existing **current** versions, and if the version isn't
 high enough, it bumps it to the minimum value.

@@ -1,31 +1,24 @@
 //! Utilities to find a mark in a JSON file.
 
 use crate::error::Result;
-use crate::{Load, Mark, MarkedData};
+use crate::{Mark, MarkedData, NamedData, Scanner};
 use serde::de::{self, DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Unexpected, Visitor};
-use std::fs::read_to_string;
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 pub type TraceRef = Arc<Mutex<Trace>>;
 
-pub struct JsonLoad {
+pub struct JsonScanner {
   target: Vec<Part>
 }
 
-impl JsonLoad {
-  pub fn new<P: IntoPartVec>(target: P) -> JsonLoad { JsonLoad { target: target.into_part_vec() } }
+impl JsonScanner {
+  pub fn new<P: IntoPartVec>(target: P) -> JsonScanner { JsonScanner { target: target.into_part_vec() } }
 }
 
-impl Load for JsonLoad {
-  fn load<P: AsRef<Path>>(&self, filename: P) -> Result<MarkedData> {
-    let data = read_to_string(&filename)?;
-    self.read(data, Some(filename.as_ref().to_path_buf()))
-  }
-
-  fn read(&self, data: String, fname: Option<PathBuf>) -> Result<MarkedData> {
-    let byte_mark = scan_json(&data, self.target.clone())?;
-    Ok(MarkedData::new(fname, data.to_string(), byte_mark))
+impl Scanner for JsonScanner {
+  fn scan(&self, data: NamedData) -> Result<MarkedData> {
+    let byte_mark = scan_json(&data.data(), self.target.clone())?;
+    Ok(data.mark(byte_mark))
   }
 }
 
@@ -116,23 +109,20 @@ impl<'de> Visitor<'de> for NthElement {
 
     while let Some(key) = map.next_key::<String>()? {
       if key == expected_key {
-        let nth = match self.remains.is_empty() {
-          true => {
-            self.trace.lock().unwrap().set_active(true);
-            let r = map.next_value()?;
-            self.trace.lock().unwrap().set_active(false);
-            r
-          }
-          false => {
-            let next = pop(std::mem::replace(&mut self.remains, Vec::new()), self.trace.clone());
-            map.next_value_seed(next)?
-          }
+        let nth = if self.remains.is_empty() {
+          self.trace.lock().unwrap().set_active(true);
+          let r = map.next_value()?;
+          self.trace.lock().unwrap().set_active(false);
+          r
+        } else {
+          let next = pop(std::mem::replace(&mut self.remains, Vec::new()), self.trace.clone());
+          map.next_value_seed(next)?
         };
 
         got_val = Some(nth);
         break;
       } else {
-        drop(map.next_value::<IgnoredAny>()?)
+        map.next_value::<IgnoredAny>()?;
       }
     }
 
@@ -157,17 +147,14 @@ impl<'de> Visitor<'de> for NthElement {
       }
     }
 
-    let nth = match self.remains.is_empty() {
-      true => {
-        self.trace.lock().unwrap().set_active(true);
-        let r = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(n, &self))?;
-        self.trace.lock().unwrap().set_active(false);
-        r
-      }
-      false => {
-        let next = pop(std::mem::replace(&mut self.remains, Vec::new()), self.trace.clone());
-        seq.next_element_seed(next)?.ok_or_else(|| de::Error::invalid_length(n, &self))?
-      }
+    let nth = if self.remains.is_empty() {
+      self.trace.lock().unwrap().set_active(true);
+      let r = seq.next_element()?.ok_or_else(|| de::Error::invalid_length(n, &self))?;
+      self.trace.lock().unwrap().set_active(false);
+      r
+    } else {
+      let next = pop(std::mem::replace(&mut self.remains, Vec::new()), self.trace.clone());
+      seq.next_element_seed(next)?.ok_or_else(|| de::Error::invalid_length(n, &self))?
     };
 
     while let Some(IgnoredAny) = seq.next_element()? {}
@@ -191,6 +178,10 @@ pub struct Trace {
   active: bool,
   leader: usize,
   bytes: Vec<u8>
+}
+
+impl Default for Trace {
+  fn default() -> Trace { Trace::new() }
 }
 
 impl Trace {
@@ -238,8 +229,8 @@ impl<'a> std::io::Read for MeteredReader<'a> {
 
 #[cfg(test)]
 mod test {
-  use super::JsonLoad;
-  use crate::Load;
+  use super::JsonScanner;
+  use crate::{NamedData, Scanner};
 
   #[test]
   fn test_json() {
@@ -248,7 +239,7 @@ mod test {
   "version": "1.2.3"
 }"#;
 
-    let marked_data = JsonLoad::new("version").read(doc.to_string(), None).unwrap();
+    let marked_data = JsonScanner::new("version").scan(NamedData::new(None, doc.to_string())).unwrap();
     assert_eq!("1.2.3", marked_data.value());
     assert_eq!(17, marked_data.start());
   }
@@ -264,7 +255,7 @@ mod test {
   ]
 ]"#;
 
-    let marked_data = JsonLoad::new("1.1").read(doc.to_string(), None).unwrap();
+    let marked_data = JsonScanner::new("1.1").scan(NamedData::new(None, doc.to_string())).unwrap();
     assert_eq!("1.2.3", marked_data.value());
     assert_eq!(37, marked_data.start());
   }
@@ -281,7 +272,7 @@ mod test {
   }
 }"#;
 
-    let marked_data = JsonLoad::new("version.thing.1.version").read(doc.to_string(), None).unwrap();
+    let marked_data = JsonScanner::new("version.thing.1.version").scan(NamedData::new(None, doc.to_string())).unwrap();
     assert_eq!("1.2.3", marked_data.value());
     assert_eq!(68, marked_data.start());
   }
@@ -297,7 +288,7 @@ mod test {
   ]
 ]"#;
 
-    let marked_data = JsonLoad::new("1.1").read(doc.to_string(), None).unwrap();
+    let marked_data = JsonScanner::new("1.1").scan(NamedData::new(None, doc.to_string())).unwrap();
     assert_eq!("1.2.3", marked_data.value());
     assert_eq!(39, marked_data.start());
   }
