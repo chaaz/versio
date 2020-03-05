@@ -44,10 +44,12 @@ projects:
 
 ```
 commands:
-  get --prev --name 1
+  get --prev --name comb
   get --prev --id 4  
-  show --prev --no-fetch
+  show --prev
   set --name comb --value 1.2.3
+  diff --no-fetch
+  files --no-fetch
   check
   check --name comb
   check --id 2

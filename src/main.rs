@@ -1,6 +1,8 @@
 #[macro_use]
 pub mod error;
+pub mod analyze;
 pub mod config;
+pub mod either;
 pub mod git;
 pub mod json;
 pub mod opts;
@@ -8,8 +10,8 @@ pub mod toml;
 pub mod yaml;
 
 use crate::error::Result;
-use crate::git::{fetch, merge_after_fetch, prev_blob};
-use git2::{Oid, Repository};
+use crate::git::{fetch, get_changed_since, merge_after_fetch, prev_blob, FetchResults};
+use git2::Repository;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -53,6 +55,16 @@ impl PrevSource {
     let inner = PrevSourceInner::open(root_dir)?;
     Ok(PrevSource { inner: Arc::new(Mutex::new(inner)) })
   }
+
+  pub fn set_fetch(&mut self, fetch: bool) -> Result<()> {
+    self.inner.lock()?.set_fetch(fetch);
+    Ok(())
+  }
+
+  pub fn show_files(&self) -> Result<()> {
+    self.inner.lock()?.show_files()?;
+    Ok(())
+  }
 }
 
 impl Source for PrevSource {
@@ -61,14 +73,15 @@ impl Source for PrevSource {
 
 pub struct PrevSourceInner {
   repo: Repository,
-  fetched: Option<(String, Option<Oid>)>,
+  should_fetch: bool,
+  fetch_results: Option<FetchResults>,
   _merged: bool
 }
 
 impl PrevSourceInner {
   pub fn open<P: AsRef<Path>>(root_dir: P) -> Result<PrevSourceInner> {
     let repo = Repository::open(root_dir)?;
-    Ok(PrevSourceInner { repo, fetched: None, _merged: false })
+    Ok(PrevSourceInner { repo, should_fetch: true, fetch_results: None, _merged: false })
   }
 
   fn load<P: AsRef<Path>>(&mut self, rel_path: P) -> Result<Option<NamedData>> {
@@ -82,22 +95,35 @@ impl PrevSourceInner {
       .transpose()
   }
 
-  fn _maybe_pull(&mut self) -> Result<()> {
+  fn show_files(&mut self) -> Result<()> {
     self.maybe_fetch()?;
+    for result in get_changed_since(&self.repo)? {
+      let (key, path) = result?;
+      println!("{} : {}", key, path);
+    }
+    Ok(())
+  }
+
+  fn set_fetch(&mut self, fetch: bool) { self.should_fetch = fetch; }
+
+  fn _maybe_pull(&mut self) -> Result<()> {
+    self.maybe_fetch_opts(true)?;
     self._maybe_merge_after()
   }
 
-  fn maybe_fetch(&mut self) -> Result<()> {
-    if self.fetched.is_none() {
-      self.fetched = Some(fetch(&self.repo, None, None)?);
+  fn maybe_fetch(&mut self) -> Result<()> { self.maybe_fetch_opts(false) }
+
+  fn maybe_fetch_opts(&mut self, force: bool) -> Result<()> {
+    if (self.should_fetch || force) && self.fetch_results.is_none() {
+      self.fetch_results = Some(fetch(&self.repo, None, None)?);
     }
     Ok(())
   }
 
   fn _maybe_merge_after(&mut self) -> Result<()> {
     if !self._merged {
-      let fetched = self.fetched.as_ref().unwrap();
-      merge_after_fetch(&self.repo, &fetched.0, fetched.1)?;
+      let fetch_results = self.fetch_results.as_ref().unwrap();
+      merge_after_fetch(&self.repo, fetch_results)?;
       self._merged = true;
     }
     Ok(())

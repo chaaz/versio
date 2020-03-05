@@ -1,5 +1,6 @@
 //! The command-line options for the sorcery executable.
 
+use crate::analyze::analyze;
 use crate::config::Config;
 use crate::error::Result;
 use crate::git::pull_ff_only;
@@ -106,13 +107,32 @@ pub fn execute() -> Result<()> {
         )
         .display_order(1)
     )
+    .subcommand(
+      SubCommand::with_name("diff")
+        .setting(AppSettings::UnifiedHelpMessage)
+        .about("Set a version")
+        .arg(
+          Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
+        )
+        .display_order(1)
+    )
+    .subcommand(
+      SubCommand::with_name("files")
+        .setting(AppSettings::UnifiedHelpMessage)
+        .about("Set a version")
+        .alias("ls")
+        .arg(
+          Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
+        )
+        .display_order(1)
+    )
     .get_matches();
 
   parse_matches(m)
 }
 
 fn parse_matches(m: ArgMatches) -> Result<()> {
-  let prev = PrevSource::open(".")?;
+  let mut prev = PrevSource::open(".")?;
   let curt = CurrentSource::open(".")?;
 
   match m.subcommand() {
@@ -122,6 +142,18 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
       } else {
         show(curt)
       }
+    }
+    ("diff", Some(m)) => {
+      if m.is_present("nofetch") {
+        prev.set_fetch(false)?;
+      }
+      diff(prev, curt)
+    }
+    ("files", Some(m)) => {
+      if m.is_present("nofetch") {
+        prev.set_fetch(false)?;
+      }
+      prev.show_files()
     }
     ("get", Some(m)) => {
       if m.is_present("prev") {
@@ -147,6 +179,63 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
     ("", _) => empty_cmd(),
     (c, _) => unknown_cmd(c)
   }
+}
+
+fn diff(prev: PrevSource, curt: CurrentSource) -> Result<()> {
+  let prev_at = Config::from_source(prev)?.annotate()?;
+  let curt_at = Config::from_source(curt)?.annotate()?;
+
+  let analysis = analyze(&prev_at, &curt_at);
+
+  if !analysis.older().is_empty() {
+    println!("Removed projects:");
+    for mark in analysis.older() {
+      println!("  {}. {} : {}", mark.id(), mark.name(), mark.mark().value());
+    }
+    println!();
+  }
+
+  if !analysis.newer().is_empty() {
+    println!("New projects:");
+    for mark in analysis.newer() {
+      println!("  {}. {} : {}", mark.id(), mark.name(), mark.mark().value());
+    }
+    println!();
+  }
+
+  if analysis.changes().iter().any(|c| c.value().is_some()) {
+    println!("Changed versions:");
+    for change in analysis.changes().iter().filter(|c| c.value().is_some()) {
+      print!("  {}. {}", change.old_mark().id(), change.old_mark().name());
+
+      if let Some((_, n)) = change.name().as_ref() {
+        print!(" (now \"{}\")", n);
+      }
+      if let Some((o, n)) = change.value().as_ref() {
+        print!(" : {} -> {}", o, n);
+      } else {
+        print!(" : {}", change.old_mark().mark().value());
+      }
+      println!();
+    }
+    println!();
+  }
+
+  if analysis.changes().iter().any(|c| c.value().is_none()) {
+    println!("Unchanged versions:");
+    for change in analysis.changes().iter().filter(|c| c.value().is_none()) {
+      print!("  {}. {}", change.old_mark().id(), change.old_mark().name());
+
+      if let Some((_, n)) = change.name().as_ref() {
+        print!(" (now \"{}\")", n);
+      }
+      print!(" : {}", change.old_mark().mark().value());
+      println!();
+    }
+    println!();
+  }
+
+  Ok(())
 }
 
 fn show<S: Source>(source: S) -> Result<()> { Config::from_source(source)?.show() }

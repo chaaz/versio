@@ -1,5 +1,6 @@
 //! The configuration and top-level commands for Versio.
 
+use crate::analyze::AnnotatedMark;
 use crate::error::Result;
 use crate::json::JsonScanner;
 use crate::toml::TomlScanner;
@@ -18,6 +19,10 @@ impl<S: Source> Config<S> {
   pub fn from_source(source: S) -> Result<Config<S>> {
     let file = ConfigFile::load(&source)?;
     Ok(Config { source, file })
+  }
+
+  pub fn annotate(&self) -> Result<Vec<AnnotatedMark>> {
+    self.file.projects.iter().map(|p| p.annotate(&self.source)).collect()
   }
 
   pub fn show(&self) -> Result<()> {
@@ -113,6 +118,10 @@ struct Project {
 }
 
 impl Project {
+  pub fn annotate(&self, source: &dyn Source) -> Result<AnnotatedMark> {
+    Ok(AnnotatedMark::new(self.id, self.name.clone(), self.located.get_mark(source)?))
+  }
+
   pub fn show(&self, source: &dyn Source, name_width: usize, vonly: bool) -> Result<()> {
     let mark = self.located.get_mark(source)?;
     if vonly {
