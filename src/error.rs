@@ -61,6 +61,10 @@ impl From<std::str::Utf8Error> for Error {
   fn from(err: std::str::Utf8Error) -> Error { Error { description: format!("utf8 error {:?}", err) } }
 }
 
+impl From<glob::PatternError> for Error {
+  fn from(err: glob::PatternError) -> Error { Error { description: format!("glob error {:?}", err) } }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]

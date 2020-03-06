@@ -6,6 +6,7 @@ pub mod either;
 pub mod git;
 pub mod json;
 pub mod opts;
+pub mod parts;
 pub mod toml;
 pub mod yaml;
 
@@ -13,7 +14,8 @@ use crate::error::Result;
 use crate::git::{fetch, get_changed_since, merge_after_fetch, prev_blob, FetchResults};
 use git2::Repository;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
+use regex::Regex;
 
 pub const CONFIG_FILENAME: &str = ".versio.yaml";
 
@@ -45,6 +47,18 @@ impl Source for CurrentSource {
   }
 }
 
+pub struct RepoGuard<'a> {
+  guard: MutexGuard<'a, PrevSourceInner>
+}
+
+impl<'a> RepoGuard<'a> {
+  pub fn repo(&self) -> &Repository { &self.guard.repo }
+
+  pub fn get_keyed_files<'b>(&'b mut self) -> Result<impl Iterator<Item = Result<(String, String)>> + 'b> {
+    self.guard.get_keyed_files()
+  }
+}
+
 #[derive(Clone)]
 pub struct PrevSource {
   inner: Arc<Mutex<PrevSourceInner>>
@@ -61,10 +75,7 @@ impl PrevSource {
     Ok(())
   }
 
-  pub fn show_files(&self) -> Result<()> {
-    self.inner.lock()?.show_files()?;
-    Ok(())
-  }
+  pub fn repo(&self) -> Result<RepoGuard> { Ok(RepoGuard { guard: self.inner.lock()? }) }
 }
 
 impl Source for PrevSource {
@@ -95,13 +106,9 @@ impl PrevSourceInner {
       .transpose()
   }
 
-  fn show_files(&mut self) -> Result<()> {
+  fn get_keyed_files<'a>(&'a mut self) -> Result<impl Iterator<Item = Result<(String, String)>> + 'a> {
     self.maybe_fetch()?;
-    for result in get_changed_since(&self.repo)? {
-      let (key, path) = result?;
-      println!("{} : {}", key, path);
-    }
-    Ok(())
+    get_changed_since(&self.repo)
   }
 
   fn set_fetch(&mut self, fetch: bool) { self.should_fetch = fetch; }
@@ -149,7 +156,14 @@ pub struct Mark {
 }
 
 impl Mark {
-  pub fn new(value: String, byte_start: usize) -> Mark { Mark { value, byte_start } }
+  pub fn make(value: String, byte_start: usize) -> Result<Mark> {
+    let regex = Regex::new(r"\A\d+\.\d+\.\d+\z")?;
+    if !regex.is_match(&value) {
+      return versio_err!("Value \"{}\" is not a version.", value)
+    }
+
+    Ok(Mark { value, byte_start })
+  }
   pub fn value(&self) -> &str { &self.value }
   pub fn set_value(&mut self, new_val: String) { self.value = new_val; }
   pub fn start(&self) -> usize { self.byte_start }
@@ -167,9 +181,9 @@ impl CharMark {
   pub fn char_start(&self) -> usize { self.char_start }
 }
 
-pub fn convert_mark(data: &str, cmark: CharMark) -> Mark {
+pub fn convert_mark(data: &str, cmark: CharMark) -> Result<Mark> {
   let start = data.char_indices().nth(cmark.char_start()).unwrap().0;
-  Mark::new(cmark.value, start)
+  Mark::make(cmark.value, start)
 }
 
 pub struct MarkedData {

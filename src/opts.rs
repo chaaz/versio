@@ -1,7 +1,7 @@
 //! The command-line options for the sorcery executable.
 
 use crate::analyze::analyze;
-use crate::config::Config;
+use crate::config::{Config, ShowFormat};
 use crate::error::Result;
 use crate::git::pull_ff_only;
 use crate::{CurrentSource, PrevSource, Source};
@@ -29,6 +29,17 @@ pub fn execute() -> Result<()> {
             .display_order(1)
             .help("Whether to show prev versions")
         )
+        .arg(
+          Arg::with_name("wide")
+            .short("w")
+            .long("wide")
+            .takes_value(false)
+            .display_order(1)
+            .help("Wide output shows IDs")
+        )
+        .arg(
+          Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
+        )
         .display_order(1)
     )
     .subcommand(
@@ -44,12 +55,23 @@ pub fn execute() -> Result<()> {
             .help("Whether to show prev versions")
         )
         .arg(
+          Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
+        )
+        .arg(
           Arg::with_name("versiononly")
             .short("v")
             .long("version-only")
             .takes_value(false)
             .display_order(1)
             .help("Only show the version number")
+        )
+        .arg(
+          Arg::with_name("wide")
+            .short("w")
+            .long("wide")
+            .takes_value(false)
+            .display_order(1)
+            .help("Wide output shows IDs")
         )
         .arg(
           Arg::with_name("name")
@@ -120,7 +142,15 @@ pub fn execute() -> Result<()> {
       SubCommand::with_name("files")
         .setting(AppSettings::UnifiedHelpMessage)
         .about("Set a version")
-        .alias("ls")
+        .arg(
+          Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
+        )
+        .display_order(1)
+    )
+    .subcommand(
+      SubCommand::with_name("plan")
+        .setting(AppSettings::UnifiedHelpMessage)
+        .about("Find versions that need to change")
         .arg(
           Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
         )
@@ -137,10 +167,31 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
 
   match m.subcommand() {
     ("show", Some(m)) => {
+      if m.is_present("nofetch") {
+        prev.set_fetch(false)?;
+      }
+      let fmt = ShowFormat::new(m.is_present("wide"), false);
       if m.is_present("prev") {
-        show(prev)
+        show(prev, fmt)
       } else {
-        show(curt)
+        show(curt, fmt)
+      }
+    }
+    ("get", Some(m)) => {
+      if m.is_present("nofetch") {
+        prev.set_fetch(false)?;
+      }
+      let fmt = ShowFormat::new(m.is_present("wide"), m.is_present("versiononly"));
+      if m.is_present("prev") {
+        if m.is_present("id") {
+          get_id(prev, m.value_of("id").unwrap(), fmt)
+        } else {
+          get_name(prev, m.value_of("name").unwrap(), fmt)
+        }
+      } else if m.is_present("id") {
+        get_id(curt, m.value_of("id").unwrap(), fmt)
+      } else {
+        get_name(curt, m.value_of("name").unwrap(), fmt)
       }
     }
     ("diff", Some(m)) => {
@@ -153,20 +204,17 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
       if m.is_present("nofetch") {
         prev.set_fetch(false)?;
       }
-      prev.show_files()
-    }
-    ("get", Some(m)) => {
-      if m.is_present("prev") {
-        if m.is_present("id") {
-          get_id(prev, m.value_of("id").unwrap(), m.is_present("versiononly"))
-        } else {
-          get_name(prev, m.value_of("name").unwrap(), m.is_present("versiononly"))
-        }
-      } else if m.is_present("id") {
-        get_id(curt, m.value_of("id").unwrap(), m.is_present("versiononly"))
-      } else {
-        get_name(curt, m.value_of("name").unwrap(), m.is_present("versiononly"))
+      for result in prev.repo()?.get_keyed_files()? {
+        let (key, path) = result?;
+        println!("{} : {}", key, path);
       }
+      Ok(())
+    }
+    ("plan", Some(m)) => {
+      if m.is_present("nofetch") {
+        prev.set_fetch(false)?;
+      }
+      plan(prev, curt)
     }
     ("set", Some(m)) => {
       if m.is_present("id") {
@@ -190,7 +238,7 @@ fn diff(prev: PrevSource, curt: CurrentSource) -> Result<()> {
   if !analysis.older().is_empty() {
     println!("Removed projects:");
     for mark in analysis.older() {
-      println!("  {}. {} : {}", mark.id(), mark.name(), mark.mark().value());
+      println!("  {} : {}", mark.name(), mark.mark().value());
     }
     println!();
   }
@@ -198,7 +246,7 @@ fn diff(prev: PrevSource, curt: CurrentSource) -> Result<()> {
   if !analysis.newer().is_empty() {
     println!("New projects:");
     for mark in analysis.newer() {
-      println!("  {}. {} : {}", mark.id(), mark.name(), mark.mark().value());
+      println!("  {} : {}", mark.name(), mark.mark().value());
     }
     println!();
   }
@@ -206,15 +254,15 @@ fn diff(prev: PrevSource, curt: CurrentSource) -> Result<()> {
   if analysis.changes().iter().any(|c| c.value().is_some()) {
     println!("Changed versions:");
     for change in analysis.changes().iter().filter(|c| c.value().is_some()) {
-      print!("  {}. {}", change.old_mark().id(), change.old_mark().name());
+      print!("  {}", change.new_mark().name());
 
-      if let Some((_, n)) = change.name().as_ref() {
-        print!(" (now \"{}\")", n);
+      if let Some((o, _)) = change.name().as_ref() {
+        print!(" (was \"{}\")", o);
       }
       if let Some((o, n)) = change.value().as_ref() {
         print!(" : {} -> {}", o, n);
       } else {
-        print!(" : {}", change.old_mark().mark().value());
+        print!(" : {}", change.new_mark().mark().value());
       }
       println!();
     }
@@ -224,12 +272,12 @@ fn diff(prev: PrevSource, curt: CurrentSource) -> Result<()> {
   if analysis.changes().iter().any(|c| c.value().is_none()) {
     println!("Unchanged versions:");
     for change in analysis.changes().iter().filter(|c| c.value().is_none()) {
-      print!("  {}. {}", change.old_mark().id(), change.old_mark().name());
+      print!("  {}", change.new_mark().name());
 
-      if let Some((_, n)) = change.name().as_ref() {
-        print!(" (now \"{}\")", n);
+      if let Some((o, _)) = change.name().as_ref() {
+        print!(" (was \"{}\")", o);
       }
-      print!(" : {}", change.old_mark().mark().value());
+      print!(" : {}", change.new_mark().mark().value());
       println!();
     }
     println!();
@@ -238,16 +286,33 @@ fn diff(prev: PrevSource, curt: CurrentSource) -> Result<()> {
   Ok(())
 }
 
-fn show<S: Source>(source: S) -> Result<()> { Config::from_source(source)?.show() }
+pub fn plan(prev: PrevSource, cur: CurrentSource) -> Result<()> {
+  let config = Config::from_source(cur)?;
+  let mut plan = config.plan();
+
+  for result in prev.repo()?.get_keyed_files()? {
+    let (key, path) = result?;
+    plan.consider(&key, &path)?;
+  }
+  plan.consider_deps()?;
+
+  for (id, size) in plan.sorted_incrs() {
+    println!("{} : {}", config.get_project(id).unwrap().name(), size);
+  }
+
+  Ok(())
+}
+
+fn show<S: Source>(source: S, fmt: ShowFormat) -> Result<()> { Config::from_source(source)?.show(fmt) }
 
 fn current_config() -> Result<Config<CurrentSource>> { Config::from_source(CurrentSource::open(".")?) }
 
-fn get_name<S: Source>(src: S, name: &str, vonly: bool) -> Result<()> {
-  Config::from_source(src)?.get_name(name, vonly)
+fn get_name<S: Source>(src: S, name: &str, fmt: ShowFormat) -> Result<()> {
+  Config::from_source(src)?.show_names(name, fmt)
 }
 
-fn get_id<S: Source>(src: S, id: &str, vonly: bool) -> Result<()> {
-  Config::from_source(src)?.get_id(id.parse()?, vonly)
+fn get_id<S: Source>(src: S, id: &str, fmt: ShowFormat) -> Result<()> {
+  Config::from_source(src)?.show_id(id.parse()?, fmt)
 }
 
 fn set_by_name(name: &str, val: &str) -> Result<()> { current_config()?.set_by_name(name, val) }

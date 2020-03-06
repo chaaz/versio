@@ -1,15 +1,10 @@
 //! Utilities to find a mark in a YAML file.
 
 use crate::error::Result;
+use crate::parts::{IntoPartVec, Part, ToPart};
 use crate::{convert_mark, CharMark, MarkedData, NamedData, Scanner};
-use std::sync::{
-  atomic::{AtomicBool, Ordering},
-  Arc
-};
 use yaml_rust::parser::{Event, MarkedEventReceiver, Parser};
 use yaml_rust::scanner::{Marker, TScalarStyle};
-
-type Watcher = Arc<AtomicBool>;
 
 pub struct YamlScanner {
   target: Vec<Part>
@@ -17,87 +12,35 @@ pub struct YamlScanner {
 
 impl YamlScanner {
   pub fn new<P: IntoPartVec>(target: P) -> YamlScanner { YamlScanner { target: target.into_part_vec() } }
+  pub fn from_parts(target: &[&dyn ToPart]) -> YamlScanner { YamlScanner { target: target.into_part_vec() } }
 }
 
 impl Scanner for YamlScanner {
   fn scan(&self, data: NamedData) -> Result<MarkedData> {
     let char_mark = scan_yaml(&data.data(), self.target.clone())?;
-    let byte_mark = convert_mark(data.data(), char_mark);
+    let byte_mark = convert_mark(data.data(), char_mark)?;
     Ok(data.mark(byte_mark))
   }
 }
 
 fn scan_yaml<P: IntoPartVec>(data: &str, loc: P) -> Result<CharMark> {
   let mut rcvr = Receiver::new(loc.into_part_vec());
-  let mut parser = Parser::new(rcvr.shortcut(data.chars()));
+  let mut parser = Parser::new(data.chars());
 
   parser.load(&mut rcvr, false)?;
 
   Ok(rcvr.result.unwrap())
 }
 
-pub trait IntoPartVec {
-  fn into_part_vec(self) -> Vec<Part>;
-}
-
-impl IntoPartVec for Vec<Part> {
-  fn into_part_vec(self) -> Vec<Part> { self }
-}
-
-impl IntoPartVec for &str {
-  fn into_part_vec(self) -> Vec<Part> { self.split('.').map(|d| d.to_part()).collect() }
-}
-
-impl IntoPartVec for &[&dyn ToPart] {
-  fn into_part_vec(self) -> Vec<Part> { self.iter().map(|d| d.to_part()).collect() }
-}
-
-pub trait ToPart {
-  fn to_part(&self) -> Part;
-}
-
-impl ToPart for str {
-  fn to_part(&self) -> Part {
-    match self.parse() {
-      Ok(i) => Part::Seq(i),
-      Err(_) => Part::Map(self.to_string())
-    }
-  }
-}
-
-impl ToPart for usize {
-  fn to_part(&self) -> Part { Part::Seq(*self) }
-}
-
-#[derive(Clone)]
-pub enum Part {
-  Seq(usize),
-  Map(String)
-}
-
-impl Part {
-  fn seq_ind(&self) -> usize {
-    match self {
-      Part::Seq(i) => *i,
-      _ => panic!("Part is not seq")
-    }
-  }
-}
-
 struct Receiver {
   parts: Vec<Part>,
   stack: Vec<Loc>,
   depth: usize,
-  complete: Watcher,
   result: Option<CharMark>
 }
 
 impl Receiver {
-  pub fn new(parts: Vec<Part>) -> Receiver {
-    Receiver { parts, stack: Vec::new(), depth: 0, complete: Arc::new(AtomicBool::new(false)), result: None }
-  }
-
-  pub fn shortcut<T: Iterator<Item = char>>(&self, t: T) -> Shortcut<T> { Shortcut::new(self.complete.clone(), t) }
+  pub fn new(parts: Vec<Part>) -> Receiver { Receiver { parts, stack: Vec::new(), depth: 0, result: None } }
 
   fn found_key(&mut self) { self.depth += 1; }
 
@@ -120,7 +63,7 @@ impl Receiver {
 
   fn after_object(&mut self, unnest: bool) {
     if unnest && self.stack.len() == self.depth {
-      panic!("Unexpected parity.");
+      panic!("Completed seq/map without finding value.");
     }
 
     if self.stack.is_empty() {
@@ -211,7 +154,6 @@ impl MarkedEventReceiver for Receiver {
               _ => ()
             }
             self.result = Some(CharMark::new(val, index));
-            self.complete.store(true, Ordering::SeqCst);
           }
           Expect::Key(key) => {
             if val == key {
@@ -219,32 +161,11 @@ impl MarkedEventReceiver for Receiver {
             }
           }
           Expect::None => (),
-          _ => panic!("Got unexpected scalar. {}, {:?}", self.depth, self.stack)
+          _ => panic!("Got unexpected scalar \"{}\". {}, {:?}", val, self.depth, self.stack)
         }
         self.after_object(false);
       }
       _ => ()
-    }
-  }
-}
-
-struct Shortcut<T> {
-  complete: Watcher,
-  iter: T
-}
-
-impl<T> Shortcut<T> {
-  pub fn new(complete: Watcher, iter: T) -> Shortcut<T> { Shortcut { complete, iter } }
-}
-
-impl<T: Iterator<Item = char>> Iterator for Shortcut<T> {
-  type Item = char;
-
-  fn next(&mut self) -> Option<char> {
-    if self.complete.load(Ordering::SeqCst) {
-      None
-    } else {
-      self.iter.next()
     }
   }
 }
@@ -320,5 +241,29 @@ thing:
     let marked_data = YamlScanner::new("thing.0.version").scan(NamedData::new(None, doc.to_string())).unwrap();
     assert_eq!("1.2.3", marked_data.value());
     assert_eq!(34, marked_data.start());
+  }
+
+  #[test]
+  fn test_yaml_basic() {
+    let doc = r#"
+package:
+  - version: "0.0.6""#;
+
+    let marked_data = YamlScanner::new("package.0.version").scan(NamedData::new(None, doc.to_string())).unwrap();
+    assert_eq!("0.0.6", marked_data.value());
+    assert_eq!(24, marked_data.start());
+  }
+
+  #[test]
+  fn test_yaml_clever() {
+    let doc = r#"
+package:
+  0: { the.version: "0.0.6" }"#;
+
+    // "package.0.the.version" doesn't work here.
+    let marked_data =
+      YamlScanner::from_parts(&[&"package", &"0", &"the.version"]).scan(NamedData::new(None, doc.to_string())).unwrap();
+    assert_eq!("0.0.6", marked_data.value());
+    assert_eq!(31, marked_data.start());
   }
 }

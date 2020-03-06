@@ -1,6 +1,7 @@
 //! Utilities to find a mark in a TOML file.
 
 use crate::error::Result;
+use crate::parts::{IntoPartVec, Part, ToPart};
 use crate::{Mark, MarkedData, NamedData, Scanner};
 use serde::de::{self, DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Unexpected, Visitor};
 use toml::Spanned;
@@ -11,6 +12,7 @@ pub struct TomlScanner {
 
 impl TomlScanner {
   pub fn new<P: IntoPartVec>(target: P) -> TomlScanner { TomlScanner { target: target.into_part_vec() } }
+  pub fn from_parts(target: &[&dyn ToPart]) -> TomlScanner { TomlScanner { target: target.into_part_vec() } }
 }
 
 impl Scanner for TomlScanner {
@@ -28,46 +30,7 @@ fn scan_toml<P: IntoPartVec>(data: &str, loc: P) -> Result<Mark> {
   let index = value.span().0;
 
   // TODO: handle triple quotes
-  Ok(Mark::new(value.into_inner(), index + 1))
-}
-
-pub trait IntoPartVec {
-  fn into_part_vec(self) -> Vec<Part>;
-}
-
-impl IntoPartVec for Vec<Part> {
-  fn into_part_vec(self) -> Vec<Part> { self }
-}
-
-impl IntoPartVec for &str {
-  fn into_part_vec(self) -> Vec<Part> { self.split('.').map(|d| d.to_part()).collect() }
-}
-
-impl IntoPartVec for &[&dyn ToPart] {
-  fn into_part_vec(self) -> Vec<Part> { self.iter().map(|d| d.to_part()).collect() }
-}
-
-pub trait ToPart {
-  fn to_part(&self) -> Part;
-}
-
-impl ToPart for str {
-  fn to_part(&self) -> Part {
-    match self.parse() {
-      Ok(i) => Part::Seq(i),
-      Err(_) => Part::Map(self.to_string())
-    }
-  }
-}
-
-impl ToPart for usize {
-  fn to_part(&self) -> Part { Part::Seq(*self) }
-}
-
-#[derive(Clone, Debug)]
-pub enum Part {
-  Seq(usize),
-  Map(String)
+  Ok(Mark::make(value.into_inner(), index + 1)?)
 }
 
 fn pop(mut parts: Vec<Part>) -> NthElement {
@@ -197,6 +160,18 @@ thing = [ "thing2", "1.2.3" ]"#;
     let marked_data = TomlScanner::new("version.thing.1.version").scan(NamedData::new(None, doc.to_string())).unwrap();
     assert_eq!("1.2.3", marked_data.value());
     assert_eq!(47, marked_data.start());
+  }
+
+  #[test]
+  fn test_toml_clever() {
+    let doc = r#"
+[[0]]
+"the.version" = "1.2.3""#;
+
+    let marked_data =
+      TomlScanner::from_parts(&[&"0", &0, &"the.version"]).scan(NamedData::new(None, doc.to_string())).unwrap();
+    assert_eq!("1.2.3", marked_data.value());
+    assert_eq!(24, marked_data.start());
   }
 
   #[test]
