@@ -18,6 +18,12 @@ pub fn execute() -> Result<()> {
       SubCommand::with_name("pull").setting(AppSettings::UnifiedHelpMessage).about("Pull the repo").display_order(1)
     )
     .subcommand(
+      SubCommand::with_name("check")
+        .setting(AppSettings::UnifiedHelpMessage)
+        .about("Check current config")
+        .display_order(1)
+    )
+    .subcommand(
       SubCommand::with_name("show")
         .setting(AppSettings::UnifiedHelpMessage)
         .about("Show all versions")
@@ -166,6 +172,7 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
   let curt = CurrentSource::open(".")?;
 
   match m.subcommand() {
+    ("check", _) => check(curt),
     ("show", Some(m)) => {
       if m.is_present("nofetch") {
         prev.set_fetch(false)?;
@@ -302,6 +309,8 @@ pub fn plan(prev: PrevSource, cur: CurrentSource) -> Result<()> {
 
   Ok(())
 }
+
+fn check(curt: CurrentSource) -> Result<()> { Config::from_source(curt)?.check() }
 
 fn show<S: Source>(source: S, fmt: ShowFormat) -> Result<()> { Config::from_source(source)?.show(fmt) }
 

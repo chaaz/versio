@@ -1,5 +1,5 @@
+use serde::de::{self, Deserialize, Deserializer, SeqAccess, Visitor};
 use std::fmt;
-use serde::de::{self, Deserializer, Deserialize, SeqAccess, Visitor};
 
 pub trait IntoPartVec {
   fn into_part_vec(self) -> Vec<Part>;

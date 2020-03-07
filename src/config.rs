@@ -3,7 +3,7 @@
 use crate::analyze::AnnotatedMark;
 use crate::error::Result;
 use crate::json::JsonScanner;
-use crate::parts::{Part, deserialize_parts};
+use crate::parts::{deserialize_parts, Part};
 use crate::toml::TomlScanner;
 use crate::yaml::YamlScanner;
 use crate::{Mark, MarkedData, NamedData, Scanner, Source, CONFIG_FILENAME};
@@ -39,6 +39,13 @@ impl<S: Source> Config<S> {
 
   pub fn annotate(&self) -> Result<Vec<AnnotatedMark>> {
     self.file.projects.iter().map(|p| p.annotate(&self.source)).collect()
+  }
+
+  pub fn check(&self) -> Result<()> {
+    for project in &self.file.projects {
+      project.check(&self.source)?;
+    }
+    Ok(())
   }
 
   pub fn show(&self, format: ShowFormat) -> Result<()> {
@@ -226,6 +233,11 @@ impl Project {
       }
       Ok(Pattern::new(cov)?.matches(path))
     })
+  }
+
+  fn check(&self, source: &dyn Source) -> Result<()> {
+    self.located.get_mark(source)?;
+    Ok(())
   }
 
   fn show(&self, source: &dyn Source, name_width: usize, format: &ShowFormat) -> Result<()> {

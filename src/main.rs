@@ -13,9 +13,9 @@ pub mod yaml;
 use crate::error::Result;
 use crate::git::{fetch, get_changed_since, merge_after_fetch, prev_blob, FetchResults};
 use git2::Repository;
+use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
-use regex::Regex;
 
 pub const CONFIG_FILENAME: &str = ".versio.yaml";
 
@@ -159,7 +159,7 @@ impl Mark {
   pub fn make(value: String, byte_start: usize) -> Result<Mark> {
     let regex = Regex::new(r"\A\d+\.\d+\.\d+\z")?;
     if !regex.is_match(&value) {
-      return versio_err!("Value \"{}\" is not a version.", value)
+      return versio_err!("Value \"{}\" is not a version.", value);
     }
 
     Ok(Mark { value, byte_start })

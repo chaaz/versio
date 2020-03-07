@@ -443,8 +443,15 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "toml",
+ "version-compare",
  "yaml-rust",
 ]
+
+[[package]]
+name = "version-compare"
+version = "0.0.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d63556a25bae6ea31b52e640d7c41d1ab27faba4ccb600013837a3d0b3994ca1"
 
 [[package]]
 name = "winapi"
