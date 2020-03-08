@@ -6,14 +6,31 @@ use crate::json::JsonScanner;
 use crate::parts::{deserialize_parts, Part};
 use crate::toml::TomlScanner;
 use crate::yaml::YamlScanner;
-use crate::{Mark, MarkedData, NamedData, Scanner, Source, CONFIG_FILENAME};
-use glob::Pattern;
+use crate::{CurrentSource, Mark, MarkedData, NamedData, PrevSource, Scanner, Source, CONFIG_FILENAME};
+use glob::{glob, Pattern};
 use regex::Regex;
 use serde::de::{self, Deserializer, MapAccess, Visitor};
 use serde::Deserialize;
 use std::cmp::{max, Ord, Ordering};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
+
+pub fn configure_plan<'s>(
+  prev: &'s PrevSource, curt: &'s CurrentSource
+) -> Result<(Plan, Config<&'s PrevSource>, Config<&'s CurrentSource>)> {
+  let prev_config = Config::from_source(prev)?;
+  let curt_config = Config::from_source(curt)?;
+  let mut plan = prev_config.start_plan(&curt_config);
+
+  for result in prev.repo()?.get_keyed_files()? {
+    let (key, path) = result?;
+    plan.consider(&key, &path)?;
+  }
+  plan.consider_deps()?;
+
+  let plan = plan.finish_plan()?;
+  Ok((plan, prev_config, curt_config))
+}
 
 pub struct ShowFormat {
   pub wide: bool,
@@ -35,7 +52,9 @@ impl<S: Source> Config<S> {
     Ok(Config { source, file })
   }
 
-  pub fn plan(&self) -> Plan<S> { Plan::new(&self) }
+  fn start_plan<'s, C: Source>(&'s self, current: &'s Config<C>) -> PlanConsider<S, C> {
+    PlanConsider::new(self, current)
+  }
 
   pub fn annotate(&self) -> Result<Vec<AnnotatedMark>> {
     self.file.projects.iter().map(|p| p.annotate(&self.source)).collect()
@@ -95,28 +114,45 @@ impl<S: Source> Config<S> {
   }
 }
 
-pub struct Plan<'c, S: Source> {
-  config: &'c Config<S>,
+pub struct Plan {
+  incrs: Vec<(u32, Size)>
+}
+
+impl Plan {
+  pub fn incrs(&self) -> &Vec<(u32, Size)> { &self.incrs }
+}
+
+struct PlanConsider<'s, P: Source, C: Source> {
+  prev: &'s Config<P>,
+  current: &'s Config<C>,
   incrs: HashMap<u32, Size>
 }
 
-impl<'c, S: Source> Plan<'c, S> {
-  fn new(config: &'c Config<S>) -> Plan<'c, S> { Plan { config, incrs: HashMap::new() } }
+impl<'s, P: Source, C: Source> PlanConsider<'s, P, C> {
+  fn new(prev: &'s Config<P>, current: &'s Config<C>) -> PlanConsider<'s, P, C> {
+    PlanConsider { prev, current, incrs: HashMap::new() }
+  }
 
-  pub fn incrs(&self) -> &HashMap<u32, Size> { &self.incrs }
+  pub fn finish_plan(&mut self) -> Result<Plan> {
+    let incrs = self
+      .current
+      .file
+      .projects
+      .iter()
+      .map(|p| if let Some(size) = self.incrs.get(&p.id) { (p.id, *size) } else { (p.id, Size::None) })
+      .collect();
 
-  pub fn sorted_incrs(&self) -> Vec<(u32, Size)> {
-    let mut sorted: Vec<_> = self.incrs().iter().map(|(a, b)| (*a, *b)).collect();
-    sorted.sort_by_key(|(id, _)| self.config.file.projects.iter().position(|p| &p.id == id).unwrap());
-    sorted
+    Ok(Plan { incrs })
   }
 
   pub fn consider(&mut self, kind: &str, path: &str) -> Result<()> {
-    for project in &self.config.file.projects {
-      let size = project.size(&self.config.file.sizes, kind)?;
-      if project.does_cover(path)? {
-        let val = self.incrs.entry(project.id).or_insert(Size::None);
-        *val = max(*val, size);
+    for prev_project in &self.prev.file.projects {
+      if let Some(cur_project) = self.current.get_project(prev_project.id) {
+        let size = cur_project.size(&self.current.file.sizes, kind)?;
+        if prev_project.does_cover(path)? {
+          let val = self.incrs.entry(prev_project.id).or_insert(Size::None);
+          *val = max(*val, size);
+        }
       }
     }
     Ok(())
@@ -127,7 +163,7 @@ impl<'c, S: Source> Plan<'c, S> {
     let mut queue = VecDeque::new();
 
     let mut dependents: HashMap<u32, HashSet<u32>> = HashMap::new();
-    for project in &self.config.file.projects {
+    for project in &self.prev.file.projects {
       for dep in &project.depends {
         dependents.entry(*dep).or_insert_with(HashSet::new).insert(project.id);
       }
@@ -237,6 +273,11 @@ impl Project {
 
   fn check(&self, source: &dyn Source) -> Result<()> {
     self.located.get_mark(source)?;
+    for cover in &self.covers {
+      if glob(cover)?.count() == 0 {
+        return versio_err!("No files covered by \"{}\".", cover);
+      }
+    }
     Ok(())
   }
 

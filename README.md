@@ -1,6 +1,6 @@
 # Versio
 
-A simple versioning tool to help with versioning in a monorepo.
+A simple tool to help manage versions in a monorepo.
 
 Versio will scan all git commits that were subitted since its last run,
 and will increment all applicable version numbers by using [conventional
@@ -44,20 +44,24 @@ projects:
 
 ```
 commands:
-  get --prev --name comb
-  get --prev --id 4  
-  show --prev
+  check
+  get --prev --name comb --wide
+  get --prev --id 4
+  show --prev --wide
   set --name comb --value 1.2.3
+  set --id comb --value 1.2.3
   diff --no-fetch
   files --no-fetch
-  check
-  check --name comb
-  check --id 2
-  bump comb --commit
+  plan --no-fetch
+  bump --name comb
   run --commit --push
 ```
 
-How it works:
+`plan`: Plans wrt the **previous** projects, covers, and dependencies;
+but uses **current** sizes, and returns results wrt **current**
+projects.
+
+## How it works:
 
 ```
 Git Pull
@@ -80,6 +84,7 @@ If encounters conflict when pushing, it throws everything out (including
 tag advance), pulls, and tries again.
 ```
 
-Concerns:
+## Troubleshooting:
 
-Rebase might cause the last (versio) tag not be an ancestor. What then?
+Rebase might cause the last (versio) tag to not be an ancestor. What
+then?

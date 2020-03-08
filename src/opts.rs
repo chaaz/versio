@@ -1,12 +1,10 @@
-//! The command-line options for the sorcery executable.
+//! The command-line options for the executable.
 
 use crate::analyze::analyze;
-use crate::config::{Config, ShowFormat};
+use crate::config::{configure_plan, Config, ShowFormat};
 use crate::error::Result;
-use crate::git::pull_ff_only;
 use crate::{CurrentSource, PrevSource, Source};
 use clap::{crate_version, App, AppSettings, Arg, ArgGroup, ArgMatches, SubCommand};
-use git2::Repository;
 
 pub fn execute() -> Result<()> {
   let m = App::new("versio")
@@ -14,9 +12,6 @@ pub fn execute() -> Result<()> {
     .author("Charlie Ozinga, charlie@cloud-elements.com")
     .version(concat!(crate_version!(), " (", env!("GIT_SHORT_HASH"), ")"))
     .about("Manage version numbers")
-    .subcommand(
-      SubCommand::with_name("pull").setting(AppSettings::UnifiedHelpMessage).about("Pull the repo").display_order(1)
-    )
     .subcommand(
       SubCommand::with_name("check")
         .setting(AppSettings::UnifiedHelpMessage)
@@ -138,7 +133,7 @@ pub fn execute() -> Result<()> {
     .subcommand(
       SubCommand::with_name("diff")
         .setting(AppSettings::UnifiedHelpMessage)
-        .about("Set a version")
+        .about("See changes from previous")
         .arg(
           Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
         )
@@ -147,7 +142,7 @@ pub fn execute() -> Result<()> {
     .subcommand(
       SubCommand::with_name("files")
         .setting(AppSettings::UnifiedHelpMessage)
-        .about("Set a version")
+        .about("Stream changed files")
         .arg(
           Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
         )
@@ -207,6 +202,13 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
       }
       diff(prev, curt)
     }
+    ("set", Some(m)) => {
+      if m.is_present("id") {
+        set_by_id(m.value_of("id").unwrap(), m.value_of("value").unwrap())
+      } else {
+        set_by_name(m.value_of("name").unwrap(), m.value_of("value").unwrap())
+      }
+    }
     ("files", Some(m)) => {
       if m.is_present("nofetch") {
         prev.set_fetch(false)?;
@@ -221,16 +223,8 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
       if m.is_present("nofetch") {
         prev.set_fetch(false)?;
       }
-      plan(prev, curt)
+      plan(&prev, &curt)
     }
-    ("set", Some(m)) => {
-      if m.is_present("id") {
-        set_by_id(m.value_of("id").unwrap(), m.value_of("value").unwrap())
-      } else {
-        set_by_name(m.value_of("name").unwrap(), m.value_of("value").unwrap())
-      }
-    }
-    ("pull", _) => pull_ff_only(&Repository::open(".")?, None, None),
     ("", _) => empty_cmd(),
     (c, _) => unknown_cmd(c)
   }
@@ -293,18 +287,15 @@ fn diff(prev: PrevSource, curt: CurrentSource) -> Result<()> {
   Ok(())
 }
 
-pub fn plan(prev: PrevSource, cur: CurrentSource) -> Result<()> {
-  let config = Config::from_source(cur)?;
-  let mut plan = config.plan();
+pub fn plan(prev: &PrevSource, curt: &CurrentSource) -> Result<()> {
+  let (plan, _prev_cfg, curt_cfg) = configure_plan(prev, curt)?;
 
-  for result in prev.repo()?.get_keyed_files()? {
-    let (key, path) = result?;
-    plan.consider(&key, &path)?;
-  }
-  plan.consider_deps()?;
-
-  for (id, size) in plan.sorted_incrs() {
-    println!("{} : {}", config.get_project(id).unwrap().name(), size);
+  if plan.incrs().is_empty() {
+    println!("(No projects)");
+  } else {
+    for (id, size) in plan.incrs() {
+      println!("{} : {}", curt_cfg.get_project(*id).unwrap().name(), size);
+    }
   }
 
   Ok(())

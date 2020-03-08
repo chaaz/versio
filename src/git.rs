@@ -22,11 +22,6 @@ pub fn prev_blob<P: AsRef<Path>>(repo: &Repository, path: P) -> Result<Option<Bl
   obj.map(|obj| obj.into_blob().map_err(|e| versio_error!("Not a file: {} : {:?}", path_string, e))).transpose()
 }
 
-pub fn pull_ff_only(repo: &Repository, remote_name: Option<&str>, remote_branch: Option<&str>) -> Result<()> {
-  let fetch_results = fetch(&repo, remote_name, remote_branch)?;
-  merge_after_fetch(repo, &fetch_results)
-}
-
 pub fn fetch(repo: &Repository, remote_name: Option<&str>, remote_branch: Option<&str>) -> Result<FetchResults> {
   let (remote_name, fetch_branch) = get_name_and_branch(repo, remote_name, remote_branch)?;
 

@@ -20,7 +20,13 @@ use std::sync::{Arc, Mutex, MutexGuard};
 pub const CONFIG_FILENAME: &str = ".versio.yaml";
 
 pub trait Source {
+  fn root_dir(&self) -> &Path;
   fn load(&self, rel_path: &Path) -> Result<Option<NamedData>>;
+}
+
+impl<S: Source> Source for &S {
+  fn root_dir(&self) -> &Path { <S as Source>::root_dir(*self) }
+  fn load(&self, rel_path: &Path) -> Result<Option<NamedData>> { <S as Source>::load(*self, rel_path) }
 }
 
 pub struct CurrentSource {
@@ -36,6 +42,8 @@ impl CurrentSource {
 }
 
 impl Source for CurrentSource {
+  fn root_dir(&self) -> &Path { &self.root_dir }
+
   fn load(&self, rel_path: &Path) -> Result<Option<NamedData>> {
     let path = self.root_dir.join(rel_path);
     if Path::exists(&path) {
@@ -61,13 +69,15 @@ impl<'a> RepoGuard<'a> {
 
 #[derive(Clone)]
 pub struct PrevSource {
+  root_dir: PathBuf,
   inner: Arc<Mutex<PrevSourceInner>>
 }
 
 impl PrevSource {
   pub fn open<P: AsRef<Path>>(root_dir: P) -> Result<PrevSource> {
+    let root_dir = root_dir.as_ref();
     let inner = PrevSourceInner::open(root_dir)?;
-    Ok(PrevSource { inner: Arc::new(Mutex::new(inner)) })
+    Ok(PrevSource { root_dir: root_dir.to_path_buf(), inner: Arc::new(Mutex::new(inner)) })
   }
 
   pub fn set_fetch(&mut self, fetch: bool) -> Result<()> {
@@ -79,6 +89,8 @@ impl PrevSource {
 }
 
 impl Source for PrevSource {
+  fn root_dir(&self) -> &Path { &self.root_dir }
+
   fn load(&self, rel_path: &Path) -> Result<Option<NamedData>> { self.inner.lock()?.load(rel_path) }
 }
 
@@ -90,7 +102,7 @@ pub struct PrevSourceInner {
 }
 
 impl PrevSourceInner {
-  pub fn open<P: AsRef<Path>>(root_dir: P) -> Result<PrevSourceInner> {
+  pub fn open(root_dir: &Path) -> Result<PrevSourceInner> {
     let repo = Repository::open(root_dir)?;
     Ok(PrevSourceInner { repo, should_fetch: true, fetch_results: None, _merged: false })
   }
