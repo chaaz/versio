@@ -1,7 +1,7 @@
 //! The command-line options for the executable.
 
 use crate::analyze::analyze;
-use crate::config::{configure_plan, Config, ShowFormat};
+use crate::config::{configure_plan, Config, ShowFormat, Size};
 use crate::error::Result;
 use crate::{CurrentSource, PrevSource, Source};
 use clap::{crate_version, App, AppSettings, Arg, ArgGroup, ArgMatches, SubCommand};
@@ -165,10 +165,20 @@ pub fn execute() -> Result<()> {
           Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
         )
         .arg(
-          Arg::with_name("all").short("a").long("show-all").takes_value(false).display_order(1).help("Also show unchnaged versions")
+          Arg::with_name("all")
+            .short("a")
+            .long("show-all")
+            .takes_value(false)
+            .display_order(1)
+            .help("Also show unchnaged versions")
         )
         .arg(
-          Arg::with_name("dry").short("d").long("dry-run").takes_value(false).display_order(1).help("Don't write new versions")
+          Arg::with_name("dry")
+            .short("d")
+            .long("dry-run")
+            .takes_value(false)
+            .display_order(1)
+            .help("Don't write new versions")
         )
         .display_order(1)
     )
@@ -244,7 +254,7 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
       if m.is_present("nofetch") {
         prev.set_fetch(false)?;
       }
-      if m.is_present("dry") {
+      if !m.is_present("dry") {
         prev.set_merge(true)?;
       }
       run(&prev, &curt, m.is_present("all"), m.is_present("dry"))
@@ -330,35 +340,37 @@ pub fn run(prev: &PrevSource, curt: &CurrentSource, all: bool, dry: bool) -> Res
 
   if plan.incrs().is_empty() {
     println!("(No projects)");
-    return Ok(())
+    return Ok(());
   }
 
   println!("Executing plan:");
   let mut found = false;
   for (id, size) in plan.incrs() {
     let curt_name = curt_cfg.get_project(*id).unwrap().name();
-    let curt_vers = curt_cfg.get_mark(*id).unwrap()?;
-    let prev_vers = prev_cfg.get_mark(*id).transpose()?;
+    let curt_mark = curt_cfg.get_mark(*id).unwrap()?;
+    let curt_vers = curt_mark.value();
+    let prev_mark = prev_cfg.get_mark(*id).transpose()?;
+    let prev_vers = prev_mark.as_ref().map(|m| m.value());
 
     if let Some(prev_vers) = prev_vers {
       let target = size.apply(prev_vers)?;
-      if Size::less_than(curt_vers, target) {
+      if Size::less_than(curt_vers, &target)? {
         found = true;
         if !dry {
-          curt_cfg.set_id(*id, target)?;
+          curt_cfg.set_by_id(*id, &target)?;
         }
         if prev_vers == curt_vers {
-          println!("  {} : {} -> {}", curt_name, prev_vers, target);
+          println!("  {} : {} -> {}", curt_name, prev_vers, &target);
         } else {
-          println!("  {} : {} -> {} instead of {}", curt_name, prev_vers, target, curt_vers);
+          println!("  {} : {} -> {} instead of {}", curt_name, prev_vers, &target, curt_vers);
         }
       } else if all {
         if prev_vers == curt_vers {
           println!("  {} : no change to {}", curt_name, curt_vers);
         } else if curt_vers == target {
-          println!("  {} : no change: already {} -> {}", curt_name, prev_vers, target);
+          println!("  {} : no change: already {} -> {}", curt_name, prev_vers, &target);
         } else {
-          println!("  {} : no change: {} -> {} exceeds {}", curt_name, prev_vers, curt_vers, target);
+          println!("  {} : no change: {} -> {} exceeds {}", curt_name, prev_vers, curt_vers, &target);
         }
       }
     } else if all {
@@ -369,12 +381,10 @@ pub fn run(prev: &PrevSource, curt: &CurrentSource, all: bool, dry: bool) -> Res
   if found {
     if dry {
       println!("Dry run: no actual changes.");
+    } else if prev.repo()?.add_and_commit()?.is_some() {
+      println!("Changes committed and pushed.");
     } else {
-      if let Some(_) = prev.repo().add_and_commit()? {
-        println!("Changes committed and pushed.");
-      } else {
-        return versio_err!("No file changes found somehow.");
-      }
+      return versio_err!("No file changes found somehow.");
     }
   } else {
     // TODO: still tag / push ?

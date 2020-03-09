@@ -6,7 +6,6 @@ use git2::{
   Reference, ReferenceType, Remote, RemoteCallbacks, Repository, RepositoryState, ResetType, Signature, Status,
   StatusOptions
 };
-use std::env::var;
 use std::io::{stdout, Write};
 use std::path::{Path, PathBuf};
 
@@ -79,11 +78,11 @@ pub fn add_and_commit(repo: &Repository, fetch_results: &FetchResults) -> Result
     let commit_oid = repo.commit(Some("HEAD"), &sig, &sig, "Updated versions by versio", &tree, &[&parent_commit])?;
     repo.reset(&repo.find_object(commit_oid, Some(ObjectType::Commit))?, ResetType::Mixed, None)?;
 
-    // .. tag ..
+    // ... tag ...
     let obj = repo.revparse_single("HEAD")?;
     repo.tag_lightweight(PREV_TAG_NAME, &obj, true)?;
 
-    // .. and push
+    // ... and push
     let fetch_branch = &fetch_results.fetch_branch;
     let remote_name = &fetch_results.remote_name;
     let mut remote = repo.find_remote(remote_name)?;
@@ -92,15 +91,7 @@ pub fn add_and_commit(repo: &Repository, fetch_results: &FetchResults) -> Result
 
     let mut cb = RemoteCallbacks::new();
 
-    cb.credentials(|_url, username_from_url, _allowed_types| {
-      Cred::ssh_key(
-        username_from_url.unwrap(),
-        None,
-        Path::new(&format!("{}/.ssh/id_rsa", var("HOME").unwrap())),
-        // TODO: no hardcode
-        Some("unVm7JekaHpvyefTJMHK")
-      )
-    });
+    cb.credentials(|_url, username_from_url, _allowed_types| Cred::ssh_key_from_agent(username_from_url.unwrap()));
 
     // TODO: rollback the tag if the heads didn't succeed.
     cb.push_update_reference(|rref, status| {
@@ -131,15 +122,7 @@ fn find_last_commit(repo: &Repository) -> Result<Commit> {
 fn do_fetch<'a>(repo: &'a Repository, refs: &[&str], remote: &'a mut Remote) -> Result<Option<AnnotatedCommit<'a>>> {
   let mut cb = RemoteCallbacks::new();
 
-  cb.credentials(|_url, username_from_url, _allowed_types| {
-    Cred::ssh_key(
-      username_from_url.unwrap(),
-      None,
-      Path::new(&format!("{}/.ssh/id_rsa", var("HOME").unwrap())),
-      // TODO: no hardcode
-      Some("unVm7JekaHpvyefTJMHK")
-    )
-  });
+  cb.credentials(|_url, username_from_url, _allowed_types| Cred::ssh_key_from_agent(username_from_url.unwrap()));
 
   cb.transfer_progress(|stats| {
     if stats.received_objects() == stats.total_objects() {

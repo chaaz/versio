@@ -11,8 +11,8 @@ pub mod toml;
 pub mod yaml;
 
 use crate::error::Result;
-use crate::git::{fetch, get_changed_since, merge_after_fetch, prev_blob, FetchResults};
-use git2::Repository;
+use crate::git::{add_and_commit, fetch, get_changed_since, merge_after_fetch, prev_blob, FetchResults};
+use git2::{Oid, Repository};
 use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -65,6 +65,8 @@ impl<'a> RepoGuard<'a> {
   pub fn get_keyed_files<'b>(&'b mut self) -> Result<impl Iterator<Item = Result<(String, String)>> + 'b> {
     self.guard.get_keyed_files()
   }
+
+  pub fn add_and_commit(&mut self) -> Result<Option<Oid>> { self.guard.add_and_commit() }
 }
 
 #[derive(Clone)]
@@ -85,6 +87,11 @@ impl PrevSource {
     Ok(())
   }
 
+  pub fn set_merge(&mut self, merge: bool) -> Result<()> {
+    self.inner.lock()?.set_merge(merge);
+    Ok(())
+  }
+
   pub fn repo(&self) -> Result<RepoGuard> { Ok(RepoGuard { guard: self.inner.lock()? }) }
 }
 
@@ -97,15 +104,20 @@ impl Source for PrevSource {
 pub struct PrevSourceInner {
   repo: Repository,
   should_fetch: bool,
+  will_merge: bool,
   fetch_results: Option<FetchResults>,
-  _merged: bool
+  merged: bool
 }
 
 impl PrevSourceInner {
   pub fn open(root_dir: &Path) -> Result<PrevSourceInner> {
     let repo = Repository::open(root_dir)?;
-    Ok(PrevSourceInner { repo, should_fetch: true, fetch_results: None, _merged: false })
+    Ok(PrevSourceInner { repo, should_fetch: true, will_merge: false, fetch_results: None, merged: false })
   }
+
+  fn set_fetch(&mut self, fetch: bool) { self.should_fetch = fetch; }
+
+  fn set_merge(&mut self, merge: bool) { self.will_merge = merge; }
 
   fn load<P: AsRef<Path>>(&mut self, rel_path: P) -> Result<Option<NamedData>> {
     self.maybe_fetch()?;
@@ -123,14 +135,21 @@ impl PrevSourceInner {
     get_changed_since(&self.repo)
   }
 
-  fn set_fetch(&mut self, fetch: bool) { self.should_fetch = fetch; }
-
-  fn _maybe_pull(&mut self) -> Result<()> {
-    self.maybe_fetch_opts(true)?;
-    self._maybe_merge_after()
+  pub fn add_and_commit(&mut self) -> Result<Option<Oid>> {
+    add_and_commit(
+      &self.repo,
+      self.fetch_results.as_ref().ok_or_else(|| versio_error!("Can't commit w/out prior fetch."))?
+    )
   }
 
-  fn maybe_fetch(&mut self) -> Result<()> { self.maybe_fetch_opts(false) }
+  fn maybe_fetch(&mut self) -> Result<()> {
+    if self.will_merge {
+      self.maybe_fetch_opts(true)?;
+      self.maybe_merge_after()
+    } else {
+      self.maybe_fetch_opts(false)
+    }
+  }
 
   fn maybe_fetch_opts(&mut self, force: bool) -> Result<()> {
     if (self.should_fetch || force) && self.fetch_results.is_none() {
@@ -139,11 +158,11 @@ impl PrevSourceInner {
     Ok(())
   }
 
-  fn _maybe_merge_after(&mut self) -> Result<()> {
-    if !self._merged {
+  fn maybe_merge_after(&mut self) -> Result<()> {
+    if !self.merged {
       let fetch_results = self.fetch_results.as_ref().unwrap();
       merge_after_fetch(&self.repo, fetch_results)?;
-      self._merged = true;
+      self.merged = true;
     }
     Ok(())
   }
