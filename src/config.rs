@@ -67,6 +67,10 @@ impl<S: Source> Config<S> {
     Ok(())
   }
 
+  pub fn get_mark(&self, id: u32) -> Option<Result<MarkedData>> {
+    self.get_project(id).map(|p| p.get_mark(&self.source))
+  }
+
   pub fn show(&self, format: ShowFormat) -> Result<()> {
     let name_width = self.file.projects.iter().map(|p| p.name.len()).max().unwrap_or(0);
 
@@ -256,6 +260,10 @@ impl Project {
 
   pub fn name(&self) -> &str { &self.name }
 
+  fn get_mark(&self, source: &dyn Source) -> Result<MarkedData> {
+    self.located.get_mark(source)
+  }
+
   fn size(&self, parent_sizes: &HashMap<String, Size>, kind: &str) -> Result<Size> {
     parent_sizes.get(kind).copied().map(Ok).unwrap_or_else(|| {
       parent_sizes.get("-").copied().map(Ok).unwrap_or_else(|| versio_err!("Can't handle unconventional."))
@@ -410,6 +418,36 @@ pub enum Size {
   Minor,
   Patch,
   None
+}
+
+impl Size {
+  fn parts(v: &str) -> Result<[u32; 3]> {
+    let parts: Vec<_> = v.split('.').iter().collect();
+    if parts.len() != 3 {
+      return versio_err!("Not a 3-part version: {}", v);
+    }
+    Ok([parts[0], parts[1], parts[2]])
+  }
+
+  pub fn less_than(v1: &str, v2: &str) -> Result<bool> {
+    let p1 = Size::parts(v1)?;
+    let p2 = Size::parts(v1)?;
+
+    p1[0] < p2[0] || (p1[0] == p2[0] && (p1[1] < p2[1] || (p1[1] == p2[1] && p1[2] < p2[2])))
+  }
+
+  pub fn apply(&self, v: &str) -> {
+    let parts = Size::parts(v)?;
+
+    let newv = match self {
+      Size::Major => format!("{}.{}.{}", parts[0] + 1, parts[1], parts[2]),
+      Size::Minor => format!("{}.{}.{}", parts[0], parts[1] + 1, parts[2]),
+      Size::Patch => format!("{}.{}.{}", parts[0], parts[1], parts[2] + 1),
+      Size::None => format!("{}.{}.{}", parts[0], parts[1], parts[2]),
+    };
+
+    Ok(newv)
+  }
 }
 
 impl fmt::Display for Size {

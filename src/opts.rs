@@ -157,6 +157,21 @@ pub fn execute() -> Result<()> {
         )
         .display_order(1)
     )
+    .subcommand(
+      SubCommand::with_name("run")
+        .setting(AppSettings::UnifiedHelpMessage)
+        .about("Find versions that need to change")
+        .arg(
+          Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
+        )
+        .arg(
+          Arg::with_name("all").short("a").long("show-all").takes_value(false).display_order(1).help("Also show unchnaged versions")
+        )
+        .arg(
+          Arg::with_name("dry").short("d").long("dry-run").takes_value(false).display_order(1).help("Don't write new versions")
+        )
+        .display_order(1)
+    )
     .get_matches();
 
   parse_matches(m)
@@ -224,6 +239,15 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
         prev.set_fetch(false)?;
       }
       plan(&prev, &curt)
+    }
+    ("run", Some(m)) => {
+      if m.is_present("nofetch") {
+        prev.set_fetch(false)?;
+      }
+      if m.is_present("dry") {
+        prev.set_merge(true)?;
+      }
+      run(&prev, &curt, m.is_present("all"), m.is_present("dry"))
     }
     ("", _) => empty_cmd(),
     (c, _) => unknown_cmd(c)
@@ -296,6 +320,65 @@ pub fn plan(prev: &PrevSource, curt: &CurrentSource) -> Result<()> {
     for (id, size) in plan.incrs() {
       println!("{} : {}", curt_cfg.get_project(*id).unwrap().name(), size);
     }
+  }
+
+  Ok(())
+}
+
+pub fn run(prev: &PrevSource, curt: &CurrentSource, all: bool, dry: bool) -> Result<()> {
+  let (plan, prev_cfg, curt_cfg) = configure_plan(prev, curt)?;
+
+  if plan.incrs().is_empty() {
+    println!("(No projects)");
+    return Ok(())
+  }
+
+  println!("Executing plan:");
+  let mut found = false;
+  for (id, size) in plan.incrs() {
+    let curt_name = curt_cfg.get_project(*id).unwrap().name();
+    let curt_vers = curt_cfg.get_mark(*id).unwrap()?;
+    let prev_vers = prev_cfg.get_mark(*id).transpose()?;
+
+    if let Some(prev_vers) = prev_vers {
+      let target = size.apply(prev_vers)?;
+      if Size::less_than(curt_vers, target) {
+        found = true;
+        if !dry {
+          curt_cfg.set_id(*id, target)?;
+        }
+        if prev_vers == curt_vers {
+          println!("  {} : {} -> {}", curt_name, prev_vers, target);
+        } else {
+          println!("  {} : {} -> {} instead of {}", curt_name, prev_vers, target, curt_vers);
+        }
+      } else if all {
+        if prev_vers == curt_vers {
+          println!("  {} : no change to {}", curt_name, curt_vers);
+        } else if curt_vers == target {
+          println!("  {} : no change: already {} -> {}", curt_name, prev_vers, target);
+        } else {
+          println!("  {} : no change: {} -> {} exceeds {}", curt_name, prev_vers, curt_vers, target);
+        }
+      }
+    } else if all {
+      println!("  {} : no change: {} is new", curt_name, curt_vers);
+    }
+  }
+
+  if found {
+    if dry {
+      println!("Dry run: no actual changes.");
+    } else {
+      if let Some(_) = prev.repo().add_and_commit()? {
+        println!("Changes committed and pushed.");
+      } else {
+        return versio_err!("No file changes found somehow.");
+      }
+    }
+  } else {
+    // TODO: still tag / push ?
+    println!("No planned increments: not committing.");
   }
 
   Ok(())

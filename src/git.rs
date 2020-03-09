@@ -2,8 +2,9 @@ use crate::either::IterEither as E;
 use crate::error::Result;
 use git2::build::CheckoutBuilder;
 use git2::{
-  AnnotatedCommit, AutotagOption, Blob, Cred, Diff, DiffOptions, FetchOptions, Oid, Reference, ReferenceType, Remote,
-  RemoteCallbacks, Repository, RepositoryState, Status, StatusOptions
+  AnnotatedCommit, AutotagOption, Blob, Commit, Cred, Diff, DiffOptions, FetchOptions, ObjectType, Oid, PushOptions,
+  Reference, ReferenceType, Remote, RemoteCallbacks, Repository, RepositoryState, ResetType, Signature, Status,
+  StatusOptions
 };
 use std::env::var;
 use std::io::{stdout, Write};
@@ -12,6 +13,7 @@ use std::path::{Path, PathBuf};
 const PREV_TAG_NAME: &str = "versio-prev";
 
 pub struct FetchResults {
+  pub remote_name: String,
   pub fetch_branch: String,
   pub commit_oid: Option<Oid>
 }
@@ -32,7 +34,7 @@ pub fn fetch(repo: &Repository, remote_name: Option<&str>, remote_branch: Option
 
   let mut remote = repo.find_remote(&remote_name)?;
   let fetch_commit: Option<AnnotatedCommit> = do_fetch(&repo, &[&fetch_branch], &mut remote)?;
-  Ok(FetchResults { fetch_branch, commit_oid: fetch_commit.map(|c| c.id()) })
+  Ok(FetchResults { remote_name, fetch_branch, commit_oid: fetch_commit.map(|c| c.id()) })
 }
 
 pub fn merge_after_fetch(repo: &Repository, fetch_results: &FetchResults) -> Result<()> {
@@ -53,6 +55,79 @@ pub fn merge_after_fetch(repo: &Repository, fetch_results: &FetchResults) -> Res
   Ok(())
 }
 
+pub fn add_and_commit(repo: &Repository, fetch_results: &FetchResults) -> Result<Option<Oid>> {
+  let mut status_opts = StatusOptions::new();
+  status_opts.include_ignored(false);
+  status_opts.include_untracked(true);
+  status_opts.exclude_submodules(false);
+
+  let mut index = repo.index()?;
+  let mut found = false;
+  for s in repo.statuses(Some(&mut status_opts))?.iter().filter(|s| s.status().is_wt_modified()) {
+    found = true;
+    let path = s.path().ok_or_else(|| versio_error!("Bad path"))?;
+    index.add_path(path.as_ref())?;
+  }
+
+  if found {
+    // commit ...
+    let add_oid = index.write_tree()?;
+    let sig = Signature::now("Versio", "github.com/chaaz/versio")?;
+    let tree = repo.find_tree(add_oid)?;
+    let parent_commit = find_last_commit(&repo)?;
+
+    let commit_oid = repo.commit(Some("HEAD"), &sig, &sig, "Updated versions by versio", &tree, &[&parent_commit])?;
+    repo.reset(&repo.find_object(commit_oid, Some(ObjectType::Commit))?, ResetType::Mixed, None)?;
+
+    // .. tag ..
+    let obj = repo.revparse_single("HEAD")?;
+    repo.tag_lightweight(PREV_TAG_NAME, &obj, true)?;
+
+    // .. and push
+    let fetch_branch = &fetch_results.fetch_branch;
+    let remote_name = &fetch_results.remote_name;
+    let mut remote = repo.find_remote(remote_name)?;
+    let bchref = format!("refs/heads/{}", fetch_branch);
+    let tagref = format!("refs/tags/{}", PREV_TAG_NAME);
+
+    let mut cb = RemoteCallbacks::new();
+
+    cb.credentials(|_url, username_from_url, _allowed_types| {
+      Cred::ssh_key(
+        username_from_url.unwrap(),
+        None,
+        Path::new(&format!("{}/.ssh/id_rsa", var("HOME").unwrap())),
+        // TODO: no hardcode
+        Some("unVm7JekaHpvyefTJMHK")
+      )
+    });
+
+    // TODO: rollback the tag if the heads didn't succeed.
+    cb.push_update_reference(|rref, status| {
+      if let Some(status) = status {
+        println!("Couldn't push reference {}: {}", rref, status);
+        return Err(git2::Error::from_str(&format!("Couldn't push reference {}: {}", rref, status)));
+      }
+      Ok(())
+    });
+
+    let mut push_opts = PushOptions::new();
+    push_opts.remote_callbacks(cb);
+
+    remote.push(&[&bchref, &tagref], Some(&mut push_opts))?;
+
+    Ok(Some(commit_oid))
+  } else {
+    // TOOD: still push the new tag
+    Ok(None)
+  }
+}
+
+fn find_last_commit(repo: &Repository) -> Result<Commit> {
+  let obj = repo.head()?.resolve()?.peel(ObjectType::Commit)?;
+  obj.into_commit().map_err(|o| versio_error!("Not a commit, somehow: {}", o.id()))
+}
+
 fn do_fetch<'a>(repo: &'a Repository, refs: &[&str], remote: &'a mut Remote) -> Result<Option<AnnotatedCommit<'a>>> {
   let mut cb = RemoteCallbacks::new();
 
@@ -61,6 +136,7 @@ fn do_fetch<'a>(repo: &'a Repository, refs: &[&str], remote: &'a mut Remote) -> 
       username_from_url.unwrap(),
       None,
       Path::new(&format!("{}/.ssh/id_rsa", var("HOME").unwrap())),
+      // TODO: no hardcode
       Some("unVm7JekaHpvyefTJMHK")
     )
   });
