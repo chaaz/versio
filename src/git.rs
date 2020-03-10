@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 const PREV_TAG_NAME: &str = "versio-prev";
 
 pub struct FetchResults {
-  pub remote_name: String,
+  pub remote_name: Option<String>,
   pub fetch_branch: String,
   pub commit_oid: Option<Oid>
 }
@@ -33,9 +33,16 @@ pub fn fetch(repo: &Repository, remote_name: Option<&str>, remote_branch: Option
     return versio_err!("Can't pull: repository {:?} isn't clean.", state);
   }
 
-  let mut remote = repo.find_remote(&remote_name)?;
-  let fetch_commit: Option<AnnotatedCommit> = do_fetch(&repo, &[&fetch_branch], &mut remote)?;
-  Ok(FetchResults { remote_name, fetch_branch, commit_oid: fetch_commit.map(|c| c.id()) })
+  let commit_oid = match &remote_name {
+    Some(remote_name) => {
+      let mut remote = repo.find_remote(remote_name)?;
+      let fetch_commit = do_fetch(&repo, &[&fetch_branch], &mut remote)?;
+      fetch_commit.map(|c| c.id())
+    }
+    None => None
+  };
+
+  Ok(FetchResults { remote_name, fetch_branch, commit_oid })
 }
 
 pub fn merge_after_fetch(repo: &Repository, fetch_results: &FetchResults) -> Result<()> {
@@ -85,29 +92,30 @@ pub fn add_and_commit(repo: &Repository, fetch_results: &FetchResults) -> Result
     repo.tag_lightweight(PREV_TAG_NAME, &obj, true)?;
 
     // ... and push
-    let fetch_branch = &fetch_results.fetch_branch;
-    let remote_name = &fetch_results.remote_name;
-    let mut remote = repo.find_remote(remote_name)?;
-    let bchref = format!("refs/heads/{}", fetch_branch);
-    let tagref = format!("refs/tags/{}", PREV_TAG_NAME);
+    if let Some(remote_name) = &fetch_results.remote_name {
+      let fetch_branch = &fetch_results.fetch_branch;
+      let mut remote = repo.find_remote(remote_name)?;
+      let bchref = format!("refs/heads/{}", fetch_branch);
+      let tagref = format!("refs/tags/{}", PREV_TAG_NAME);
 
-    let mut cb = RemoteCallbacks::new();
+      let mut cb = RemoteCallbacks::new();
 
-    cb.credentials(|_url, username_from_url, _allowed_types| Cred::ssh_key_from_agent(username_from_url.unwrap()));
+      cb.credentials(|_url, username_from_url, _allowed_types| Cred::ssh_key_from_agent(username_from_url.unwrap()));
 
-    // TODO: rollback the tag if the heads didn't succeed.
-    cb.push_update_reference(|rref, status| {
-      if let Some(status) = status {
-        println!("Couldn't push reference {}: {}", rref, status);
-        return Err(git2::Error::from_str(&format!("Couldn't push reference {}: {}", rref, status)));
-      }
-      Ok(())
-    });
+      // TODO: rollback the tag if the heads didn't succeed.
+      cb.push_update_reference(|rref, status| {
+        if let Some(status) = status {
+          println!("Couldn't push reference {}: {}", rref, status);
+          return Err(git2::Error::from_str(&format!("Couldn't push reference {}: {}", rref, status)));
+        }
+        Ok(())
+      });
 
-    let mut push_opts = PushOptions::new();
-    push_opts.remote_callbacks(cb);
+      let mut push_opts = PushOptions::new();
+      push_opts.remote_callbacks(cb);
 
-    remote.push(&[&bchref, &tagref], Some(&mut push_opts))?;
+      remote.push(&[&bchref, &tagref], Some(&mut push_opts))?;
+    }
 
     Ok(Some(commit_oid))
   } else {
@@ -215,12 +223,27 @@ fn fast_forward(repo: &Repository, lb: &mut Reference, rc: &AnnotatedCommit) -> 
   Ok(())
 }
 
-pub fn get_name_and_branch(repo: &Repository, name: Option<&str>, branch: Option<&str>) -> Result<(String, String)> {
-  let remote_name: String = name.map(|s| s.to_string()).unwrap_or_else(|| {
-    let remote_name = "origin";
-    println!("No remote provided: using {}", remote_name);
-    remote_name.to_string()
-  });
+pub fn get_name_and_branch(
+  repo: &Repository, name: Option<&str>, branch: Option<&str>
+) -> Result<(Option<String>, String)> {
+  let remote_name = name.map(|s| Ok(Some(s.to_string()))).unwrap_or_else(|| {
+    let remotes = repo.remotes()?;
+    let name = if remotes.is_empty() {
+      Ok(None)
+    } else if remotes.len() == 1 {
+      Ok(Some(remotes.iter().next().unwrap().ok_or_else(|| versio_error!("Non-utf8 remote name."))?.to_string()))
+    } else if remotes.iter().any(|s| s == Some("origin")) {
+      Ok(Some("origin".to_string()))
+    } else {
+      versio_err!("Couldn't determine remote name.")
+    };
+    match &name {
+      Ok(Some(name)) => println!("Using remote name \"{}\".", name),
+      Ok(None) => println!("No remote name."),
+      Err(_) => ()
+    }
+    name
+  })?;
 
   let remote_branch = branch.map(|b| Ok(b.to_string())).unwrap_or_else(|| {
     let head_ref = repo.find_reference("HEAD").map_err(|e| versio_error!("Couldn't resolve head: {:?}.", e))?;
@@ -233,7 +256,7 @@ pub fn get_name_and_branch(repo: &Repository, name: Option<&str>, branch: Option
       } else {
         return versio_err!("Current {} is not a branch.", branch_name);
       }
-      println!("No branch provided: using {}", branch_name);
+      println!("Using branch name \"{}\".", branch_name);
       Ok(branch_name.to_string())
     }
   })?;
