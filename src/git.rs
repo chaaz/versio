@@ -19,6 +19,12 @@ pub struct FetchResults {
   pub commit_oid: Option<Oid>
 }
 
+pub fn has_prev_blob<P: AsRef<Path>>(repo: &Repository, path: P) -> Result<bool> {
+  let path_string = path.as_ref().to_string_lossy();
+  let obj = repo.revparse_single(&format!("{}:{}", PREV_TAG_NAME, &path_string)).ok();
+  Ok(obj.is_some())
+}
+
 pub fn prev_blob<P: AsRef<Path>>(repo: &Repository, path: P) -> Result<Option<Blob>> {
   let path_string = path.as_ref().to_string_lossy();
   let obj = repo.revparse_single(&format!("{}:{}", PREV_TAG_NAME, &path_string)).ok();

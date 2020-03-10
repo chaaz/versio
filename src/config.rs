@@ -47,6 +47,8 @@ pub struct Config<S: Source> {
 }
 
 impl<S: Source> Config<S> {
+  pub fn has_config_file(source: S) -> Result<bool> { source.has(CONFIG_FILENAME.as_ref()) }
+
   pub fn from_source(source: S) -> Result<Config<S>> {
     let file = ConfigFile::load(&source)?;
     Ok(Config { source, file })
@@ -263,8 +265,12 @@ impl Project {
   fn get_mark(&self, source: &dyn Source) -> Result<MarkedData> { self.located.get_mark(source) }
 
   fn size(&self, parent_sizes: &HashMap<String, Size>, kind: &str) -> Result<Size> {
+    let kind = kind.trim();
+    if kind.ends_with('!') {
+      return Ok(Size::Major);
+    }
     parent_sizes.get(kind).copied().map(Ok).unwrap_or_else(|| {
-      parent_sizes.get("-").copied().map(Ok).unwrap_or_else(|| versio_err!("Can't handle unconventional."))
+      parent_sizes.get("*").copied().map(Ok).unwrap_or_else(|| versio_err!("Unknown kind \"{}\".", kind))
     })
   }
 
@@ -412,6 +418,7 @@ impl FilePicker {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Size {
+  Fail,
   Major,
   Minor,
   Patch,
@@ -419,6 +426,19 @@ pub enum Size {
 }
 
 impl Size {
+  fn is_size(v: &str) -> bool { Size::from_str(v).is_ok() }
+
+  fn from_str(v: &str) -> Result<Size> {
+    match v {
+      "major" => Ok(Size::Major),
+      "minor" => Ok(Size::Minor),
+      "patch" => Ok(Size::Patch),
+      "none" => Ok(Size::None),
+      "fail" => Ok(Size::Fail),
+      other => versio_err!("Unknown size: {}", other)
+    }
+  }
+
   fn parts(v: &str) -> Result<[u32; 3]> {
     let parts: Vec<_> = v.split('.').map(|p| p.parse()).collect::<std::result::Result<_, _>>()?;
     if parts.len() != 3 {
@@ -441,7 +461,8 @@ impl Size {
       Size::Major => format!("{}.{}.{}", parts[0] + 1, 0, 0),
       Size::Minor => format!("{}.{}.{}", parts[0], parts[1] + 1, 0),
       Size::Patch => format!("{}.{}.{}", parts[0], parts[1], parts[2] + 1),
-      Size::None => format!("{}.{}.{}", parts[0], parts[1], parts[2])
+      Size::None => format!("{}.{}.{}", parts[0], parts[1], parts[2]),
+      Size::Fail => return versio_err!("'fail' size encountered.")
     };
 
     Ok(newv)
@@ -454,7 +475,8 @@ impl fmt::Display for Size {
       Size::Major => write!(f, "major"),
       Size::Minor => write!(f, "minor"),
       Size::Patch => write!(f, "patch"),
-      Size::None => write!(f, "none")
+      Size::None => write!(f, "none"),
+      Size::Fail => write!(f, "fail")
     }
   }
 }
@@ -466,12 +488,17 @@ impl PartialOrd for Size {
 impl Ord for Size {
   fn cmp(&self, other: &Size) -> Ordering {
     match self {
+      Size::Fail => match other {
+        Size::Fail => Ordering::Equal,
+        _ => Ordering::Greater
+      },
       Size::Major => match other {
+        Size::Fail => Ordering::Less,
         Size::Major => Ordering::Equal,
         _ => Ordering::Greater
       },
       Size::Minor => match other {
-        Size::Major => Ordering::Less,
+        Size::Major | Size::Fail => Ordering::Less,
         Size::Minor => Ordering::Equal,
         _ => Ordering::Greater
       },
@@ -501,13 +528,39 @@ fn deserialize_sizes<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<
       M: MapAccess<'de>
     {
       let mut result = HashMap::new();
-      while let Some((val, keys)) = map.next_entry::<Size, Vec<String>>()? {
-        for key in keys {
-          if result.contains_key(&key) {
-            return Err(de::Error::custom(format!("Duplicated kind \"{}\".", key)));
+      let mut using_angular = false;
+
+      while let Some(val) = map.next_key::<String>()? {
+        match val.as_str() {
+          val if Size::is_size(val) => {
+            let size = Size::from_str(val).unwrap();
+            let keys: Vec<String> = map.next_value()?;
+            for key in keys {
+              if result.contains_key(&key) {
+                return Err(de::Error::custom(format!("Duplicated kind \"{}\".", key)));
+              }
+              result.insert(key, size);
+            }
           }
-          result.insert(key, val);
+          "use_angular" => {
+            using_angular = map.next_value()?;
+          }
+          _ => return Err(de::Error::custom(format!("Unrecognized sizes key \"{}\".", val)))
         }
+      }
+
+      // Based on the angular standard:
+      // https://github.com/angular/angular.js/blob/master/DEVELOPERS.md#-git-commit-guidelines
+      if using_angular {
+        insert_if_missing(&mut result, "feat", Size::Minor);
+        insert_if_missing(&mut result, "fix", Size::Patch);
+        insert_if_missing(&mut result, "docs", Size::None);
+        insert_if_missing(&mut result, "style", Size::None);
+        insert_if_missing(&mut result, "refactor", Size::None);
+        insert_if_missing(&mut result, "perf", Size::None);
+        insert_if_missing(&mut result, "test", Size::None);
+        insert_if_missing(&mut result, "chore", Size::None);
+        insert_if_missing(&mut result, "build", Size::None);
       }
 
       Ok(result)
@@ -515,6 +568,12 @@ fn deserialize_sizes<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<
   }
 
   desr.deserialize_map(MapVisitor)
+}
+
+fn insert_if_missing(result: &mut HashMap<String, Size>, key: &str, val: Size) {
+  if !result.contains_key(key) {
+    result.insert(key.to_string(), val);
+  }
 }
 
 #[cfg(test)]

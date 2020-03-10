@@ -13,7 +13,7 @@ mod toml;
 mod yaml;
 
 use crate::error::Result;
-use crate::git::{add_and_commit, fetch, get_changed_since, merge_after_fetch, prev_blob, FetchResults};
+use crate::git::{add_and_commit, fetch, get_changed_since, has_prev_blob, merge_after_fetch, prev_blob, FetchResults};
 use git2::{Oid, Repository};
 use regex::Regex;
 use std::path::{Path, PathBuf};
@@ -24,11 +24,13 @@ pub const CONFIG_FILENAME: &str = ".versio.yaml";
 pub trait Source {
   fn root_dir(&self) -> &Path;
   fn load(&self, rel_path: &Path) -> Result<Option<NamedData>>;
+  fn has(&self, rel_path: &Path) -> Result<bool>;
 }
 
 impl<S: Source> Source for &S {
   fn root_dir(&self) -> &Path { <S as Source>::root_dir(*self) }
   fn load(&self, rel_path: &Path) -> Result<Option<NamedData>> { <S as Source>::load(*self, rel_path) }
+  fn has(&self, rel_path: &Path) -> Result<bool> { <S as Source>::has(*self, rel_path) }
 }
 
 pub struct CurrentSource {
@@ -45,6 +47,8 @@ impl CurrentSource {
 
 impl Source for CurrentSource {
   fn root_dir(&self) -> &Path { &self.root_dir }
+
+  fn has(&self, rel_path: &Path) -> Result<bool> { Ok(self.root_dir.join(rel_path).exists()) }
 
   fn load(&self, rel_path: &Path) -> Result<Option<NamedData>> {
     let path = self.root_dir.join(rel_path);
@@ -84,6 +88,8 @@ impl PrevSource {
     Ok(PrevSource { root_dir: root_dir.to_path_buf(), inner: Arc::new(Mutex::new(inner)) })
   }
 
+  pub fn using_remote(&self) -> Result<bool> { self.inner.lock()?.using_remote() }
+
   pub fn set_fetch(&mut self, fetch: bool) -> Result<()> {
     self.inner.lock()?.set_fetch(fetch);
     Ok(())
@@ -99,6 +105,8 @@ impl PrevSource {
 
 impl Source for PrevSource {
   fn root_dir(&self) -> &Path { &self.root_dir }
+
+  fn has(&self, rel_path: &Path) -> Result<bool> { self.inner.lock()?.has(rel_path) }
 
   fn load(&self, rel_path: &Path) -> Result<Option<NamedData>> { self.inner.lock()?.load(rel_path) }
 }
@@ -117,9 +125,21 @@ impl PrevSourceInner {
     Ok(PrevSourceInner { repo, should_fetch: true, will_merge: false, fetch_results: None, merged: false })
   }
 
+  fn using_remote(&self) -> Result<bool> {
+    match &self.fetch_results {
+      None => versio_err!("Haven't tried to fetch yet."),
+      Some(fetch_results) => Ok(fetch_results.remote_name.is_some())
+    }
+  }
+
   fn set_fetch(&mut self, fetch: bool) { self.should_fetch = fetch; }
 
   fn set_merge(&mut self, merge: bool) { self.will_merge = merge; }
+
+  fn has(&mut self, rel_path: &Path) -> Result<bool> {
+    self.maybe_fetch()?;
+    has_prev_blob(&self.repo, rel_path)
+  }
 
   fn load<P: AsRef<Path>>(&mut self, rel_path: P) -> Result<Option<NamedData>> {
     self.maybe_fetch()?;

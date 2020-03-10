@@ -91,10 +91,11 @@ projects:
       json: "version"
 
 sizes:
-  major: [ break, "-" ]
-  minor: [ feat ]
-  patch: [ fix ]
-  none: [ none ]
+  use_angular: true
+  major [ breaking ]
+  minor [ minor ]
+  patch [ "*" ]
+  fail: [ "-" ]
 ```
 
 Now, Versio can scan your commits to determine how it should increment
@@ -105,6 +106,22 @@ change matching any glob pattern of the project's "covers" key. The
 _size_ of a commit is determined by the type of its [conventional
 commit](https://www.conventionalcommits.org/en/v1.0.0/) message, as it
 maps to the "sizes" property in the Versio config.
+
+If you include the `use_angular: true` key in your sizes, then the
+following angular conventions will be added to your sizes unless you
+override them: `minor: [ feat ]`, `patch: [ fix ]`, and `none: [ docs,
+style, refactor, perf, test, chore, build ]`.
+
+"-" is a special type which matches all non-conventional commits. "\*"
+is a special type which matches all commit types that are not matched
+elsewhere (including non-conventional commits, if "-" is not listed
+elsewhere). If you don't provide a "\*" type in your sizes config, the
+versio run will exit in error as soon as an unmatched commit message is
+encountered.
+
+The "none" size indicates that a matched commit shouldn't trigger a
+version increment. The "fail" size indicates that the run process should
+plan to fail, rather than increment, if a matching type is encountered.
 
 Versio uses a tag named `versio-prev` to indicate where it should start
 scanning for commits. This bounds the work it has to do, and also allows
@@ -138,7 +155,8 @@ Changes committed and pushed.
 The `run` command will:
 
 1. fetch the latest branches from the "origin" remote
-1. merge the current branch from the remote
+1. merge the current branch from the remote into the clean and current
+   working dir
 1. scan through the git log for conventional commits since the 
    `versio-prev` tag
 1. find the size for each commit
@@ -148,13 +166,18 @@ The `run` command will:
 1. re-assign the `versio-prev` tag to that latest commit
 1. push both the commit and the tag to the remote
 
-It's important to note that plans are built with respect to **previous**
-projects and covers. That is, Versio will read the `.versio.yaml` file
-as it existed in the past (at the `versio-prev` tag) to determine which
-projects need to be incremented, and what version they need to be
-incremented to. New projects that were added since then will not be
-incremented, nor will projects which have already been incremented by at
-least the correct amount.
+The fetch, merge, and push steps are not performed if the repository
+doesn't have any remotes added.
+
+### Plans
+
+Plans are built with respect to **previous** projects and covers. That
+is, Versio will read the `.versio.yaml` file as it existed in the past
+(at the `versio-prev` tag) to determine which projects need to be
+incremented, and what version they need to be incremented to. New
+projects that were added since then will not be incremented, nor will
+projects which have already been incremented by at least the correct
+amount.
 
 Of course, the `.versio.yaml` file might itself have gone through
 several iterations since `versio-prev`, corresponding to changes in the
@@ -178,7 +201,7 @@ is guaranteed to keep version up-to-date when it succeeds. Additionally,
 Versio will not interfere with manual version increments, as long as
 they're sized large enough.
 
-## Troubleshooting:
+## Troubleshooting
 
 If you rebase your branch, it might cause the last `versio-prev` tag to
 no longer be an ancestor of your latest commit. In that case, Versio
@@ -188,7 +211,9 @@ versions.
 If you perform such a rebase, you should manually move the `versio-prev`
 tag to the corresponding commit on your new branch, with the
 command-line `git tag -f versio-prev (new commit sha)`, or something
-similar.
+similar. If your repo has a remote, you should also push this tag with
+e.g. `git push --tags --force`, or else it will be reverted when versio
+pulls the tag.
 
 If you suspect that Versio is not tracking commits, you can have it
 stream out all files that it considers with the `versio files` command;
@@ -201,9 +226,10 @@ fix : path/to/file.txt
 ```
 
 Each line is a conventional commit type, followed by `:`, followed by a
-path to a file. This stream of files forms the basis of the increment
-plan. You can see the plan itself using the `versio plan` command, which
-outputs exactly the sizes it hopes to apply to each project:
+path to a file which has been altered since the previous tag. This
+stream of files forms the basis of the increment plan. You can see the
+plan itself using the `versio plan` command, which outputs exactly the
+sizes it hopes to apply to each project:
 
 ```
 $ versio plan
@@ -222,7 +248,7 @@ Unchanged versions:
   codebase : 1.0.1
 ```
 
-Or just get or show projects from the previous version:
+Or just show projects from the previous version:
 
 ```
 $ versio show --prev
@@ -240,14 +266,20 @@ Executing plan:
 Dry run: no actual changes.
 ```
 
-Most of these commands will fetch from the remote first to ensure that
-you have the correct `versio-prev` and branch data. This will fail if
-your current working directory is not "clean": that is, if you're in the
-middle of a manual merge, conflict resolution, rebase, etc. You can skip
-the fetch by supplying the `--no-fetch` (`-F`) flag.
+Most of these commands will fetch from the repo's remote first (if it
+exists) to ensure that you have the correct `versio-prev` tag and branch
+data. This will fail if your current working directory is not "clean":
+that is, if you're in the middle of a manual merge, conflict resolution,
+rebase, etc. You can skip the fetch by supplying the `--no-fetch` (`-F`)
+flag.
 
 `--no-fetch` will only work on the `run` command if `--dry-run` is also
 supplied. On a real run to avoid conflicts, fetching is always enforced.
-Additionally, a real run check that the repository is "current": that
-is, there are no uncommitted, modified, or untracked files in the
-working directory, and will halt if that check fails.
+Additionally, a real run won't proceed if the repository isn't
+"current": that is, there are no uncommitted, modified, or untracked
+files in the working directory. If you have such changes, you must
+commit or stash them before `versio run`.
+
+Finally, you can use the `--all` (`-A`) flag to `run`, which will also
+generate a "no change" message for projects that haven't been
+incremented.

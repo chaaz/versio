@@ -382,7 +382,11 @@ pub fn run(prev: &PrevSource, curt: &CurrentSource, all: bool, dry: bool) -> Res
     if dry {
       println!("Dry run: no actual changes.");
     } else if prev.repo()?.add_and_commit()?.is_some() {
-      println!("Changes committed and pushed.");
+      if prev.using_remote()? {
+        println!("Changes committed and pushed.");
+      } else {
+        println!("Changes committed.");
+      }
     } else {
       return versio_err!("No file changes found somehow.");
     }
@@ -394,7 +398,12 @@ pub fn run(prev: &PrevSource, curt: &CurrentSource, all: bool, dry: bool) -> Res
   Ok(())
 }
 
-fn check(curt: CurrentSource) -> Result<()> { Config::from_source(curt)?.check() }
+fn check(curt: CurrentSource) -> Result<()> {
+  if !Config::has_config_file(&curt)? {
+    return versio_err!("No versio config file found.");
+  }
+  Config::from_source(curt)?.check()
+}
 
 fn show<S: Source>(source: S, fmt: ShowFormat) -> Result<()> { Config::from_source(source)?.show(fmt) }
 

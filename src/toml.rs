@@ -1,9 +1,9 @@
 //! Utilities to find a mark in a TOML file.
 
 use crate::error::Result;
-use crate::parts::{IntoPartVec, Part};
 #[cfg(test)]
 use crate::parts::ToPart;
+use crate::parts::{IntoPartVec, Part};
 use crate::{Mark, MarkedData, NamedData, Scanner};
 use serde::de::{self, DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Unexpected, Visitor};
 use toml::Spanned;
