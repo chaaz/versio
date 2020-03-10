@@ -1,14 +1,16 @@
+//! Versio is a version management utility.
+
 #[macro_use]
-pub mod error;
-pub mod analyze;
-pub mod config;
-pub mod either;
-pub mod git;
-pub mod json;
-pub mod opts;
-pub mod parts;
-pub mod toml;
-pub mod yaml;
+mod error;
+mod analyze;
+mod config;
+mod either;
+mod git;
+mod json;
+mod opts;
+mod parts;
+mod toml;
+mod yaml;
 
 use crate::error::Result;
 use crate::git::{add_and_commit, fetch, get_changed_since, merge_after_fetch, prev_blob, FetchResults};

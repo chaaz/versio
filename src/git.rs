@@ -1,3 +1,5 @@
+//! Interactions with git.
+
 use crate::either::IterEither as E;
 use crate::error::Result;
 use git2::build::CheckoutBuilder;

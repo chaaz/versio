@@ -1,3 +1,5 @@
+//! Targets for finding a version in a file.
+
 use serde::de::{self, Deserialize, Deserializer, SeqAccess, Visitor};
 use std::fmt;
 

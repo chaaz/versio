@@ -34,7 +34,6 @@ pub struct AnnotatedMark {
 
 impl AnnotatedMark {
   pub fn new(id: u32, name: String, mark: MarkedData) -> AnnotatedMark { AnnotatedMark { id, name, mark } }
-  pub fn id(&self) -> u32 { self.id }
   pub fn name(&self) -> &str { &self.name }
   pub fn mark(&self) -> &MarkedData { &self.mark }
 }
@@ -52,7 +51,6 @@ impl<'a> Analysis<'a> {
 }
 
 pub struct Change<'a> {
-  old_mark: &'a AnnotatedMark,
   new_mark: &'a AnnotatedMark,
   name: Option<(&'a str, &'a str)>,
   value: Option<(&'a str, &'a str)>
@@ -60,10 +58,9 @@ pub struct Change<'a> {
 
 impl<'a> Change<'a> {
   pub fn new(
-    old_mark: &'a AnnotatedMark, new_mark: &'a AnnotatedMark, name: Option<(&'a str, &'a str)>,
-    value: Option<(&'a str, &'a str)>
+    new_mark: &'a AnnotatedMark, name: Option<(&'a str, &'a str)>, value: Option<(&'a str, &'a str)>
   ) -> Change<'a> {
-    Change { old_mark, new_mark, name, value }
+    Change { new_mark, name, value }
   }
 
   pub fn calc(old: &'a AnnotatedMark, new: &'a AnnotatedMark) -> Change<'a> {
@@ -72,10 +69,9 @@ impl<'a> Change<'a> {
     let value =
       if old.mark.value() == new.mark().value() { None } else { Some((old.mark().value(), new.mark().value())) };
 
-    Change::new(old, new, name, value)
+    Change::new(new, name, value)
   }
 
-  pub fn old_mark(&self) -> &'a AnnotatedMark { self.old_mark }
   pub fn new_mark(&self) -> &'a AnnotatedMark { self.new_mark }
   pub fn name(&self) -> &Option<(&'a str, &'a str)> { &self.name }
   pub fn value(&self) -> &Option<(&'a str, &'a str)> { &self.value }

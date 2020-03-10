@@ -1,7 +1,9 @@
 //! Utilities to find a mark in a TOML file.
 
 use crate::error::Result;
-use crate::parts::{IntoPartVec, Part, ToPart};
+use crate::parts::{IntoPartVec, Part};
+#[cfg(test)]
+use crate::parts::ToPart;
 use crate::{Mark, MarkedData, NamedData, Scanner};
 use serde::de::{self, DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Unexpected, Visitor};
 use toml::Spanned;
@@ -12,6 +14,8 @@ pub struct TomlScanner {
 
 impl TomlScanner {
   pub fn new<P: IntoPartVec>(target: P) -> TomlScanner { TomlScanner { target: target.into_part_vec() } }
+
+  #[cfg(test)]
   pub fn from_parts(target: &[&dyn ToPart]) -> TomlScanner { TomlScanner { target: target.into_part_vec() } }
 }
 
