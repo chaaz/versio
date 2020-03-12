@@ -1,24 +1,21 @@
 //! A sum type for different kinds of iterators.
 
-pub enum IterEither<A, B, C> {
+pub enum IterEither2<A, B> {
   A(A),
-  B(B),
-  C(C)
+  B(B)
 }
 
-impl<A, B, C> Iterator for IterEither<A, B, C>
+impl<A, B> Iterator for IterEither2<A, B>
 where
   A: Iterator,
-  B: Iterator<Item = A::Item>,
-  C: Iterator<Item = A::Item>
+  B: Iterator<Item = A::Item>
 {
   type Item = A::Item;
 
   fn next(&mut self) -> Option<A::Item> {
     match self {
-      IterEither::A(a) => a.next(),
-      IterEither::B(b) => b.next(),
-      IterEither::C(c) => c.next()
+      IterEither2::A(a) => a.next(),
+      IterEither2::B(b) => b.next()
     }
   }
 }

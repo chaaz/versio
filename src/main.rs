@@ -5,7 +5,7 @@ mod error;
 mod analyze;
 mod config;
 mod either;
-mod git;
+pub mod git;
 mod json;
 mod opts;
 mod parts;

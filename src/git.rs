@@ -1,12 +1,12 @@
 //! Interactions with git.
 
-use crate::either::IterEither as E;
+use crate::either::IterEither2 as E2;
 use crate::error::Result;
 use git2::build::CheckoutBuilder;
 use git2::{
   AnnotatedCommit, AutotagOption, Blob, Commit, Cred, Diff, DiffOptions, FetchOptions, ObjectType, Oid, PushOptions,
   Reference, ReferenceType, Remote, RemoteCallbacks, Repository, RepositoryState, ResetType, Signature, Status,
-  StatusOptions
+  StatusOptions, Time
 };
 use std::io::{stdout, Write};
 use std::path::{Path, PathBuf};
@@ -29,6 +29,17 @@ pub fn prev_blob<P: AsRef<Path>>(repo: &Repository, path: P) -> Result<Option<Bl
   let path_string = path.as_ref().to_string_lossy();
   let obj = repo.revparse_single(&format!("{}:{}", PREV_TAG_NAME, &path_string)).ok();
   obj.map(|obj| obj.into_blob().map_err(|e| versio_error!("Not a file: {} : {:?}", path_string, e))).transpose()
+}
+
+pub fn get_prev_date(repo: &Repository) -> Result<Option<Time>> {
+  let obj = repo.revparse_single(&format!("{}^{{}}", PREV_TAG_NAME)).ok();
+  let commit = obj
+    .map(move |obj| {
+      let id = obj.id();
+      obj.into_commit().map_err(move |e| versio_error!("Not a commit: {} : {:?}", id, e))
+    })
+    .transpose()?;
+  Ok(commit.map(|c| c.time()))
 }
 
 pub fn fetch(repo: &Repository, remote_name: Option<&str>, remote_branch: Option<&str>) -> Result<FetchResults> {
@@ -270,7 +281,37 @@ pub fn get_name_and_branch(
   Ok((remote_name, remote_branch))
 }
 
-pub fn get_changed_since<'a>(repo: &'a Repository) -> Result<impl Iterator<Item = Result<(String, String)>> + 'a> {
+pub struct CommitInfo<'a> {
+  repo: &'a Repository,
+  commit: Commit<'a>
+}
+
+impl<'a> CommitInfo<'a> {
+  pub fn new(repo: &'a Repository, commit: Commit<'a>) -> CommitInfo<'a> { CommitInfo { repo, commit } }
+
+  pub fn kind(&self) -> &str {
+    let summary = self.commit.summary().unwrap_or("-");
+    match summary.char_indices().find(|(_, c)| *c == ':' || *c == '(').map(|(i, _)| i) {
+      Some(i) => &summary[0 .. i].trim(),
+      None => "-"
+    }
+  }
+
+  pub fn files(&self) -> Result<impl Iterator<Item = String> + 'a> {
+    if self.commit.parents().len() == 1 {
+      let parent = self.commit.parent(0)?;
+      let ptree = parent.tree()?;
+      let ctree = self.commit.tree()?;
+      let diff = self.repo.diff_tree_to_tree(Some(&ptree), Some(&ctree), Some(&mut DiffOptions::new()))?;
+      let iter = DeltaIter::new(diff);
+      Ok(E2::A(iter.map(move |path| path.to_string_lossy().into_owned())))
+    } else {
+      Ok(E2::B(std::iter::empty()))
+    }
+  }
+}
+
+pub fn get_commits_since<'a>(repo: &'a Repository) -> Result<impl Iterator<Item = Result<CommitInfo<'a>>> + 'a> {
   let mut revwalk = repo.revwalk()?;
   if let Ok(prev_spec) = repo.revparse_single(PREV_TAG_NAME) {
     revwalk.hide(prev_spec.id())?;
@@ -280,37 +321,16 @@ pub fn get_changed_since<'a>(repo: &'a Repository) -> Result<impl Iterator<Item 
   let head_spec = repo.revparse_single("HEAD")?;
   revwalk.push(head_spec.id())?;
 
-  macro_rules! try1 {
-    ($e:expr) => {
-      match $e {
-        Ok(t) => t,
-        Err(e) => return E::A(std::iter::once(Err(crate::error::Error::from(e))))
-      }
-    };
-  }
+  Ok(revwalk.map(move |id| Ok(CommitInfo::new(repo, repo.find_commit(id?)?))))
+}
 
-  Ok(revwalk.flat_map(move |id| {
-    let id = try1!(id);
-    let commit = try1!(repo.find_commit(id));
-    let summary = commit.summary().unwrap_or("-");
-    let kind = match summary.char_indices().find(|(_, c)| *c == ':' || *c == '(').map(|(i, _)| i) {
-      Some(i) => &summary[0 .. i].trim(),
-      None => "-"
-    };
-    let kind = kind.to_string();
-
-    if commit.parents().len() == 1 {
-      let parent = try1!(commit.parent(0));
-      let mut diffopts = DiffOptions::new();
-      let ptree = try1!(parent.tree());
-      let ctree = try1!(commit.tree());
-      let diff = try1!(repo.diff_tree_to_tree(Some(&ptree), Some(&ctree), Some(&mut diffopts)));
-      let iter = DeltaIter::new(diff);
-      E::B(iter.map(move |path| Ok((kind.clone(), path.to_string_lossy().into_owned()))))
-    } else {
-      E::C(std::iter::empty())
-    }
-  }))
+pub fn get_changed_since<'a>(repo: &'a Repository) -> Result<impl Iterator<Item = Result<(String, String)>> + 'a> {
+  get_commits_since(repo).map(|cmts| {
+    cmts.flat_map(|cmt| match cmt.and_then(|cmt| cmt.files().map(|files| (cmt.kind().to_string(), files))) {
+      Ok((kind, files)) => E2::A(files.map(move |f| Ok((kind.clone(), f)))),
+      Err(e) => E2::B(std::iter::once(Err(e)))
+    })
+  })
 }
 
 struct DeltaIter<'repo> {
