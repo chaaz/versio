@@ -322,9 +322,7 @@ pub struct CommitInfo<'a> {
 impl<'a> CommitInfo<'a> {
   pub fn new(repo: &'a Repository, commit: Commit<'a>) -> CommitInfo<'a> { CommitInfo { repo, commit } }
 
-  pub fn kind(&self) -> String {
-    extract_kind(self.commit.summary().unwrap_or("-"))
-  }
+  pub fn kind(&self) -> String { extract_kind(self.commit.summary().unwrap_or("-")) }
 
   pub fn files(&self) -> Result<impl Iterator<Item = String> + 'a> {
     if self.commit.parents().len() == 1 {
@@ -355,7 +353,7 @@ pub fn get_commits_since<'a>(repo: &'a Repository) -> Result<impl Iterator<Item 
 
 pub fn get_changed_since<'a>(repo: &'a Repository) -> Result<impl Iterator<Item = Result<(String, String)>> + 'a> {
   get_commits_since(repo).map(|cmts| {
-    cmts.flat_map(|cmt| match cmt.and_then(|cmt| cmt.files().map(|files| (cmt.kind().to_string(), files))) {
+    cmts.flat_map(|cmt| match cmt.and_then(|cmt| cmt.files().map(|files| (cmt.kind(), files))) {
       Ok((kind, files)) => E2::A(files.map(move |f| Ok((kind.clone(), f)))),
       Err(e) => E2::B(std::iter::once(Err(e)))
     })
@@ -374,16 +372,15 @@ fn extract_kind(summary: &str) -> String {
           if bang && !kind.ends_with('!') {
             format!("{}!", kind)
           } else {
-            kind.to_string()
+            (*kind).to_string()
           }
         }
-        None => kind.to_string()
+        None => (*kind).to_string()
       }
     }
     None => "-".to_string()
   }
 }
-
 
 struct DeltaIter<'repo> {
   diff: Diff<'repo>,

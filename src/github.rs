@@ -51,6 +51,24 @@ fragment commitResult on Commit {
           number
           body
           bodyHTML
+          headRefName
+          headRefOid
+          headRef {
+            id
+            name
+            target {
+              abbreviatedOid
+            }
+          }
+          baseRefName
+          baseRefOid
+          baseRef {
+            id
+            name
+            target {
+              abbreviatedOid
+            }
+          }
         }
       }
     }
@@ -88,6 +106,8 @@ fragment commitResult on Commit {
     println!("  title: {}", pr.title);
     println!("  body: {}", pr.body);
     println!("  body (html): {}", pr.body_html);
+    println!("  base oid: {}", pr.base_ref_oid);
+    println!("  head oid: {}", pr.head_ref_oid);
     println!("  commits:");
     for commit in &pr.commits {
       println!("  - oid: {}", commit.abbreviated_oid);
@@ -195,7 +215,9 @@ impl<'de> Deserialize<'de> for Changes {
                 title: pr.title,
                 body: pr.body,
                 body_html: pr.body_html,
-                commits: Vec::new()
+                commits: Vec::new(),
+                head_ref_oid: pr.head_ref_oid,
+                base_ref_oid: pr.base_ref_oid
               });
               pr_info.commits.push(commit_info.clone());
             }
@@ -230,7 +252,9 @@ struct PrInfo {
   title: String,
   body: String,
   body_html: String,
-  commits: Vec<CommitInfo>
+  commits: Vec<CommitInfo>,
+  head_ref_oid: String,
+  base_ref_oid: String
 }
 
 #[derive(Deserialize)]
@@ -269,7 +293,35 @@ struct PrEdgeNode {
   body: String,
   #[serde(rename = "bodyHTML")]
   body_html: String,
-  title: String
+  title: String,
+  #[serde(rename = "headRef")]
+  _head_ref: Option<Ref>,
+  #[serde(rename = "headRefName")]
+  _head_ref_name: String,
+  #[serde(rename = "headRefOid")]
+  head_ref_oid: String,
+  #[serde(rename = "baseRef")]
+  _base_ref: Option<Ref>,
+  #[serde(rename = "baseRefName")]
+  _base_ref_name: String,
+  #[serde(rename = "baseRefOid")]
+  base_ref_oid: String
+}
+
+#[derive(Deserialize)]
+struct Ref {
+  #[serde(rename = "id")]
+  _id: String,
+  #[serde(rename = "name")]
+  _name: String,
+  #[serde(rename = "target")]
+  _target: RefTarget
+}
+
+#[derive(Deserialize)]
+struct RefTarget {
+  #[serde(rename = "abbreviatedOid")]
+  _abbreviated_oid: String
 }
 
 #[derive(Deserialize)]
