@@ -322,12 +322,8 @@ pub struct CommitInfo<'a> {
 impl<'a> CommitInfo<'a> {
   pub fn new(repo: &'a Repository, commit: Commit<'a>) -> CommitInfo<'a> { CommitInfo { repo, commit } }
 
-  pub fn kind(&self) -> &str {
-    let summary = self.commit.summary().unwrap_or("-");
-    match summary.char_indices().find(|(_, c)| *c == ':' || *c == '(').map(|(i, _)| i) {
-      Some(i) => &summary[0 .. i].trim(),
-      None => "-"
-    }
+  pub fn kind(&self) -> String {
+    extract_kind(self.commit.summary().unwrap_or("-"))
   }
 
   pub fn files(&self) -> Result<impl Iterator<Item = String> + 'a> {
@@ -365,6 +361,29 @@ pub fn get_changed_since<'a>(repo: &'a Repository) -> Result<impl Iterator<Item 
     })
   })
 }
+
+fn extract_kind(summary: &str) -> String {
+  // TODO: only search as far as newline ?
+  match summary.char_indices().find(|(_, c)| *c == ':').map(|(i, _)| i) {
+    Some(i) => {
+      let kind = &summary[0 .. i].trim();
+      let bang = kind.ends_with('!');
+      match kind.char_indices().find(|(_, c)| *c == '(').map(|(i, _)| i) {
+        Some(i) => {
+          let kind = &kind[0 .. i].trim();
+          if bang && !kind.ends_with('!') {
+            format!("{}!", kind)
+          } else {
+            kind.to_string()
+          }
+        }
+        None => kind.to_string()
+      }
+    }
+    None => "-".to_string()
+  }
+}
+
 
 struct DeltaIter<'repo> {
   diff: Diff<'repo>,
@@ -423,5 +442,35 @@ impl<'repo> DeltaIter<'repo> {
     }
 
     self.on >= self.len
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use super::extract_kind;
+
+  #[test]
+  fn test_kind_simple() {
+    assert_eq!(&extract_kind("thing: this is thing"), "thing");
+  }
+
+  #[test]
+  fn test_kind_bang() {
+    assert_eq!(&extract_kind("thing! : this is thing"), "thing!");
+  }
+
+  #[test]
+  fn test_kind_paren() {
+    assert_eq!(&extract_kind("thing(scope): this is thing"), "thing");
+  }
+
+  #[test]
+  fn test_kind_complex() {
+    assert_eq!(&extract_kind("thing(scope)!: this is thing"), "thing!");
+  }
+
+  #[test]
+  fn test_kind_backwards() {
+    assert_eq!(&extract_kind("thing!(scope): this is thing"), "thing!");
   }
 }
