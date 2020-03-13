@@ -7,7 +7,7 @@ use crate::parts::{deserialize_parts, Part};
 use crate::toml::TomlScanner;
 use crate::yaml::YamlScanner;
 use crate::{CurrentSource, Mark, MarkedData, NamedData, PrevSource, Scanner, Source, CONFIG_FILENAME};
-use glob::{glob, Pattern};
+use glob::{glob_with, MatchOptions, Pattern};
 use regex::Regex;
 use serde::de::{self, Deserializer, MapAccess, Visitor};
 use serde::Deserialize;
@@ -279,14 +279,14 @@ impl Project {
       if val.is_err() || *val.as_ref().unwrap() {
         return val;
       }
-      Ok(Pattern::new(cov)?.matches(path))
+      Ok(Pattern::new(cov)?.matches_with(path, match_opts()))
     })
   }
 
   fn check(&self, source: &dyn Source) -> Result<()> {
     self.located.get_mark(source)?;
     for cover in &self.covers {
-      if glob(cover)?.count() == 0 {
+      if glob_with(cover, match_opts())?.count() == 0 {
         return versio_err!("No files covered by \"{}\".", cover);
       }
     }
@@ -575,6 +575,8 @@ fn insert_if_missing(result: &mut HashMap<String, Size>, key: &str, val: Size) {
     result.insert(key.to_string(), val);
   }
 }
+
+fn match_opts() -> MatchOptions { MatchOptions { require_literal_separator: true, ..Default::default() } }
 
 #[cfg(test)]
 mod test {

@@ -31,6 +31,39 @@ pub fn prev_blob<P: AsRef<Path>>(repo: &Repository, path: P) -> Result<Option<Bl
   obj.map(|obj| obj.into_blob().map_err(|e| versio_error!("Not a file: {} : {:?}", path_string, e))).transpose()
 }
 
+pub fn github_owner_name_branch(repo: &Repository) -> Result<Option<(String, String, String)>> {
+  let (remote_name, branch) = get_name_and_branch(repo, None, None)?;
+  let remote_name = match remote_name {
+    Some(remote_name) => remote_name,
+    None => return Ok(None)
+  };
+  let remote = repo.find_remote(&remote_name)?;
+
+  let url = remote.url().ok_or_else(|| versio_error!("Invalid utf8 remote url."))?;
+  let owner_name = if url.starts_with("https://github.com/") {
+    Some(&url[19 ..])
+  } else if url.starts_with("git@github.com:") {
+    Some(&url[15 ..])
+  } else {
+    None
+  };
+
+  let owner_name = owner_name.and_then(|owner_name| {
+    let len = owner_name.len();
+    let owner_name = if owner_name.ends_with(".git") { &owner_name[0 .. len - 4] } else { owner_name };
+
+    let slash = owner_name.char_indices().find(|(_, c)| *c == '/').map(|(i, _)| i);
+    slash.map(|slash| (owner_name[0 .. slash].to_string(), owner_name[slash + 1 ..].to_string()))
+  });
+
+  Ok(owner_name.map(|owner_name| (owner_name.0, owner_name.1, branch)))
+}
+
+pub fn get_exclude_prev_tag(repo: &Repository) -> Result<String> {
+  let obj = repo.revparse_single(&format!("{}^{{}}", PREV_TAG_NAME)).ok();
+  Ok(obj.map(|obj| obj.id().to_string()).unwrap_or_else(|| "^".to_string()))
+}
+
 pub fn get_prev_date(repo: &Repository) -> Result<Option<Time>> {
   let obj = repo.revparse_single(&format!("{}^{{}}", PREV_TAG_NAME)).ok();
   let commit = obj

@@ -65,6 +65,10 @@ impl From<glob::PatternError> for Error {
   fn from(err: glob::PatternError) -> Error { Error { description: format!("glob error {:?}", err) } }
 }
 
+impl From<github_gql::errors::Error> for Error {
+  fn from(err: github_gql::errors::Error) -> Error { Error { description: format!("github error {:?}", err) } }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]

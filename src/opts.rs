@@ -182,6 +182,12 @@ pub fn execute() -> Result<()> {
         )
         .display_order(1)
     )
+    .subcommand(
+      SubCommand::with_name("changes")
+        .setting(AppSettings::UnifiedHelpMessage)
+        .about("Find versions that need to change")
+        .display_order(1)
+    )
     .get_matches();
 
   parse_matches(m)
@@ -259,6 +265,7 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
       }
       run(&prev, &curt, m.is_present("all"), m.is_present("dry"))
     }
+    ("changes", _) => changes(&prev),
     ("", _) => empty_cmd(),
     (c, _) => unknown_cmd(c)
   }
@@ -397,6 +404,8 @@ pub fn run(prev: &PrevSource, curt: &CurrentSource, all: bool, dry: bool) -> Res
 
   Ok(())
 }
+
+fn changes(prev: &PrevSource) -> Result<()> { prev.changes() }
 
 fn check(curt: CurrentSource) -> Result<()> {
   if !Config::has_config_file(&curt)? {

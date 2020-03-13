@@ -5,7 +5,8 @@ mod error;
 mod analyze;
 mod config;
 mod either;
-pub mod git;
+mod git;
+mod github;
 mod json;
 mod opts;
 mod parts;
@@ -13,7 +14,11 @@ mod toml;
 mod yaml;
 
 use crate::error::Result;
-use crate::git::{add_and_commit, fetch, get_changed_since, has_prev_blob, merge_after_fetch, prev_blob, FetchResults};
+use crate::git::{
+  add_and_commit, fetch, get_changed_since, get_exclude_prev_tag, get_prev_date, github_owner_name_branch,
+  has_prev_blob, merge_after_fetch, prev_blob, FetchResults
+};
+use crate::github::changes;
 use git2::{Oid, Repository};
 use regex::Regex;
 use std::path::{Path, PathBuf};
@@ -100,6 +105,8 @@ impl PrevSource {
     Ok(())
   }
 
+  pub fn changes(&self) -> Result<()> { self.inner.lock()?.changes() }
+
   pub fn repo(&self) -> Result<RepoGuard> { Ok(RepoGuard { guard: self.inner.lock()? }) }
 }
 
@@ -139,6 +146,14 @@ impl PrevSourceInner {
   fn has(&mut self, rel_path: &Path) -> Result<bool> {
     self.maybe_fetch()?;
     has_prev_blob(&self.repo, rel_path)
+  }
+
+  pub fn changes(&self) -> Result<()> {
+    let since = get_prev_date(&self.repo)?.ok_or_else(|| versio_error!("Not a github repo."))?;
+    let exclude = get_exclude_prev_tag(&self.repo)?;
+    let (owner, repo_name, branch) =
+      github_owner_name_branch(&self.repo)?.ok_or_else(|| versio_error!("Not a github repo."))?;
+    changes(owner, repo_name, branch, since, exclude)
   }
 
   fn load<P: AsRef<Path>>(&mut self, rel_path: P) -> Result<Option<NamedData>> {
