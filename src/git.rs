@@ -8,6 +8,7 @@ use git2::{
   Reference, ReferenceType, Remote, RemoteCallbacks, Repository, RepositoryState, ResetType, Signature, Status,
   StatusOptions, Time
 };
+use std::cmp::min;
 use std::io::{stdout, Write};
 use std::path::{Path, PathBuf};
 
@@ -59,20 +60,15 @@ pub fn github_owner_name_branch(repo: &Repository) -> Result<Option<(String, Str
   Ok(owner_name.map(|owner_name| (owner_name.0, owner_name.1, branch)))
 }
 
-pub fn get_exclude_prev_tag(repo: &Repository) -> Result<String> {
+pub fn prev_tag_oid(repo: &Repository) -> Result<String> {
   let obj = repo.revparse_single(&format!("{}^{{}}", PREV_TAG_NAME)).ok();
   Ok(obj.map(|obj| obj.id().to_string()).unwrap_or_else(|| "^".to_string()))
 }
 
-pub fn get_prev_date(repo: &Repository) -> Result<Option<Time>> {
-  let obj = repo.revparse_single(&format!("{}^{{}}", PREV_TAG_NAME)).ok();
-  let commit = obj
-    .map(move |obj| {
-      let id = obj.id();
-      obj.into_commit().map_err(move |e| versio_error!("Not a commit: {} : {:?}", id, e))
-    })
-    .transpose()?;
-  Ok(commit.map(|c| c.time()))
+pub fn get_date(repo: &Repository, sha: &str) -> Result<Time> {
+  let obj = repo.revparse_single(&format!("{}^{{}}", sha))?;
+  let commit = obj.into_commit().map_err(|o| versio_error!("Object {} isn't a commit.", o.id()))?;
+  Ok(commit.time())
 }
 
 pub fn fetch(repo: &Repository, remote_name: Option<&str>, remote_branch: Option<&str>) -> Result<FetchResults> {
@@ -204,7 +200,7 @@ fn do_fetch<'a>(repo: &'a Repository, refs: &[&str], remote: &'a mut Remote) -> 
   fo.remote_callbacks(cb);
 
   fo.download_tags(AutotagOption::All);
-  println!("Fetching {} for repo", remote.name().unwrap());
+  println!("Fetching {:?} from {}", refs, remote.name().unwrap());
   remote.fetch(refs, Some(&mut fo), None)?;
 
   let stats = remote.stats();
@@ -278,7 +274,7 @@ pub fn get_name_and_branch(
 ) -> Result<(Option<String>, String)> {
   let remote_name = name.map(|s| Ok(Some(s.to_string()))).unwrap_or_else(|| {
     let remotes = repo.remotes()?;
-    let name = if remotes.is_empty() {
+    if remotes.is_empty() {
       Ok(None)
     } else if remotes.len() == 1 {
       Ok(Some(remotes.iter().next().unwrap().ok_or_else(|| versio_error!("Non-utf8 remote name."))?.to_string()))
@@ -286,13 +282,7 @@ pub fn get_name_and_branch(
       Ok(Some("origin".to_string()))
     } else {
       versio_err!("Couldn't determine remote name.")
-    };
-    match &name {
-      Ok(Some(name)) => println!("Using remote name \"{}\".", name),
-      Ok(None) => println!("No remote name."),
-      Err(_) => ()
     }
-    name
   })?;
 
   let remote_branch = branch.map(|b| Ok(b.to_string())).unwrap_or_else(|| {
@@ -306,7 +296,6 @@ pub fn get_name_and_branch(
       } else {
         return versio_err!("Current {} is not a branch.", branch_name);
       }
-      println!("Using branch name \"{}\".", branch_name);
       Ok(branch_name.to_string())
     }
   })?;
@@ -324,6 +313,8 @@ impl<'a> CommitInfo<'a> {
 
   pub fn kind(&self) -> String { extract_kind(self.commit.summary().unwrap_or("-")) }
 
+  pub fn id(&self) -> String { self.commit.id().to_string() }
+
   pub fn files(&self) -> Result<impl Iterator<Item = String> + 'a> {
     if self.commit.parents().len() == 1 {
       let parent = self.commit.parent(0)?;
@@ -338,26 +329,44 @@ impl<'a> CommitInfo<'a> {
   }
 }
 
-pub fn get_commits_since<'a>(repo: &'a Repository) -> Result<impl Iterator<Item = Result<CommitInfo<'a>>> + 'a> {
+/// Return all commits as if `git rev-list from_sha..to_sha`, along with the earliest time in that range.
+pub fn dated_shas_between(repo: &Repository, from_sha: &str, to_sha: &str) -> Result<(Vec<String>, Time)> {
   let mut revwalk = repo.revwalk()?;
-  if let Ok(prev_spec) = repo.revparse_single(PREV_TAG_NAME) {
+  if let Ok(prev_spec) = repo.revparse_single(from_sha) {
     revwalk.hide(prev_spec.id())?;
   } else {
     println!("\"{}\" not found, searching all history.", PREV_TAG_NAME);
   }
-  let head_spec = repo.revparse_single("HEAD")?;
+  let head_spec = repo.revparse_single(to_sha)?;
+  revwalk.push(head_spec.id())?;
+
+  revwalk
+    .try_fold::<_, _, Result<Option<(Vec<String>, Time)>>>(None, |v, oid| {
+      let oid = oid?;
+      if let Some((mut oids, v)) = v {
+        let t = min(v, repo.find_commit(oid)?.time());
+        oids.push(oid.to_string());
+        Ok(Some((oids, t)))
+      } else {
+        let oids = vec![oid.to_string()];
+        let t = repo.find_commit(oid)?.time();
+        Ok(Some((oids, t)))
+      }
+    })
+    .transpose()
+    .ok_or_else(|| versio_error!("No commits found in {}..{}", from_sha, to_sha))?
+}
+
+pub fn commits_between<'a>(
+  repo: &'a Repository, from_sha: &str, to_sha: &str
+) -> Result<impl Iterator<Item = Result<CommitInfo<'a>>> + 'a> {
+  let mut revwalk = repo.revwalk()?;
+  let from_spec = repo.revparse_single(from_sha)?;
+  revwalk.hide(from_spec.id())?;
+  let head_spec = repo.revparse_single(to_sha)?;
   revwalk.push(head_spec.id())?;
 
   Ok(revwalk.map(move |id| Ok(CommitInfo::new(repo, repo.find_commit(id?)?))))
-}
-
-pub fn get_changed_since<'a>(repo: &'a Repository) -> Result<impl Iterator<Item = Result<(String, String)>> + 'a> {
-  get_commits_since(repo).map(|cmts| {
-    cmts.flat_map(|cmt| match cmt.and_then(|cmt| cmt.files().map(|files| (cmt.kind(), files))) {
-      Ok((kind, files)) => E2::A(files.map(move |f| Ok((kind.clone(), f)))),
-      Err(e) => E2::B(std::iter::once(Err(e)))
-    })
-  })
 }
 
 fn extract_kind(summary: &str) -> String {
@@ -440,6 +449,92 @@ impl<'repo> DeltaIter<'repo> {
 
     self.on >= self.len
   }
+}
+
+pub struct FullPr {
+  number: u32,
+  head_oid: String,
+  base_oid: String,
+  base_time: Time,
+  commits: Vec<String>,
+  excludes: Vec<String>,
+  best_guess: bool
+}
+
+impl FullPr {
+  pub fn lookup(repo: &Repository, head: String, base: String, number: u32) -> Result<FullPr> {
+    let full_pr = match fetch(repo, None, Some(&head)) {
+      Err(e) => {
+        println!("Couldn't fetch {}: using best-guess instead: {:?}", head, e);
+        FullPr {
+          number,
+          head_oid: head,
+          base_oid: base,
+          base_time: Time::new(0, 0),
+          commits: Vec::new(),
+          excludes: Vec::new(),
+          best_guess: true
+        }
+      }
+
+      Ok(_) => {
+        let base_time = get_date(repo, &base)?;
+        let (commits, early) = dated_shas_between(repo, &base, &head)?;
+
+        FullPr {
+          number,
+          head_oid: head,
+          base_oid: base,
+          base_time: min(base_time, early),
+          commits,
+          excludes: Vec::new(),
+          best_guess: false
+        }
+      }
+    };
+
+    Ok(full_pr)
+  }
+
+  pub fn number(&self) -> u32 { self.number }
+  pub fn head_oid(&self) -> &str { &self.head_oid }
+  pub fn base_oid(&self) -> &str { &self.base_oid }
+  pub fn commits(&self) -> &[String] { &self.commits }
+  pub fn excludes(&self) -> &[String] { &self.excludes }
+  pub fn best_guess(&self) -> bool { self.best_guess }
+  pub fn has_exclude(&self, oid: &str) -> bool { self.excludes.iter().any(|c| c == oid) }
+
+  pub fn span(&self) -> Span { Span::new(self.number, self.head_oid.clone(), self.base_time, self.base_oid.clone()) }
+
+  pub fn add_commit(&mut self, commit_oid: &str) {
+    if !self.commits.iter().any(|c| c == commit_oid) {
+      self.commits.push(commit_oid.to_string());
+    }
+  }
+
+  pub fn add_exclude(&mut self, commit_oid: &str) {
+    if !self.excludes.iter().any(|c| c == commit_oid) {
+      self.excludes.push(commit_oid.to_string());
+    }
+  }
+
+  pub fn contains(&self, commit_oid: &str) -> bool { self.commits.iter().any(|c| c == commit_oid) }
+}
+
+pub struct Span {
+  number: u32,
+  end: String,
+  since: Time,
+  begin: String
+}
+
+impl Span {
+  pub fn new(number: u32, end: String, since: Time, begin: String) -> Span { Span { number, end, since, begin } }
+
+  pub fn number(&self) -> u32 { self.number }
+  pub fn end(&self) -> &str { &self.end }
+  pub fn begin(&self) -> &str { &self.begin }
+  pub fn since(&self) -> &Time { &self.since }
 }
 
 #[cfg(test)]

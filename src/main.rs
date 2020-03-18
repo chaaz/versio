@@ -13,14 +13,17 @@ mod parts;
 mod toml;
 mod yaml;
 
+use crate::either::IterEither2 as E2;
 use crate::error::Result;
 use crate::git::{
-  add_and_commit, fetch, get_changed_since, get_exclude_prev_tag, get_prev_date, github_owner_name_branch,
-  has_prev_blob, merge_after_fetch, prev_blob, FetchResults
+  add_and_commit, commits_between, fetch, github_owner_name_branch, has_prev_blob, merge_after_fetch, prev_blob,
+  prev_tag_oid, FetchResults, FullPr
 };
-use crate::github::changes;
-use git2::{Oid, Repository};
+use crate::github::{changes, Changes};
+use git2::{Oid, Repository, RepositoryOpenFlags};
 use regex::Regex;
+use std::ffi::OsStr;
+use std::iter;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -44,8 +47,11 @@ pub struct CurrentSource {
 
 impl CurrentSource {
   pub fn open<P: AsRef<Path>>(root_dir: P) -> Result<CurrentSource> {
-    let root_dir =
-      Repository::open(root_dir)?.workdir().ok_or_else(|| versio_error!("No working directory."))?.to_path_buf();
+    let flags = RepositoryOpenFlags::empty();
+    let root_dir = Repository::open_ext(root_dir, flags, std::iter::empty::<&OsStr>())?
+      .workdir()
+      .ok_or_else(|| versio_error!("No working directory."))?
+      .to_path_buf();
     Ok(CurrentSource { root_dir })
   }
 }
@@ -73,8 +79,8 @@ pub struct RepoGuard<'a> {
 impl<'a> RepoGuard<'a> {
   pub fn repo(&self) -> &Repository { &self.guard.repo }
 
-  pub fn get_keyed_files<'b>(&'b mut self) -> Result<impl Iterator<Item = Result<(String, String)>> + 'b> {
-    self.guard.get_keyed_files()
+  pub fn keyed_files<'b>(&'b mut self) -> Result<impl Iterator<Item = Result<(String, String)>> + 'b> {
+    self.guard.keyed_files()
   }
 
   pub fn add_and_commit(&mut self) -> Result<Option<Oid>> { self.guard.add_and_commit() }
@@ -88,8 +94,12 @@ pub struct PrevSource {
 
 impl PrevSource {
   pub fn open<P: AsRef<Path>>(root_dir: P) -> Result<PrevSource> {
-    let root_dir = root_dir.as_ref();
-    let inner = PrevSourceInner::open(root_dir)?;
+    let flags = RepositoryOpenFlags::empty();
+    let root_dir = Repository::open_ext(root_dir, flags, std::iter::empty::<&OsStr>())?
+      .workdir()
+      .ok_or_else(|| versio_error!("No working directory."))?
+      .to_path_buf();
+    let inner = PrevSourceInner::open(&root_dir)?;
     Ok(PrevSource { root_dir: root_dir.to_path_buf(), inner: Arc::new(Mutex::new(inner)) })
   }
 
@@ -105,7 +115,7 @@ impl PrevSource {
     Ok(())
   }
 
-  pub fn changes(&self) -> Result<()> { self.inner.lock()?.changes() }
+  pub fn changes(&self) -> Result<Changes> { self.inner.lock()?.changes() }
 
   pub fn repo(&self) -> Result<RepoGuard> { Ok(RepoGuard { guard: self.inner.lock()? }) }
 }
@@ -128,7 +138,8 @@ pub struct PrevSourceInner {
 
 impl PrevSourceInner {
   pub fn open(root_dir: &Path) -> Result<PrevSourceInner> {
-    let repo = Repository::open(root_dir)?;
+    let flags = RepositoryOpenFlags::empty();
+    let repo = Repository::open_ext(root_dir, flags, std::iter::empty::<&OsStr>())?;
     Ok(PrevSourceInner { repo, should_fetch: true, will_merge: false, fetch_results: None, merged: false })
   }
 
@@ -148,14 +159,6 @@ impl PrevSourceInner {
     has_prev_blob(&self.repo, rel_path)
   }
 
-  pub fn changes(&self) -> Result<()> {
-    let since = get_prev_date(&self.repo)?.ok_or_else(|| versio_error!("Not a github repo."))?;
-    let exclude = get_exclude_prev_tag(&self.repo)?;
-    let (owner, repo_name, branch) =
-      github_owner_name_branch(&self.repo)?.ok_or_else(|| versio_error!("Not a github repo."))?;
-    changes(owner, repo_name, branch, since, exclude)
-  }
-
   fn load<P: AsRef<Path>>(&mut self, rel_path: P) -> Result<Option<NamedData>> {
     self.maybe_fetch()?;
     let blob = prev_blob(&self.repo, rel_path)?;
@@ -167,9 +170,23 @@ impl PrevSourceInner {
       .transpose()
   }
 
-  fn get_keyed_files<'a>(&'a mut self) -> Result<impl Iterator<Item = Result<(String, String)>> + 'a> {
-    self.maybe_fetch()?;
-    get_changed_since(&self.repo)
+  pub fn changes(&self) -> Result<Changes> {
+    let exclude = prev_tag_oid(&self.repo)?;
+    let (owner, repo_name, branch) =
+      github_owner_name_branch(&self.repo)?.ok_or_else(|| versio_error!("Not a github repo."))?;
+    changes(&self.repo, owner, repo_name, branch, exclude)
+  }
+
+  fn keyed_files<'a>(&'a mut self) -> Result<impl Iterator<Item = Result<(String, String)>> + 'a> {
+    let changes = self.changes()?;
+    let vals = changes.into_groups().into_iter().map(|(_, v)| v);
+
+    let mut vec = Vec::new();
+    for pr in vals.filter(|pr| !pr.best_guess()) {
+      vec.push(pr_keyed_files(&self.repo, pr));
+    }
+
+    Ok(vec.into_iter().flatten())
   }
 
   pub fn add_and_commit(&mut self) -> Result<Option<Oid>> {
@@ -300,3 +317,31 @@ pub trait Scanner {
 }
 
 fn main() -> Result<()> { opts::execute() }
+
+fn pr_keyed_files<'a>(repo: &'a Repository, pr: FullPr) -> impl Iterator<Item = Result<(String, String)>> + 'a {
+  let iter = commits_between(repo, pr.base_oid(), pr.head_oid()).map(move |cmts| {
+    cmts
+      .filter_map(move |cmt| match cmt {
+        Ok(cmt) => {
+          if pr.has_exclude(&cmt.id()) {
+            None
+          } else {
+            match cmt.files() {
+              Ok(files) => {
+                let kind = cmt.kind();
+                Some(E2::A(files.map(move |f| Ok((kind.clone(), f)))))
+              }
+              Err(e) => Some(E2::B(iter::once(Err(e))))
+            }
+          }
+        }
+        Err(e) => Some(E2::B(iter::once(Err(e))))
+      })
+      .flatten()
+  });
+
+  match iter {
+    Ok(iter) => E2::A(iter),
+    Err(e) => E2::B(iter::once(Err(e)))
+  }
+}

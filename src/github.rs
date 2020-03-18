@@ -1,18 +1,99 @@
 //! Interactions with github API v4.
 
 use crate::error::Result;
+use crate::git::{FullPr, Span};
 use chrono::{DateTime, FixedOffset, TimeZone};
-use git2::Time;
+use git2::{Repository, Time};
 use github_gql::{client::Github, IntoGithubRequest};
 use hyper::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 use hyper::Request;
-use serde::de::{self, Deserializer, SeqAccess, Visitor};
 use serde::Deserialize;
-use std::collections::HashMap;
-use std::fmt;
+use std::collections::{HashMap, HashSet, VecDeque};
 
-pub fn changes(owner: String, repo: String, branch: String, since: Time, exclude: String) -> Result<()> {
-  // TODO : respect hasNextPage and endCursor by using history(after:)
+/// Find all changes in a repo more cleverly than `git rev-parse begin..end` using the GitHub v4 API.
+///
+/// Our rationale is such: When GitHub squash-merges a PR, it creates a new commit on the base-ref branch. While
+/// the commit is not a descendent of any commit on the PR, the commit still is associated with the source PR in
+/// the GitHub API, and by default contains the PR number in its commit headline. Thus, it is associated with a
+/// PR that it is not itself a part of, which is how we identify it.
+///
+/// We want to exclude such commits because these commits have lost some of the information contained in the
+/// original PR: namely, what files are associated with what commit sizes. All the files altered in the commit
+/// are associated with whatever size the single squash commit is, which may not be strictly correct.
+///
+/// Instead of including such commits, we want to include all of the commits from the associated PR (unless
+/// those commits are themselves squash-merges, etc.)
+///
+/// To find all of the original commits, we first queue a "PR zero" that contains the naive `begin..end`. Then
+/// for each queued PR, we examine each commit, and exclude it if: (a) the commit is associated with another PR,
+/// and (b) that other PR's commits doesn't contain the original commit. We then queue that other PR, if
+/// possible. Our result is a list of PRs, each of which has "base..head" rev-parse-able refs, and a list of
+/// commits which should be excluded from them.
+// all_prs.contains_key/insert w/ a side effect triggers a false positive.
+#[allow(clippy::map_entry)]
+pub fn changes(repo: &Repository, owner: String, repo_name: String, end: String, begin: String) -> Result<Changes> {
+  let mut all_commits = HashSet::new();
+  let mut all_prs = HashMap::new();
+
+  let pr_zero = PrEdgeNode { number: 0, state: "MERGED".to_string(), head_ref_oid: end, base_ref_oid: begin };
+  let pr_zero = pr_zero.lookup_full(repo)?;
+
+  let mut queue = VecDeque::new();
+  queue.push_back(pr_zero.span());
+  all_prs.insert(pr_zero.number(), pr_zero);
+
+  while let Some(span) = queue.pop_front() {
+    let commit_list = commits_from_api(&owner, &repo_name, &span)?;
+    let commit_list: Vec<_> = commit_list
+      .into_iter()
+      .filter_map(|commit| {
+        if all_commits.contains(commit.oid()) {
+          return None;
+        }
+
+        let mut retain = true;
+        let (oid, prs) = commit.extract();
+        for pr in prs.merged_only() {
+          let number = pr.number();
+          if !all_prs.contains_key(&number) {
+            let full_pr = match pr.lookup_full(repo) {
+              Ok(pr) => pr,
+              Err(e) => return Some(Err(e))
+            };
+            if !full_pr.best_guess() {
+              queue.push_back(full_pr.span());
+            }
+            all_prs.insert(number, full_pr);
+          }
+          let full_pr = all_prs.get_mut(&number).unwrap();
+
+          if full_pr.best_guess() {
+            full_pr.add_commit(&oid);
+          } else if !full_pr.contains(&oid) {
+            retain = false;
+          }
+        }
+
+        if retain {
+          Some(Ok(oid))
+        } else {
+          all_prs.get_mut(&span.number()).unwrap().add_exclude(&oid);
+          None
+        }
+      })
+      .collect::<Result<_>>()?;
+
+    all_commits.extend(commit_list.into_iter());
+  }
+
+  // TODO: remove non-orphans from commits ?
+  // TODO: include files in commits ?
+
+  Ok(Changes { commits: all_commits, groups: all_prs })
+}
+
+fn commits_from_api(owner: &str, repo: &str, span: &Span) -> Result<Vec<ApiCommit>> {
+  // TODO : respect "hasNextPage" and endCursor by using history(after:)
   let query = r#"
 query associatedPRs($since:GitTimestamp!, $sha:String!, $repo:String!, $owner:String!){
   repository(name:$repo, owner:$owner){
@@ -33,54 +114,29 @@ query associatedPRs($since:GitTimestamp!, $sha:String!, $repo:String!, $owner:St
 
 fragment commitResult on Commit {
     oid
-    abbreviatedOid
-    messageHeadline
-    messageHeadlineHTML
-    messageBody
-    messageBodyHTML
-    author {
-      user {
-        login
-      }
-    }
-    committedDate
     associatedPullRequests(first:10) {
       edges {
         node {
-          title
           number
-          body
-          bodyHTML
-          headRefName
+          state
           headRefOid
-          headRef {
-            id
-            name
-            target {
-              abbreviatedOid
-            }
-          }
-          baseRefName
           baseRefOid
-          baseRef {
-            id
-            name
-            target {
-              abbreviatedOid
-            }
-          }
+        }
+      }
+    }
+    parents(first:10) {
+      edges {
+        node {
+          oid
         }
       }
     }
 }"#;
 
-  const MINUTES: i32 = 60;
-  let since: DateTime<FixedOffset> = FixedOffset::east(since.offset_minutes() * MINUTES).timestamp(since.seconds(), 0);
-
   let variables = format!(
     r#"{{ "sha": "{}", "since": "{}", "owner": "{}", "repo": "{}" }}"#,
-    branch,
-    since.to_rfc3339(),
+    span.end(),
+    time_to_datetime(span.since()).to_rfc3339(),
     owner,
     repo
   );
@@ -89,51 +145,39 @@ fragment commitResult on Commit {
   let token = "f517363ac4a9fc04df72aeccba4765fa73d719c6";
   let mut github = Github::new(token)?;
   let query = QueryVars::new(query.to_string(), variables);
-  let (headers, status, changes) = github.run::<ChangesResponse, _>(&query)?;
+  let (_headers, _status, resp) = github.run::<ChangesResponse, _>(&query)?;
 
-  let changes = changes.unwrap();
-  let mut changes = changes.data.repository.commit.history.changes;
-  changes.strip_exclude(&exclude);
+  let changes = resp.ok_or_else(|| versio_error!("Couldn't find commits."))?;
+  let changes = changes.data.repository.commit.history.nodes;
+  let mut changes: HashMap<String, ApiCommit> = changes.into_iter().map(|c| (c.oid().to_string(), c)).collect();
 
-  println!("headers: {:?}", headers);
-  println!("status: {:?}", status);
-
-  if !changes.pull_requests.is_empty() {
-    println!("\nPRs:");
-  }
-  for pr in &changes.pull_requests {
-    println!("- number: {}", pr.number);
-    println!("  title: {}", pr.title);
-    println!("  body: {}", pr.body);
-    println!("  body (html): {}", pr.body_html);
-    println!("  base oid: {}", pr.base_ref_oid);
-    println!("  head oid: {}", pr.head_ref_oid);
-    println!("  commits:");
-    for commit in &pr.commits {
-      println!("  - oid: {}", commit.abbreviated_oid);
-      println!("    headline: {}", commit.message_headline);
-      println!("    headline (html): {}", commit.message_headline_html);
-      println!("    body: {}", commit.message_body);
-      println!("    body (html): {}", commit.message_body_html);
-      println!("    login: {}", commit.login.as_ref().map(|s| s.as_str()).unwrap_or("<none>"));
-      println!("    committed: {}", commit.committed_date.to_rfc3339());
+  let mut remqueue = VecDeque::new();
+  remqueue.push_back(span.begin().to_string());
+  while let Some(rem) = remqueue.pop_front() {
+    if let Some(commit) = changes.remove(&rem) {
+      for edge in commit.parents.edges {
+        remqueue.push_back(edge.node.oid.clone());
+      }
     }
   }
 
-  if !changes.orphan_commits.is_empty() {
-    println!("\norphan_commits:");
-  }
-  for commit in &changes.orphan_commits {
-    println!("- oid: {}", commit.abbreviated_oid);
-    println!("  headline: {}", commit.message_headline);
-    println!("  headline (html): {}", commit.message_headline_html);
-    println!("  body: {}", commit.message_body);
-    println!("  body (html): {}", commit.message_body_html);
-    println!("  login: {}", commit.login.as_ref().map(|s| s.as_str()).unwrap_or("<none>"));
-    println!("  committed: {}", commit.committed_date.to_rfc3339());
-  }
+  Ok(changes.into_iter().map(|(_, v)| v).collect())
+}
 
-  Ok(())
+fn time_to_datetime(time: &Time) -> DateTime<FixedOffset> {
+  const MINUTES: i32 = 60;
+  FixedOffset::east(time.offset_minutes() * MINUTES).timestamp(time.seconds(), 0)
+}
+
+pub struct Changes {
+  commits: HashSet<String>,
+  groups: HashMap<u32, FullPr>
+}
+
+impl Changes {
+  pub fn commits(&self) -> &HashSet<String> { &self.commits }
+  pub fn groups(&self) -> &HashMap<u32, FullPr> { &self.groups }
+  pub fn into_groups(self) -> HashMap<u32, FullPr> { self.groups }
 }
 
 #[derive(Deserialize)]
@@ -143,11 +187,11 @@ struct ChangesResponse {
 
 #[derive(Deserialize)]
 struct Data {
-  repository: Repository
+  repository: RawRepository
 }
 
 #[derive(Deserialize)]
-struct Repository {
+struct RawRepository {
   commit: TopCommit
 }
 
@@ -158,122 +202,34 @@ struct TopCommit {
 
 #[derive(Deserialize)]
 struct History {
-  #[serde(rename = "nodes")]
-  changes: Changes
-}
-
-struct Changes {
-  orphan_commits: Vec<CommitInfo>,
-  pull_requests: Vec<PrInfo>
-}
-
-impl Changes {
-  fn strip_exclude(&mut self, exclude: &str) {
-    self.orphan_commits.retain(|cmt| !cmt.oid.starts_with(exclude));
-    for pr in &mut self.pull_requests {
-      pr.commits.retain(|cmt| !cmt.oid.starts_with(exclude));
-    }
-    self.pull_requests.retain(|pr| !pr.commits.is_empty())
-  }
-}
-
-impl<'de> Deserialize<'de> for Changes {
-  fn deserialize<D: Deserializer<'de>>(desr: D) -> std::result::Result<Changes, D::Error> {
-    struct ChangesVisitor;
-
-    impl<'de> Visitor<'de> for ChangesVisitor {
-      type Value = Changes;
-
-      fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result { formatter.write_str("a commit") }
-
-      fn visit_seq<V>(self, mut seq: V) -> std::result::Result<Self::Value, V::Error>
-      where
-        V: SeqAccess<'de>
-      {
-        let mut orphan_commits = Vec::new();
-        let mut pull_requests = HashMap::new();
-
-        while let Some(commit) = seq.next_element::<RawCommit>()? {
-          let commit_info = CommitInfo {
-            oid: commit.oid,
-            abbreviated_oid: commit.abbreviated_oid,
-            login: commit.author.user.map(|user| user.login),
-            committed_date: commit.committed_date,
-            message_body: commit.message_body,
-            message_body_html: commit.message_body_html,
-            message_headline: commit.message_headline,
-            message_headline_html: commit.message_headline_html
-          };
-
-          if commit.associated_pull_requests.edges.is_empty() {
-            orphan_commits.push(commit_info);
-          } else {
-            for pr in commit.associated_pull_requests.edges {
-              let pr = pr.node;
-              let pr_info = pull_requests.entry(pr.number).or_insert(PrInfo {
-                number: pr.number,
-                title: pr.title,
-                body: pr.body,
-                body_html: pr.body_html,
-                commits: Vec::new(),
-                head_ref_oid: pr.head_ref_oid,
-                base_ref_oid: pr.base_ref_oid
-              });
-              pr_info.commits.push(commit_info.clone());
-            }
-          }
-        }
-
-        let mut pull_requests: Vec<_> = pull_requests.drain().map(|(_, v)| v).collect();
-        pull_requests.sort_by_key(|pr| pr.number);
-
-        Ok(Changes { orphan_commits, pull_requests })
-      }
-    }
-
-    desr.deserialize_seq(ChangesVisitor)
-  }
-}
-
-#[derive(Clone)]
-struct CommitInfo {
-  oid: String,
-  abbreviated_oid: String,
-  message_headline: String,
-  message_headline_html: String,
-  message_body: String,
-  message_body_html: String,
-  login: Option<String>,
-  committed_date: DateTime<FixedOffset>
-}
-
-struct PrInfo {
-  number: u32,
-  title: String,
-  body: String,
-  body_html: String,
-  commits: Vec<CommitInfo>,
-  head_ref_oid: String,
-  base_ref_oid: String
+  nodes: Vec<ApiCommit>
 }
 
 #[derive(Deserialize)]
-struct RawCommit {
-  #[serde(rename = "abbreviatedOid")]
-  abbreviated_oid: String,
+struct ApiCommit {
+  oid: String,
   #[serde(rename = "associatedPullRequests")]
   associated_pull_requests: PrList,
-  author: Author,
-  #[serde(deserialize_with = "deserialize_datetime", rename = "committedDate")]
-  committed_date: DateTime<FixedOffset>,
-  #[serde(rename = "messageBody")]
-  message_body: String,
-  #[serde(rename = "messageBodyHTML")]
-  message_body_html: String,
-  #[serde(rename = "messageHeadline")]
-  message_headline: String,
-  #[serde(rename = "messageHeadlineHTML")]
-  message_headline_html: String,
+  parents: ParentList
+}
+
+impl ApiCommit {
+  fn extract(self) -> (String, PrList) { (self.oid, self.associated_pull_requests) }
+  fn oid(&self) -> &str { &self.oid }
+}
+
+#[derive(Deserialize)]
+struct ParentList {
+  edges: Vec<ParentEdge>
+}
+
+#[derive(Deserialize)]
+struct ParentEdge {
+  node: ParentNode
+}
+
+#[derive(Deserialize)]
+struct ParentNode {
   oid: String
 }
 
@@ -282,56 +238,34 @@ struct PrList {
   edges: Vec<PrEdge>
 }
 
+impl PrList {
+  fn merged_only(self) -> impl Iterator<Item = PrEdgeNode> {
+    self.edges.into_iter().map(|e| e.node).filter(|n| n.state() == "MERGED")
+  }
+}
+
 #[derive(Deserialize)]
 struct PrEdge {
   node: PrEdgeNode
 }
 
 #[derive(Deserialize)]
-struct PrEdgeNode {
+pub struct PrEdgeNode {
   number: u32,
-  body: String,
-  #[serde(rename = "bodyHTML")]
-  body_html: String,
-  title: String,
-  #[serde(rename = "headRef")]
-  _head_ref: Option<Ref>,
-  #[serde(rename = "headRefName")]
-  _head_ref_name: String,
+  state: String,
   #[serde(rename = "headRefOid")]
   head_ref_oid: String,
-  #[serde(rename = "baseRef")]
-  _base_ref: Option<Ref>,
-  #[serde(rename = "baseRefName")]
-  _base_ref_name: String,
   #[serde(rename = "baseRefOid")]
   base_ref_oid: String
 }
 
-#[derive(Deserialize)]
-struct Ref {
-  #[serde(rename = "id")]
-  _id: String,
-  #[serde(rename = "name")]
-  _name: String,
-  #[serde(rename = "target")]
-  _target: RefTarget
-}
+impl PrEdgeNode {
+  pub fn number(&self) -> u32 { self.number }
+  pub fn state(&self) -> &str { &self.state }
 
-#[derive(Deserialize)]
-struct RefTarget {
-  #[serde(rename = "abbreviatedOid")]
-  _abbreviated_oid: String
-}
-
-#[derive(Deserialize)]
-struct Author {
-  user: Option<User>
-}
-
-#[derive(Deserialize)]
-struct User {
-  login: String
+  pub fn lookup_full(self, repo: &Repository) -> Result<FullPr> {
+    FullPr::lookup(repo, self.head_ref_oid, self.base_ref_oid, self.number)
+  }
 }
 
 #[derive(Default)]
@@ -383,18 +317,18 @@ fn escape(val: &str) -> String {
   escaped
 }
 
-fn deserialize_datetime<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<DateTime<FixedOffset>, D::Error> {
-  struct DateTimeVisitor;
-
-  impl<'de> Visitor<'de> for DateTimeVisitor {
-    type Value = DateTime<FixedOffset>;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result { formatter.write_str("an RFC 3339 datetime") }
-
-    fn visit_str<E: de::Error>(self, v: &str) -> std::result::Result<Self::Value, E> {
-      DateTime::parse_from_rfc3339(v).map_err(|e| de::Error::custom(format!("Couldn't parse date {}: {:?}", v, e)))
-    }
-  }
-
-  desr.deserialize_str(DateTimeVisitor)
-}
+// fn deserialize_datetime<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<DateTime<FixedOffset>, D::Error> {
+//   struct DateTimeVisitor;
+//
+//   impl<'de> Visitor<'de> for DateTimeVisitor {
+//     type Value = DateTime<FixedOffset>;
+//
+//     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result { formatter.write_str("an RFC 3339 datetime") }
+//
+//     fn visit_str<E: de::Error>(self, v: &str) -> std::result::Result<Self::Value, E> {
+//       DateTime::parse_from_rfc3339(v).map_err(|e| de::Error::custom(format!("Couldn't parse date {}: {:?}", v, e)))
+//     }
+//   }
+//
+//   desr.deserialize_str(DateTimeVisitor)
+// }

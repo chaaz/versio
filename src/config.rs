@@ -11,9 +11,11 @@ use glob::{glob_with, MatchOptions, Pattern};
 use regex::Regex;
 use serde::de::{self, Deserializer, MapAccess, Visitor};
 use serde::Deserialize;
+use std::borrow::Cow;
 use std::cmp::{max, Ord, Ordering};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
+use std::path::Path;
 
 pub fn configure_plan<'s>(
   prev: &'s PrevSource, curt: &'s CurrentSource
@@ -22,7 +24,7 @@ pub fn configure_plan<'s>(
   let curt_config = Config::from_source(curt)?;
   let mut plan = prev_config.start_plan(&curt_config);
 
-  for result in prev.repo()?.get_keyed_files()? {
+  for result in prev.repo()?.keyed_files()? {
     let (key, path) = result?;
     plan.consider(&key, &path)?;
   }
@@ -155,7 +157,7 @@ impl<'s, P: Source, C: Source> PlanConsider<'s, P, C> {
     for prev_project in &self.prev.file.projects {
       if let Some(cur_project) = self.current.get_project(prev_project.id) {
         let size = cur_project.size(&self.current.file.sizes, kind)?;
-        if prev_project.does_cover(path)? {
+        if prev_project.does_cover(path, &self.prev.source)? {
           let val = self.incrs.entry(prev_project.id).or_insert(Size::None);
           *val = max(*val, size);
         }
@@ -274,7 +276,7 @@ impl Project {
     })
   }
 
-  pub fn does_cover(&self, path: &str) -> Result<bool> {
+  pub fn does_cover(&self, path: &str, _source: &dyn Source) -> Result<bool> {
     self.covers.iter().fold(Ok(false), |val, cov| {
       if val.is_err() || *val.as_ref().unwrap() {
         return val;
@@ -286,7 +288,8 @@ impl Project {
   fn check(&self, source: &dyn Source) -> Result<()> {
     self.located.get_mark(source)?;
     for cover in &self.covers {
-      if glob_with(cover, match_opts())?.count() == 0 {
+      let cover = absolutize_pattern(cover, source.root_dir());
+      if glob_with(&cover, match_opts())?.count() == 0 {
         return versio_err!("No files covered by \"{}\".", cover);
       }
     }
@@ -577,6 +580,15 @@ fn insert_if_missing(result: &mut HashMap<String, Size>, key: &str, val: Size) {
 }
 
 fn match_opts() -> MatchOptions { MatchOptions { require_literal_separator: true, ..Default::default() } }
+
+fn absolutize_pattern<'a>(cover: &'a str, root_dir: &Path) -> Cow<'a, str> {
+  let cover = Path::new(cover);
+  if !cover.has_root() {
+    Cow::Owned(root_dir.join(cover).to_string_lossy().into_owned())
+  } else {
+    Cow::Borrowed(cover.to_str().unwrap())
+  }
+}
 
 #[cfg(test)]
 mod test {

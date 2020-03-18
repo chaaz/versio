@@ -185,7 +185,10 @@ pub fn execute() -> Result<()> {
     .subcommand(
       SubCommand::with_name("changes")
         .setting(AppSettings::UnifiedHelpMessage)
-        .about("Find versions that need to change")
+        .about("Print true changes")
+        .arg(
+          Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
+        )
         .display_order(1)
     )
     .get_matches();
@@ -244,7 +247,7 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
       if m.is_present("nofetch") {
         prev.set_fetch(false)?;
       }
-      for result in prev.repo()?.get_keyed_files()? {
+      for result in prev.repo()?.keyed_files()? {
         let (key, path) = result?;
         println!("{} : {}", key, path);
       }
@@ -265,7 +268,12 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
       }
       run(&prev, &curt, m.is_present("all"), m.is_present("dry"))
     }
-    ("changes", _) => changes(&prev),
+    ("changes", Some(m)) => {
+      if m.is_present("nofetch") {
+        prev.set_fetch(false)?;
+      }
+      changes(&prev)
+    }
     ("", _) => empty_cmd(),
     (c, _) => unknown_cmd(c)
   }
@@ -405,7 +413,29 @@ pub fn run(prev: &PrevSource, curt: &CurrentSource, all: bool, dry: bool) -> Res
   Ok(())
 }
 
-fn changes(prev: &PrevSource) -> Result<()> { prev.changes() }
+fn changes(prev: &PrevSource) -> Result<()> {
+  let changes = prev.changes()?;
+
+  println!("\ngroups:");
+  for g in changes.groups().values() {
+    println!("  {}: {} -> {} (guess: {})", g.number(), g.base_oid(), g.head_oid(), g.best_guess());
+    println!("    commits:");
+    for cmt in g.commits() {
+      println!("      {}", cmt);
+    }
+    println!("    excludes:");
+    for cmt in g.excludes() {
+      println!("      {}", cmt);
+    }
+  }
+
+  println!("\ncommits:");
+  for oid in changes.commits() {
+    println!("  {}", oid);
+  }
+
+  Ok(())
+}
 
 fn check(curt: CurrentSource) -> Result<()> {
   if !Config::has_config_file(&curt)? {
