@@ -13,6 +13,6 @@ fn main() {
     .unwrap()
 }
 
-fn err(msg: &str) -> Error { Error::new(ErrorKind::Other, msg) }
+fn err(msg: String) -> Error { Error::new(ErrorKind::Other, msg) }
 
-fn conv_err<E: ::std::error::Error>(e: E) -> Error { err(e.description()) }
+fn conv_err<E: ::std::error::Error>(e: E) -> Error { err(e.to_string()) }

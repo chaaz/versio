@@ -100,7 +100,7 @@ impl PrevSource {
       .ok_or_else(|| versio_error!("No working directory."))?
       .to_path_buf();
     let inner = PrevSourceInner::open(&root_dir)?;
-    Ok(PrevSource { root_dir: root_dir.to_path_buf(), inner: Arc::new(Mutex::new(inner)) })
+    Ok(PrevSource { root_dir, inner: Arc::new(Mutex::new(inner)) })
   }
 
   pub fn using_remote(&self) -> Result<bool> { self.inner.lock()?.using_remote() }
