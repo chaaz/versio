@@ -8,7 +8,7 @@ use crate::{Mark, MarkedData, NamedData, Scanner};
 use serde::de::{self, DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Unexpected, Visitor};
 use std::sync::{Arc, Mutex};
 
-pub type TraceRef = Arc<Mutex<Trace>>;
+type TraceRef = Arc<Mutex<Trace>>;
 
 pub struct JsonScanner {
   target: Vec<Part>
@@ -46,7 +46,7 @@ fn pop(mut parts: Vec<Part>, trace: TraceRef) -> NthElement {
   NthElement::new(part, parts, trace)
 }
 
-pub struct NthElement {
+struct NthElement {
   part: Part,
   remains: Vec<Part>,
   trace: TraceRef
@@ -141,7 +141,7 @@ impl<'de> DeserializeSeed<'de> for NthElement {
   }
 }
 
-pub struct Trace {
+struct Trace {
   active: bool,
   leader: usize,
   bytes: Vec<u8>

@@ -1,7 +1,7 @@
 //! Interactions with github API v4.
 
 use crate::error::Result;
-use crate::git::{FullPr, Span};
+use crate::git::{FullPr, Span, Repo};
 use chrono::{DateTime, FixedOffset, TimeZone};
 use git2::{Repository, Time};
 use github_gql::{client::Github, IntoGithubRequest};
@@ -263,7 +263,7 @@ impl PrEdgeNode {
   pub fn number(&self) -> u32 { self.number }
   pub fn state(&self) -> &str { &self.state }
 
-  pub fn lookup_full(self, repo: &Repository) -> Result<FullPr> {
+  pub fn lookup_full(self, repo: &Repo) -> Result<FullPr> {
     FullPr::lookup(repo, self.head_ref_oid, self.base_ref_oid, self.number)
   }
 }

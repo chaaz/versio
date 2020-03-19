@@ -7,16 +7,14 @@ mod config;
 mod either;
 mod git;
 mod github;
-mod json;
 mod opts;
 mod parts;
-mod toml;
-mod yaml;
+mod scan;
 
 use crate::either::IterEither2 as E2;
 use crate::error::Result;
 use crate::git::{
-  add_and_commit, commits_between, fetch, github_owner_name_branch, has_prev_blob, merge_after_fetch, prev_blob,
+  push_changes, commits_between, fetch, github_owner_name_branch, has_prev_blob, merge_after_fetch, prev_blob,
   prev_tag_oid, FetchResults, FullPr
 };
 use crate::github::{changes, Changes};

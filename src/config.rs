@@ -2,10 +2,10 @@
 
 use crate::analyze::AnnotatedMark;
 use crate::error::Result;
-use crate::json::JsonScanner;
+use crate::scan::JsonScanner;
 use crate::parts::{deserialize_parts, Part};
-use crate::toml::TomlScanner;
-use crate::yaml::YamlScanner;
+use crate::scan::TomlScanner;
+use crate::scan::YamlScanner;
 use crate::{CurrentSource, Mark, MarkedData, NamedData, PrevSource, Scanner, Source, CONFIG_FILENAME};
 use glob::{glob_with, MatchOptions, Pattern};
 use regex::Regex;

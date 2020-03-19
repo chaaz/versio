@@ -6,142 +6,224 @@ use git2::build::CheckoutBuilder;
 use git2::{
   AnnotatedCommit, AutotagOption, Blob, Commit, Cred, Diff, DiffOptions, FetchOptions, ObjectType, Oid, PushOptions,
   Reference, ReferenceType, Remote, RemoteCallbacks, Repository, RepositoryState, ResetType, Signature, Status,
-  StatusOptions, Time
+  StatusOptions, Time, RepositoryOpenFlags, Object, Index
 };
 use std::cmp::min;
 use std::io::{stdout, Write};
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
+use std::ffi::OsStr;
 
 const PREV_TAG_NAME: &str = "versio-prev";
 
-pub struct FetchResults {
-  pub remote_name: Option<String>,
-  pub fetch_branch: String,
-  pub commit_oid: Option<Oid>
+pub struct GithubInfo {
+  owner_name: String,
+  repo_name: String
 }
 
-pub fn has_prev_blob<P: AsRef<Path>>(repo: &Repository, path: P) -> Result<bool> {
-  let path_string = path.as_ref().to_string_lossy();
-  let obj = repo.revparse_single(&format!("{}:{}", PREV_TAG_NAME, &path_string)).ok();
-  Ok(obj.is_some())
+impl GithubInfo {
+  pub fn new(owner_name: String, repo_name: String) -> GithubInfo { GithubInfo { owner_name, repo_name } }
+  pub fn owner_name(&self) -> &str { &self.owner_name }
+  pub fn repo_name(&self) -> &str { &self.repo_name }
 }
 
-pub fn prev_blob<P: AsRef<Path>>(repo: &Repository, path: P) -> Result<Option<Blob>> {
-  let path_string = path.as_ref().to_string_lossy();
-  let obj = repo.revparse_single(&format!("{}:{}", PREV_TAG_NAME, &path_string)).ok();
-  obj.map(|obj| obj.into_blob().map_err(|e| versio_error!("Not a file: {} : {:?}", path_string, e))).transpose()
+pub struct Repo {
+  repo: Repository,
+
+  fetches: HashMap<String, Oid>,
+  branch_name: String,
+  remote_name: Option<String>
 }
 
-pub fn github_owner_name_branch(repo: &Repository) -> Result<Option<(String, String, String)>> {
-  let (remote_name, branch) = get_name_and_branch(repo, None, None)?;
-  let remote_name = match remote_name {
-    Some(remote_name) => remote_name,
-    None => return Ok(None)
-  };
-  let remote = repo.find_remote(&remote_name)?;
+impl Repo {
+  pub fn open<P: AsRef<Path>>(path: P) -> Result<Repo> {
+    let flags = RepositoryOpenFlags::empty();
+    let repo = Repository::open_ext(path, flags, std::iter::empty::<&OsStr>())?;
+    let fetches = HashMap::new();
 
-  let url = remote.url().ok_or_else(|| versio_error!("Invalid utf8 remote url."))?;
-  let owner_name = if url.starts_with("https://github.com/") {
-    Some(&url[19 ..])
-  } else if url.starts_with("git@github.com:") {
-    Some(&url[15 ..])
-  } else {
-    None
-  };
+    let branch_name = {
+      let head_ref = repo.find_reference("HEAD").map_err(|e| versio_error!("Couldn't resolve head: {:?}.", e))?;
+      if head_ref.kind() != Some(ReferenceType::Symbolic) {
+        return versio_err!("Not on a branch.");
+      } else {
+        let mut branch_name = head_ref.symbolic_target().ok_or_else(|| versio_error!("Branch is not named."))?;
+        if branch_name.starts_with("refs/heads/") {
+          branch_name[11 ..].to_string()
+        } else {
+          return versio_err!("Current {} is not a branch.", branch_name);
+        }
+      }
+    };
 
-  let owner_name = owner_name.and_then(|owner_name| {
-    let len = owner_name.len();
-    let owner_name = if owner_name.ends_with(".git") { &owner_name[0 .. len - 4] } else { owner_name };
+    let config = repo.config()?;
+    let remote_name = config.get_str(&format!("branch.{}.remote", branch_name)).ok();
 
-    let slash = owner_name.char_indices().find(|(_, c)| *c == '/').map(|(i, _)| i);
-    slash.map(|slash| (owner_name[0 .. slash].to_string(), owner_name[slash + 1 ..].to_string()))
-  });
+    let remote_name = remote_name.map(|s| Ok(Some(s.to_string()))).unwrap_or_else(|| {
+      let remotes = repo.remotes()?;
+      if remotes.is_empty() {
+        Ok(None)
+      } else if remotes.len() == 1 {
+        Ok(Some(remotes.iter().next().unwrap().ok_or_else(|| versio_error!("Non-utf8 remote name."))?.to_string()))
+      } else {
+        versio_err!("Couldn't determine remote name.")
+      }
+    })?;
 
-  Ok(owner_name.map(|owner_name| (owner_name.0, owner_name.1, branch)))
-}
-
-pub fn prev_tag_oid(repo: &Repository) -> Result<String> {
-  let obj = repo.revparse_single(&format!("{}^{{}}", PREV_TAG_NAME)).ok();
-  Ok(obj.map(|obj| obj.id().to_string()).unwrap_or_else(|| "^".to_string()))
-}
-
-pub fn get_date(repo: &Repository, sha: &str) -> Result<Time> {
-  let obj = repo.revparse_single(&format!("{}^{{}}", sha))?;
-  let commit = obj.into_commit().map_err(|o| versio_error!("Object {} isn't a commit.", o.id()))?;
-  Ok(commit.time())
-}
-
-pub fn fetch(repo: &Repository, remote_name: Option<&str>, remote_branch: Option<&str>) -> Result<FetchResults> {
-  let (remote_name, fetch_branch) = get_name_and_branch(repo, remote_name, remote_branch)?;
-
-  let state = repo.state();
-  if state != RepositoryState::Clean {
-    return versio_err!("Can't pull: repository {:?} isn't clean.", state);
+    Ok(Repo { repo, fetches, branch_name, remote_name })
   }
 
-  let commit_oid = match &remote_name {
-    Some(remote_name) => {
-      let mut remote = repo.find_remote(remote_name)?;
-      let fetch_commit = do_fetch(&repo, &[&fetch_branch], &mut remote)?;
-      fetch_commit.map(|c| c.id())
+  pub fn working_dir(&self) -> Result<&Path> {
+    self.repo.workdir().ok_or_else(|| versio_error!("Repo has no working dir"))
+  }
+
+  pub fn prev(&self) -> Slice { self.slice(PREV_TAG_NAME.to_string()) }
+  pub fn slice(&self, refspec: String) -> Slice { Slice { repo: self, refspec } }
+  pub fn branch_name(&self) -> &str { &self.branch_name }
+  pub fn remote_name(&self) -> &Option<String> { &self.remote_name }
+  pub fn has_remote(&self) -> bool { self.remote_name.is_some() }
+
+  pub fn github_info(&self) -> Result<Option<GithubInfo>> {
+    let remote_name = match self.remote_name() {
+      Some(remote_name) => remote_name,
+      None => return Ok(None)
+    };
+    let remote = self.repo.find_remote(&remote_name)?;
+
+    let url = remote.url().ok_or_else(|| versio_error!("Invalid utf8 remote url."))?;
+    let path = if url.starts_with("https://github.com/") {
+      Some(&url[19 ..])
+    } else if url.starts_with("git@github.com:") {
+      Some(&url[15 ..])
+    } else {
+      None
+    };
+
+    path.map(|path| {
+      let len = path.len();
+      let path = if path.ends_with(".git") { &path[0 .. len - 4] } else { path };
+
+      let slash = path.char_indices().find(|(_, c)| *c == '/').map(|(i, _)| i);
+      let slash = slash.ok_or_else(|| versio_error!("No slash found in github path \"{}\".", path))?;
+
+      Ok(GithubInfo::new(path[0 .. slash].to_string(), path[slash + 1 ..].to_string()))
+    }).transpose()
+  }
+
+  pub fn fetch(&self) -> Result<Option<Oid>> {
+    self.slice(self.branch_name.to_string()).fetch()
+  }
+
+  pub fn pull(&self) -> Result<()> {
+    if let Some(oid) = self.fetch()? {
+      self.merge_after_fetch(oid)?;
     }
-    None => None
-  };
+    Ok(())
+  }
 
-  Ok(FetchResults { remote_name, fetch_branch, commit_oid })
-}
+  pub fn push_changes(&self) -> Result<()> {
+    if let Some(index) = self.add_all_modified()? {
+      let tree_oid = index.write_tree()?;
+      self.commit_tree(tree_oid)?;
+      self.update_tag()?;
+      self.push()?;
+    }
+    // TODO: push the tag regardless
 
-pub fn merge_after_fetch(repo: &Repository, fetch_results: &FetchResults) -> Result<()> {
-  if let Some(fetch_commit_oid) = &fetch_results.commit_oid {
-    let fetch_commit = repo.find_annotated_commit(*fetch_commit_oid)?;
+    Ok(())
+  }
+
+  /// Return all commits as if `git rev-list from_sha..to_sha`, along with the earliest time in that range.
+  pub fn dated_revlist(&self, from_sha: &str, to_sha: &str) -> Result<(Vec<String>, Time)> {
+    let mut revwalk = self.repo.revwalk()?;
+    revwalk.hide(self.repo.revparse_single(from_sha)?.id())?;
+    revwalk.push(self.repo.revparse_single(to_sha)?.id())?;
+
+    revwalk
+      .try_fold::<_, _, Result<Option<(Vec<String>, Time)>>>(None, |v, oid| {
+        let oid = oid?;
+        if let Some((mut oids, v)) = v {
+          oids.push(oid.to_string());
+          let t = min(v, self.repo.find_commit(oid)?.time());
+          Ok(Some((oids, t)))
+        } else {
+          let oids = vec![oid.to_string()];
+          let t = self.repo.find_commit(oid)?.time();
+          Ok(Some((oids, t)))
+        }
+      })
+      .transpose()
+      .ok_or_else(|| versio_error!("No commits found in {}..{}", from_sha, to_sha))?
+  }
+
+  pub fn commits_between<'a>(
+    &'a self, from_sha: &str, to_sha: &str
+  ) -> Result<impl Iterator<Item = Result<CommitInfo<'a>>> + 'a> {
+    let mut revwalk = self.repo.revwalk()?;
+    revwalk.hide(self.repo.revparse_single(from_sha)?.id())?;
+    revwalk.push(self.repo.revparse_single(to_sha)?.id())?;
+
+    Ok(revwalk.map(move |id| Ok(CommitInfo::new(&self.repo, self.repo.find_commit(id?)?))))
+  }
+
+  fn merge_after_fetch(&self, fetch_oid: Oid) -> Result<()> {
+    let fetch_commit = self.repo.find_annotated_commit(fetch_oid)?;
 
     let mut status_opts = StatusOptions::new();
     status_opts.include_ignored(false);
     status_opts.include_untracked(true);
     status_opts.exclude_submodules(false);
-    if repo.statuses(Some(&mut status_opts))?.iter().any(|s| s.status() != Status::CURRENT) {
+    if self.repo.statuses(Some(&mut status_opts))?.iter().any(|s| s.status() != Status::CURRENT) {
       return versio_err!("Can't pull: repository isn't current.");
     }
 
-    do_merge(repo, &fetch_results.fetch_branch, &fetch_commit)?;
+    do_merge(&self.repo, &self.branch_name, fetch_commit)?;
+    Ok(())
   }
 
-  Ok(())
-}
+  fn add_all_modified(&self) -> Result<Option<Index>> {
+    let mut status_opts = StatusOptions::new();
+    status_opts.include_ignored(false);
+    status_opts.include_untracked(true);
+    status_opts.exclude_submodules(false);
 
-pub fn add_and_commit(repo: &Repository, fetch_results: &FetchResults) -> Result<Option<Oid>> {
-  let mut status_opts = StatusOptions::new();
-  status_opts.include_ignored(false);
-  status_opts.include_untracked(true);
-  status_opts.exclude_submodules(false);
+    let mut index = self.repo.index()?;
+    let mut found = false;
+    for s in self.repo.statuses(Some(&mut status_opts))?.iter().filter(|s| s.status().is_wt_modified()) {
+      found = true;
+      let path = s.path().ok_or_else(|| versio_error!("Bad path"))?;
+      index.add_path(path.as_ref())?;
+    }
 
-  let mut index = repo.index()?;
-  let mut found = false;
-  for s in repo.statuses(Some(&mut status_opts))?.iter().filter(|s| s.status().is_wt_modified()) {
-    found = true;
-    let path = s.path().ok_or_else(|| versio_error!("Bad path"))?;
-    index.add_path(path.as_ref())?;
+    if found {
+      Ok(Some(index))
+    } else {
+      Ok(None)
+    }
   }
 
-  if found {
-    // commit ...
-    let add_oid = index.write_tree()?;
+  fn commit_tree(&self, tree_oid: Oid) -> Result<()> {
+    let tree = self.repo.find_tree(tree_oid)?;
+    let parent_commit = self.find_last_commit()?;
     let sig = Signature::now("Versio", "github.com/chaaz/versio")?;
-    let tree = repo.find_tree(add_oid)?;
-    let parent_commit = find_last_commit(&repo)?;
+    let head = Some("HEAD");
+    let msg = "Updated versions by versio";
 
-    let commit_oid = repo.commit(Some("HEAD"), &sig, &sig, "Updated versions by versio", &tree, &[&parent_commit])?;
-    repo.reset(&repo.find_object(commit_oid, Some(ObjectType::Commit))?, ResetType::Mixed, None)?;
+    let commit_oid = self.repo.commit(head, &sig, &sig, msg, &tree, &[&parent_commit])?;
+    self.repo.reset(&self.repo.find_object(commit_oid, Some(ObjectType::Commit))?, ResetType::Mixed, None)?;
 
-    // ... tag ...
-    let obj = repo.revparse_single("HEAD")?;
-    repo.tag_lightweight(PREV_TAG_NAME, &obj, true)?;
+    Ok(())
+  }
 
-    // ... and push
-    if let Some(remote_name) = &fetch_results.remote_name {
-      let fetch_branch = &fetch_results.fetch_branch;
-      let mut remote = repo.find_remote(remote_name)?;
-      let bchref = format!("refs/heads/{}", fetch_branch);
+  fn update_tag(&self) -> Result<()> {
+    let obj = self.repo.revparse_single("HEAD")?;
+    self.repo.tag_lightweight(PREV_TAG_NAME, &obj, true)?;
+    Ok(())
+  }
+
+  fn push(&self) -> Result<()> {
+    if let Some(remote_name) = &self.remote_name {
+      let mut remote = self.repo.find_remote(remote_name)?;
+      let bchref = format!("refs/heads/{}", self.branch_name);
       let tagref = format!("refs/tags/{}", PREV_TAG_NAME);
 
       let mut cb = RemoteCallbacks::new();
@@ -162,20 +244,96 @@ pub fn add_and_commit(repo: &Repository, fetch_results: &FetchResults) -> Result
 
       remote.push(&[&bchref, &tagref], Some(&mut push_opts))?;
     }
+    Ok(())
+  }
 
-    Ok(Some(commit_oid))
-  } else {
-    // TOOD: still push the new tag
-    Ok(None)
+  fn find_last_commit(&self) -> Result<Commit> {
+    let obj = self.repo.head()?.resolve()?.peel(ObjectType::Commit)?;
+    obj.into_commit().map_err(|o| versio_error!("Not a commit, somehow: {}", o.id()))
   }
 }
 
-fn find_last_commit(repo: &Repository) -> Result<Commit> {
-  let obj = repo.head()?.resolve()?.peel(ObjectType::Commit)?;
-  obj.into_commit().map_err(|o| versio_error!("Not a commit, somehow: {}", o.id()))
+struct Slice<'r> {
+  repo: &'r Repo,
+  refspec: String
 }
 
-fn do_fetch<'a>(repo: &'a Repository, refs: &[&str], remote: &'a mut Remote) -> Result<Option<AnnotatedCommit<'a>>> {
+impl<'r> Slice<'r> {
+  pub fn reslice(&self, refspec: String) -> Slice { self.repo.slice(refspec) }
+
+  pub fn has_blob<P: AsRef<Path>>(&self, path: P) -> bool { self.object(path).is_ok() }
+
+  pub fn blob<P: AsRef<Path>>(&self, path: P) -> Result<Blob> {
+    let obj = self.object(path)?;
+    obj.into_blob().map_err(|e| versio_error!("Not a blob: {} : {:?}", path.as_ref().to_string_lossy(), e))
+  }
+
+  pub fn object<P: AsRef<Path>>(&self, path: P) -> Result<Object> {
+    let path_string = path.as_ref().to_string_lossy();
+    Ok(self.repo.repo.revparse_single(&format!("{}:{}", &self.refspec, &path_string))?)
+  }
+
+  pub fn oid(&self) -> Result<String> {
+    let obj = self.repo.repo.revparse_single(&format!("{}^{{}}", self.refspec))?;
+    Ok(obj.id().to_string())
+  }
+
+  pub fn date(&self) -> Result<Time> {
+    let obj = self.repo.repo.revparse_single(&format!("{}^{{}}", self.refspec))?;
+    let commit = obj.into_commit().map_err(|o| versio_error!("\"{}\" isn't a commit.", o.id()))?;
+    Ok(commit.time())
+  }
+
+  pub fn fetch(&self) -> Result<Option<Oid>> {
+    if let Some(oid) = self.repo.fetches.get(&self.refspec).cloned() {
+      return Ok(Some(oid));
+    }
+
+    let state = self.repo.repo.state();
+    if state != RepositoryState::Clean {
+      // Don't bother if we're in the middle of a merge, rebase, etc.
+      return versio_err!("Can't pull: repository {:?} isn't clean.", state);
+    }
+
+    if let Some(remote_name) = &self.repo.remote_name {
+      let mut remote = self.repo.repo.find_remote(remote_name)?;
+      let oid = do_fetch(&self.repo.repo, &mut remote, &[&self.refspec])?;
+      self.repo.fetches.insert(self.refspec.to_string(), oid);
+      Ok(Some(oid))
+    } else {
+      Ok(None)
+    }
+  }
+}
+
+pub struct CommitInfo<'a> {
+  repo: &'a Repository,
+  commit: Commit<'a>
+}
+
+impl<'a> CommitInfo<'a> {
+  pub fn new(repo: &'a Repository, commit: Commit<'a>) -> CommitInfo<'a> { CommitInfo { repo, commit } }
+
+  pub fn kind(&self) -> String { extract_kind(self.commit.summary().unwrap_or("-")) }
+
+  pub fn id(&self) -> String { self.commit.id().to_string() }
+
+  pub fn files(&self) -> Result<impl Iterator<Item = String> + 'a> {
+    if self.commit.parents().len() == 1 {
+      let parent = self.commit.parent(0)?;
+      let ptree = parent.tree()?;
+      let ctree = self.commit.tree()?;
+      let diff = self.repo.diff_tree_to_tree(Some(&ptree), Some(&ctree), Some(&mut DiffOptions::new()))?;
+      let iter = DeltaIter::new(diff);
+      Ok(E2::A(iter.map(move |path| path.to_string_lossy().into_owned())))
+    } else {
+      Ok(E2::B(std::iter::empty()))
+    }
+  }
+}
+
+/// Fetch the given refspecs (and all tags) from the remote.
+fn do_fetch<'a>(repo: &'a Repository, remote: &'a mut Remote, refs: &[&str]) -> Result<Oid> {
   let mut cb = RemoteCallbacks::new();
 
   cb.credentials(|_url, username_from_url, _allowed_types| Cred::ssh_key_from_agent(username_from_url.unwrap()));
@@ -221,22 +379,23 @@ fn do_fetch<'a>(repo: &'a Repository, refs: &[&str], remote: &'a mut Remote) -> 
     );
   }
 
-  let fetch_head = repo.find_reference("FETCH_HEAD").ok();
-  Ok(fetch_head.map(|fetch_head| repo.reference_to_annotated_commit(&fetch_head)).transpose()?)
+  let fetch_head = repo.find_reference("FETCH_HEAD")?;
+  Ok(repo.reference_to_annotated_commit(&fetch_head)?.id())
 }
 
-fn do_merge<'a>(repo: &'a Repository, remote_branch: &str, fetch_commit: &AnnotatedCommit<'a>) -> Result<()> {
-  let analysis = repo.merge_analysis(&[fetch_commit])?;
+/// Merge the given commit into the working directory, but only if it's fast-forward-able.
+fn do_merge<'a>(repo: &'a Repository, branch_name: &str, commit: AnnotatedCommit<'a>) -> Result<()> {
+  let analysis = repo.merge_analysis(&[&commit])?;
 
   if analysis.0.is_fast_forward() {
     println!("Updating branch (fast forward)");
-    let refname = format!("refs/heads/{}", remote_branch);
+    let refname = format!("refs/heads/{}", branch_name);
     match repo.find_reference(&refname) {
-      Ok(mut r) => Ok(fast_forward(repo, &mut r, fetch_commit)?),
+      Ok(mut rfrnc) => Ok(fast_forward(repo, &mut rfrnc, &commit)?),
       Err(_) => {
         // Probably pulling in an empty repo; just set the reference to the commit directly.
-        let message = format!("Setting {} to {}", remote_branch, fetch_commit.id());
-        repo.reference(&refname, fetch_commit.id(), true, &message)?;
+        let message = format!("Setting {} to {}", branch_name, commit.id());
+        repo.reference(&refname, commit.id(), true, &message)?;
         repo.set_head(&refname)?;
         Ok(
           repo.checkout_head(Some(
@@ -253,120 +412,23 @@ fn do_merge<'a>(repo: &'a Repository, remote_branch: &str, fetch_commit: &Annota
   }
 }
 
-fn fast_forward(repo: &Repository, lb: &mut Reference, rc: &AnnotatedCommit) -> Result<()> {
-  let name = match lb.name() {
+/// Fast-forward the working directory head to the reference at the commit.
+fn fast_forward(repo: &Repository, rfrnc: &mut Reference, rc: &AnnotatedCommit) -> Result<()> {
+  let name = match rfrnc.name() {
     Some(s) => s.to_string(),
-    None => String::from_utf8_lossy(lb.name_bytes()).to_string()
+    None => String::from_utf8_lossy(rfrnc.name_bytes()).to_string()
   };
 
   let msg = format!("Fast-forward: {} -> {:.7}", name, rc.id());
   println!("{}", msg);
 
-  lb.set_target(rc.id(), &msg)?;
+  rfrnc.set_target(rc.id(), &msg)?;
   repo.set_head(&name)?;
+
   // 'force' required to update the working directory; safe becaused we checked that it's clean.
   repo.checkout_head(Some(CheckoutBuilder::default().force()))?;
+
   Ok(())
-}
-
-pub fn get_name_and_branch(
-  repo: &Repository, name: Option<&str>, branch: Option<&str>
-) -> Result<(Option<String>, String)> {
-  let remote_name = name.map(|s| Ok(Some(s.to_string()))).unwrap_or_else(|| {
-    let remotes = repo.remotes()?;
-    if remotes.is_empty() {
-      Ok(None)
-    } else if remotes.len() == 1 {
-      Ok(Some(remotes.iter().next().unwrap().ok_or_else(|| versio_error!("Non-utf8 remote name."))?.to_string()))
-    } else if remotes.iter().any(|s| s == Some("origin")) {
-      Ok(Some("origin".to_string()))
-    } else {
-      versio_err!("Couldn't determine remote name.")
-    }
-  })?;
-
-  let remote_branch = branch.map(|b| Ok(b.to_string())).unwrap_or_else(|| {
-    let head_ref = repo.find_reference("HEAD").map_err(|e| versio_error!("Couldn't resolve head: {:?}.", e))?;
-    if head_ref.kind() != Some(ReferenceType::Symbolic) {
-      return versio_err!("Not on a branch.");
-    } else {
-      let mut branch_name = head_ref.symbolic_target().ok_or_else(|| versio_error!("Branch is not named."))?;
-      if branch_name.starts_with("refs/heads/") {
-        branch_name = &branch_name[11 ..];
-      } else {
-        return versio_err!("Current {} is not a branch.", branch_name);
-      }
-      Ok(branch_name.to_string())
-    }
-  })?;
-
-  Ok((remote_name, remote_branch))
-}
-
-pub struct CommitInfo<'a> {
-  repo: &'a Repository,
-  commit: Commit<'a>
-}
-
-impl<'a> CommitInfo<'a> {
-  pub fn new(repo: &'a Repository, commit: Commit<'a>) -> CommitInfo<'a> { CommitInfo { repo, commit } }
-
-  pub fn kind(&self) -> String { extract_kind(self.commit.summary().unwrap_or("-")) }
-
-  pub fn id(&self) -> String { self.commit.id().to_string() }
-
-  pub fn files(&self) -> Result<impl Iterator<Item = String> + 'a> {
-    if self.commit.parents().len() == 1 {
-      let parent = self.commit.parent(0)?;
-      let ptree = parent.tree()?;
-      let ctree = self.commit.tree()?;
-      let diff = self.repo.diff_tree_to_tree(Some(&ptree), Some(&ctree), Some(&mut DiffOptions::new()))?;
-      let iter = DeltaIter::new(diff);
-      Ok(E2::A(iter.map(move |path| path.to_string_lossy().into_owned())))
-    } else {
-      Ok(E2::B(std::iter::empty()))
-    }
-  }
-}
-
-/// Return all commits as if `git rev-list from_sha..to_sha`, along with the earliest time in that range.
-pub fn dated_shas_between(repo: &Repository, from_sha: &str, to_sha: &str) -> Result<(Vec<String>, Time)> {
-  let mut revwalk = repo.revwalk()?;
-  if let Ok(prev_spec) = repo.revparse_single(from_sha) {
-    revwalk.hide(prev_spec.id())?;
-  } else {
-    println!("\"{}\" not found, searching all history.", PREV_TAG_NAME);
-  }
-  let head_spec = repo.revparse_single(to_sha)?;
-  revwalk.push(head_spec.id())?;
-
-  revwalk
-    .try_fold::<_, _, Result<Option<(Vec<String>, Time)>>>(None, |v, oid| {
-      let oid = oid?;
-      if let Some((mut oids, v)) = v {
-        let t = min(v, repo.find_commit(oid)?.time());
-        oids.push(oid.to_string());
-        Ok(Some((oids, t)))
-      } else {
-        let oids = vec![oid.to_string()];
-        let t = repo.find_commit(oid)?.time();
-        Ok(Some((oids, t)))
-      }
-    })
-    .transpose()
-    .ok_or_else(|| versio_error!("No commits found in {}..{}", from_sha, to_sha))?
-}
-
-pub fn commits_between<'a>(
-  repo: &'a Repository, from_sha: &str, to_sha: &str
-) -> Result<impl Iterator<Item = Result<CommitInfo<'a>>> + 'a> {
-  let mut revwalk = repo.revwalk()?;
-  let from_spec = repo.revparse_single(from_sha)?;
-  revwalk.hide(from_spec.id())?;
-  let head_spec = repo.revparse_single(to_sha)?;
-  revwalk.push(head_spec.id())?;
-
-  Ok(revwalk.map(move |id| Ok(CommitInfo::new(repo, repo.find_commit(id?)?))))
 }
 
 fn extract_kind(summary: &str) -> String {
@@ -462,8 +524,8 @@ pub struct FullPr {
 }
 
 impl FullPr {
-  pub fn lookup(repo: &Repository, head: String, base: String, number: u32) -> Result<FullPr> {
-    let full_pr = match fetch(repo, None, Some(&head)) {
+  pub fn lookup(repo: &Repo, head: String, base: String, number: u32) -> Result<FullPr> {
+    let full_pr = match repo.slice(head.clone()).fetch() {
       Err(e) => {
         println!("Couldn't fetch {}: using best-guess instead: {:?}", head, e);
         FullPr {
@@ -478,8 +540,8 @@ impl FullPr {
       }
 
       Ok(_) => {
-        let base_time = get_date(repo, &base)?;
-        let (commits, early) = dated_shas_between(repo, &base, &head)?;
+        let base_time = repo.slice(base.clone()).date()?;
+        let (commits, early) = repo.dated_revlist(&base, &head)?;
 
         FullPr {
           number,
@@ -566,3 +628,9 @@ mod test {
     assert_eq!(&extract_kind("thing!(scope): this is thing"), "thing!");
   }
 }
+
+//  pub struct FetchResults {
+//    pub remote_name: Option<String>,
+//    pub fetch_branch: String,
+//    pub commit_oid: Option<Oid>
+//  }
