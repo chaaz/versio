@@ -4,7 +4,8 @@ use crate::error::Result;
 #[cfg(test)]
 use crate::parts::ToPart;
 use crate::parts::{IntoPartVec, Part};
-use crate::{convert_mark, CharMark, MarkedData, NamedData, Scanner};
+use crate::{CharMark, MarkedData, NamedData};
+use crate::scan::Scanner;
 use yaml_rust::parser::{Event, MarkedEventReceiver, Parser};
 use yaml_rust::scanner::{Marker, TScalarStyle};
 
@@ -22,7 +23,7 @@ impl YamlScanner {
 impl Scanner for YamlScanner {
   fn scan(&self, data: NamedData) -> Result<MarkedData> {
     let char_mark = scan_yaml(&data.data(), self.target.clone())?;
-    let byte_mark = convert_mark(data.data(), char_mark)?;
+    let byte_mark = char_mark.into_byte_mark(data.data())?;
     Ok(data.mark(byte_mark))
   }
 }
@@ -201,7 +202,7 @@ enum Expect {
 #[cfg(test)]
 mod test {
   use super::{scan_yaml, YamlScanner};
-  use crate::{NamedData, Scanner};
+  use crate::{NamedData, scan::Scanner};
 
   #[test]
   fn test_yaml() {

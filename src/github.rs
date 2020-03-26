@@ -1,9 +1,9 @@
 //! Interactions with github API v4.
 
 use crate::error::Result;
-use crate::git::{FullPr, Span, Repo};
+use crate::git::{FullPr, GithubInfo, Span, Repo};
 use chrono::{DateTime, FixedOffset, TimeZone};
-use git2::{Repository, Time};
+use git2::Time;
 use github_gql::{client::Github, IntoGithubRequest};
 use hyper::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 use hyper::Request;
@@ -29,21 +29,24 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// and (b) that other PR's commits doesn't contain the original commit. We then queue that other PR, if
 /// possible. Our result is a list of PRs, each of which has "base..head" rev-parse-able refs, and a list of
 /// commits which should be excluded from them.
-// all_prs.contains_key/insert w/ a side effect triggers a false positive.
+// the "all_prs.contains_key/insert w/ a side effect" below causes a clippy false positive.
 #[allow(clippy::map_entry)]
-pub fn changes(repo: &Repository, owner: String, repo_name: String, end: String, begin: String) -> Result<Changes> {
+pub fn changes(repo: &Repo, head: String, base: String) -> Result<Changes> {
   let mut all_commits = HashSet::new();
   let mut all_prs = HashMap::new();
 
-  let pr_zero = PrEdgeNode { number: 0, state: "MERGED".to_string(), head_ref_oid: end, base_ref_oid: begin };
-  let pr_zero = pr_zero.lookup_full(repo)?;
-
   let mut queue = VecDeque::new();
+  let pr_zero = FullPr::lookup(repo, head, base, 0)?;
   queue.push_back(pr_zero.span());
   all_prs.insert(pr_zero.number(), pr_zero);
 
+  let github_info = match repo.github_info()? {
+    Some(github_info) => github_info,
+    None => return Ok(Changes { groups: all_prs, commits: all_commits })
+  };
+
   while let Some(span) = queue.pop_front() {
-    let commit_list = commits_from_api(&owner, &repo_name, &span)?;
+    let commit_list = commits_from_api(&github_info, &span)?;
     let commit_list: Vec<_> = commit_list
       .into_iter()
       .filter_map(|commit| {
@@ -92,7 +95,7 @@ pub fn changes(repo: &Repository, owner: String, repo_name: String, end: String,
   Ok(Changes { commits: all_commits, groups: all_prs })
 }
 
-fn commits_from_api(owner: &str, repo: &str, span: &Span) -> Result<Vec<ApiCommit>> {
+fn commits_from_api(github_info: &GithubInfo, span: &Span) -> Result<Vec<ApiCommit>> {
   // TODO : respect "hasNextPage" and endCursor by using history(after:)
   let query = r#"
 query associatedPRs($since:GitTimestamp!, $sha:String!, $repo:String!, $owner:String!){
@@ -137,8 +140,8 @@ fragment commitResult on Commit {
     r#"{{ "sha": "{}", "since": "{}", "owner": "{}", "repo": "{}" }}"#,
     span.end(),
     time_to_datetime(span.since()).to_rfc3339(),
-    owner,
-    repo
+    github_info.owner_name(),
+    github_info.repo_name()
   );
 
   // TODO: actual API token

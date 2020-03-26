@@ -1,8 +1,8 @@
 # Using Versio
 
-You can use versio manually, but it also really shines when it's used
-with git as part of a CI/CD pipeline. Here's some ways that you can use
-Versio.
+You can use versio to manually get and set version numbers, but it also
+seemlessly integrates with git and your CI/CD pipeline. Here's some
+examples:
 
 ## Getting and Setting
 
@@ -17,7 +17,7 @@ project is nested in a subdirectory `codebase` with the following
 }
 ```
 
-And then you had a `.versio.yaml` at the root of your repository:
+You also have a `.versio.yaml` at the root of your repository:
 
 ```yaml
 projects:
@@ -26,7 +26,6 @@ projects:
     located:
       file: "codebase/package.json"
       json: "version"
-
 ```
 
 Versio has handlers for JSON, YAML, and TOML files, as well as plain
@@ -68,16 +67,16 @@ In a `git` repository, `versio` is even more useful. You can assign
 projects:
   - name: codebase
     id: 1
-    covers: ["codebase/*"]
+    covers: ["codebase/**/*"]
     located:
       file: "codebase/package.json"
       json: "version"
 
 sizes:
   use_angular: true
-  major [ breaking ]
-  minor [ minor ]
-  patch [ "*" ]
+  major: [ breaking ]
+  minor: [ minor ]
+  patch: [ "*" ]
   fail: [ "-" ]
 ```
 
@@ -123,7 +122,7 @@ b3ed0f0 feat: Change an important file
 
 Notice that the commit message starts with "feat": "feat" maps to
 "minor" in our config. And it contains a file `codebase/src/misc.js`
-which is covered by the `codebase/*` glob in our single project.
+which is covered by the `codebase/**/*` glob in our single project.
 
 We can run the Versio git integration like this:
 

@@ -13,40 +13,38 @@ use std::io::{stdout, Write};
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::cell::RefCell;
 
 const PREV_TAG_NAME: &str = "versio-prev";
 
-pub struct GithubInfo {
-  owner_name: String,
-  repo_name: String
-}
-
-impl GithubInfo {
-  pub fn new(owner_name: String, repo_name: String) -> GithubInfo { GithubInfo { owner_name, repo_name } }
-  pub fn owner_name(&self) -> &str { &self.owner_name }
-  pub fn repo_name(&self) -> &str { &self.repo_name }
-}
-
 pub struct Repo {
   repo: Repository,
-
-  fetches: HashMap<String, Oid>,
+  fetches: RefCell<HashMap<String, Oid>>,
   branch_name: String,
   remote_name: Option<String>
 }
 
 impl Repo {
+  pub fn root_dir<P: AsRef<Path>>(dir: P) -> Result<PathBuf> {
+    let flags = RepositoryOpenFlags::empty();
+    let root_dir = Repository::open_ext(dir, flags, std::iter::empty::<&OsStr>())?
+      .workdir()
+      .ok_or_else(|| versio_error!("No working directory."))?
+      .to_path_buf();
+    Ok(root_dir)
+  }
+
   pub fn open<P: AsRef<Path>>(path: P) -> Result<Repo> {
     let flags = RepositoryOpenFlags::empty();
     let repo = Repository::open_ext(path, flags, std::iter::empty::<&OsStr>())?;
-    let fetches = HashMap::new();
+    let fetches = RefCell::new(HashMap::new());
 
     let branch_name = {
       let head_ref = repo.find_reference("HEAD").map_err(|e| versio_error!("Couldn't resolve head: {:?}.", e))?;
       if head_ref.kind() != Some(ReferenceType::Symbolic) {
         return versio_err!("Not on a branch.");
       } else {
-        let mut branch_name = head_ref.symbolic_target().ok_or_else(|| versio_error!("Branch is not named."))?;
+        let branch_name = head_ref.symbolic_target().ok_or_else(|| versio_error!("Branch is not named."))?;
         if branch_name.starts_with("refs/heads/") {
           branch_name[11 ..].to_string()
         } else {
@@ -120,16 +118,17 @@ impl Repo {
     Ok(())
   }
 
-  pub fn push_changes(&self) -> Result<()> {
-    if let Some(index) = self.add_all_modified()? {
+  pub fn push_changes(&self) -> Result<bool> {
+    if let Some(mut index) = self.add_all_modified()? {
       let tree_oid = index.write_tree()?;
       self.commit_tree(tree_oid)?;
       self.update_tag()?;
       self.push()?;
+      Ok(true)
+    } else {
+      // TODO: push the tag regardless
+      Ok(false)
     }
-    // TODO: push the tag regardless
-
-    Ok(())
   }
 
   /// Return all commits as if `git rev-list from_sha..to_sha`, along with the earliest time in that range.
@@ -253,29 +252,23 @@ impl Repo {
   }
 }
 
-struct Slice<'r> {
+pub struct Slice<'r> {
   repo: &'r Repo,
   refspec: String
 }
 
 impl<'r> Slice<'r> {
-  pub fn reslice(&self, refspec: String) -> Slice { self.repo.slice(refspec) }
-
-  pub fn has_blob<P: AsRef<Path>>(&self, path: P) -> bool { self.object(path).is_ok() }
+  pub fn refspec(&self) -> &str { &self.refspec }
+  pub fn has_blob<P: AsRef<Path>>(&self, path: P) -> Result<bool> { Ok(self.object(path).is_ok()) }
 
   pub fn blob<P: AsRef<Path>>(&self, path: P) -> Result<Blob> {
-    let obj = self.object(path)?;
+    let obj = self.object(path.as_ref())?;
     obj.into_blob().map_err(|e| versio_error!("Not a blob: {} : {:?}", path.as_ref().to_string_lossy(), e))
   }
 
   pub fn object<P: AsRef<Path>>(&self, path: P) -> Result<Object> {
     let path_string = path.as_ref().to_string_lossy();
     Ok(self.repo.repo.revparse_single(&format!("{}:{}", &self.refspec, &path_string))?)
-  }
-
-  pub fn oid(&self) -> Result<String> {
-    let obj = self.repo.repo.revparse_single(&format!("{}^{{}}", self.refspec))?;
-    Ok(obj.id().to_string())
   }
 
   pub fn date(&self) -> Result<Time> {
@@ -285,7 +278,7 @@ impl<'r> Slice<'r> {
   }
 
   pub fn fetch(&self) -> Result<Option<Oid>> {
-    if let Some(oid) = self.repo.fetches.get(&self.refspec).cloned() {
+    if let Some(oid) = self.repo.fetches.borrow().get(&self.refspec).cloned() {
       return Ok(Some(oid));
     }
 
@@ -298,12 +291,23 @@ impl<'r> Slice<'r> {
     if let Some(remote_name) = &self.repo.remote_name {
       let mut remote = self.repo.repo.find_remote(remote_name)?;
       let oid = do_fetch(&self.repo.repo, &mut remote, &[&self.refspec])?;
-      self.repo.fetches.insert(self.refspec.to_string(), oid);
+      self.repo.fetches.borrow_mut().insert(self.refspec.to_string(), oid);
       Ok(Some(oid))
     } else {
       Ok(None)
     }
   }
+}
+
+pub struct GithubInfo {
+  owner_name: String,
+  repo_name: String
+}
+
+impl GithubInfo {
+  pub fn new(owner_name: String, repo_name: String) -> GithubInfo { GithubInfo { owner_name, repo_name } }
+  pub fn owner_name(&self) -> &str { &self.owner_name }
+  pub fn repo_name(&self) -> &str { &self.repo_name }
 }
 
 pub struct CommitInfo<'a> {
@@ -329,127 +333,6 @@ impl<'a> CommitInfo<'a> {
     } else {
       Ok(E2::B(std::iter::empty()))
     }
-  }
-}
-
-/// Fetch the given refspecs (and all tags) from the remote.
-fn do_fetch<'a>(repo: &'a Repository, remote: &'a mut Remote, refs: &[&str]) -> Result<Oid> {
-  let mut cb = RemoteCallbacks::new();
-
-  cb.credentials(|_url, username_from_url, _allowed_types| Cred::ssh_key_from_agent(username_from_url.unwrap()));
-
-  cb.transfer_progress(|stats| {
-    if stats.received_objects() == stats.total_objects() {
-      print!("Resolving deltas {}/{}\r", stats.indexed_deltas(), stats.total_deltas());
-    } else if stats.total_objects() > 0 {
-      print!(
-        "Received {}/{} objects ({}) in {} bytes\r",
-        stats.received_objects(),
-        stats.total_objects(),
-        stats.indexed_objects(),
-        stats.received_bytes()
-      );
-    }
-    stdout().flush().unwrap();
-    true
-  });
-
-  let mut fo = FetchOptions::new();
-  fo.remote_callbacks(cb);
-
-  fo.download_tags(AutotagOption::All);
-  println!("Fetching {:?} from {}", refs, remote.name().unwrap());
-  remote.fetch(refs, Some(&mut fo), None)?;
-
-  let stats = remote.stats();
-  if stats.local_objects() > 0 {
-    println!(
-      "\rReceived {}/{} objects in {} bytes (used {} local objects)",
-      stats.indexed_objects(),
-      stats.total_objects(),
-      stats.received_bytes(),
-      stats.local_objects()
-    );
-  } else {
-    println!(
-      "\rReceived {}/{} objects in {} bytes",
-      stats.indexed_objects(),
-      stats.total_objects(),
-      stats.received_bytes()
-    );
-  }
-
-  let fetch_head = repo.find_reference("FETCH_HEAD")?;
-  Ok(repo.reference_to_annotated_commit(&fetch_head)?.id())
-}
-
-/// Merge the given commit into the working directory, but only if it's fast-forward-able.
-fn do_merge<'a>(repo: &'a Repository, branch_name: &str, commit: AnnotatedCommit<'a>) -> Result<()> {
-  let analysis = repo.merge_analysis(&[&commit])?;
-
-  if analysis.0.is_fast_forward() {
-    println!("Updating branch (fast forward)");
-    let refname = format!("refs/heads/{}", branch_name);
-    match repo.find_reference(&refname) {
-      Ok(mut rfrnc) => Ok(fast_forward(repo, &mut rfrnc, &commit)?),
-      Err(_) => {
-        // Probably pulling in an empty repo; just set the reference to the commit directly.
-        let message = format!("Setting {} to {}", branch_name, commit.id());
-        repo.reference(&refname, commit.id(), true, &message)?;
-        repo.set_head(&refname)?;
-        Ok(
-          repo.checkout_head(Some(
-            CheckoutBuilder::default().allow_conflicts(false).conflict_style_merge(false).force()
-          ))?
-        )
-      }
-    }
-  } else if analysis.0.is_normal() {
-    versio_err!("Can't pull: would not be a fast-forward.")
-  } else {
-    println!("Up to date.");
-    Ok(())
-  }
-}
-
-/// Fast-forward the working directory head to the reference at the commit.
-fn fast_forward(repo: &Repository, rfrnc: &mut Reference, rc: &AnnotatedCommit) -> Result<()> {
-  let name = match rfrnc.name() {
-    Some(s) => s.to_string(),
-    None => String::from_utf8_lossy(rfrnc.name_bytes()).to_string()
-  };
-
-  let msg = format!("Fast-forward: {} -> {:.7}", name, rc.id());
-  println!("{}", msg);
-
-  rfrnc.set_target(rc.id(), &msg)?;
-  repo.set_head(&name)?;
-
-  // 'force' required to update the working directory; safe becaused we checked that it's clean.
-  repo.checkout_head(Some(CheckoutBuilder::default().force()))?;
-
-  Ok(())
-}
-
-fn extract_kind(summary: &str) -> String {
-  // TODO: only search as far as newline ?
-  match summary.char_indices().find(|(_, c)| *c == ':').map(|(i, _)| i) {
-    Some(i) => {
-      let kind = &summary[0 .. i].trim();
-      let bang = kind.ends_with('!');
-      match kind.char_indices().find(|(_, c)| *c == '(').map(|(i, _)| i) {
-        Some(i) => {
-          let kind = &kind[0 .. i].trim();
-          if bang && !kind.ends_with('!') {
-            format!("{}!", kind)
-          } else {
-            (*kind).to_string()
-          }
-        }
-        None => (*kind).to_string()
-      }
-    }
-    None => "-".to_string()
   }
 }
 
@@ -597,6 +480,127 @@ impl Span {
   pub fn end(&self) -> &str { &self.end }
   pub fn begin(&self) -> &str { &self.begin }
   pub fn since(&self) -> &Time { &self.since }
+}
+
+/// Fetch the given refspecs (and all tags) from the remote.
+fn do_fetch<'a>(repo: &'a Repository, remote: &'a mut Remote, refs: &[&str]) -> Result<Oid> {
+  let mut cb = RemoteCallbacks::new();
+
+  cb.credentials(|_url, username_from_url, _allowed_types| Cred::ssh_key_from_agent(username_from_url.unwrap()));
+
+  cb.transfer_progress(|stats| {
+    if stats.received_objects() == stats.total_objects() {
+      print!("Resolving deltas {}/{}\r", stats.indexed_deltas(), stats.total_deltas());
+    } else if stats.total_objects() > 0 {
+      print!(
+        "Received {}/{} objects ({}) in {} bytes\r",
+        stats.received_objects(),
+        stats.total_objects(),
+        stats.indexed_objects(),
+        stats.received_bytes()
+      );
+    }
+    stdout().flush().unwrap();
+    true
+  });
+
+  let mut fo = FetchOptions::new();
+  fo.remote_callbacks(cb);
+
+  fo.download_tags(AutotagOption::All);
+  println!("Fetching {:?} from {}", refs, remote.name().unwrap());
+  remote.fetch(refs, Some(&mut fo), None)?;
+
+  let stats = remote.stats();
+  if stats.local_objects() > 0 {
+    println!(
+      "\rReceived {}/{} objects in {} bytes (used {} local objects)",
+      stats.indexed_objects(),
+      stats.total_objects(),
+      stats.received_bytes(),
+      stats.local_objects()
+    );
+  } else {
+    println!(
+      "\rReceived {}/{} objects in {} bytes",
+      stats.indexed_objects(),
+      stats.total_objects(),
+      stats.received_bytes()
+    );
+  }
+
+  let fetch_head = repo.find_reference("FETCH_HEAD")?;
+  Ok(repo.reference_to_annotated_commit(&fetch_head)?.id())
+}
+
+/// Merge the given commit into the working directory, but only if it's fast-forward-able.
+fn do_merge<'a>(repo: &'a Repository, branch_name: &str, commit: AnnotatedCommit<'a>) -> Result<()> {
+  let analysis = repo.merge_analysis(&[&commit])?;
+
+  if analysis.0.is_fast_forward() {
+    println!("Updating branch (fast forward)");
+    let refname = format!("refs/heads/{}", branch_name);
+    match repo.find_reference(&refname) {
+      Ok(mut rfrnc) => Ok(fast_forward(repo, &mut rfrnc, &commit)?),
+      Err(_) => {
+        // Probably pulling in an empty repo; just set the reference to the commit directly.
+        let message = format!("Setting {} to {}", branch_name, commit.id());
+        repo.reference(&refname, commit.id(), true, &message)?;
+        repo.set_head(&refname)?;
+        Ok(
+          repo.checkout_head(Some(
+            CheckoutBuilder::default().allow_conflicts(false).conflict_style_merge(false).force()
+          ))?
+        )
+      }
+    }
+  } else if analysis.0.is_normal() {
+    versio_err!("Can't pull: would not be a fast-forward.")
+  } else {
+    println!("Up to date.");
+    Ok(())
+  }
+}
+
+/// Fast-forward the working directory head to the reference at the commit.
+fn fast_forward(repo: &Repository, rfrnc: &mut Reference, rc: &AnnotatedCommit) -> Result<()> {
+  let name = match rfrnc.name() {
+    Some(s) => s.to_string(),
+    None => String::from_utf8_lossy(rfrnc.name_bytes()).to_string()
+  };
+
+  let msg = format!("Fast-forward: {} -> {:.7}", name, rc.id());
+  println!("{}", msg);
+
+  rfrnc.set_target(rc.id(), &msg)?;
+  repo.set_head(&name)?;
+
+  // 'force' required to update the working directory; safe becaused we checked that it's clean.
+  repo.checkout_head(Some(CheckoutBuilder::default().force()))?;
+
+  Ok(())
+}
+
+fn extract_kind(summary: &str) -> String {
+  // TODO: only search as far as newline ?
+  match summary.char_indices().find(|(_, c)| *c == ':').map(|(i, _)| i) {
+    Some(i) => {
+      let kind = &summary[0 .. i].trim();
+      let bang = kind.ends_with('!');
+      match kind.char_indices().find(|(_, c)| *c == '(').map(|(i, _)| i) {
+        Some(i) => {
+          let kind = &kind[0 .. i].trim();
+          if bang && !kind.ends_with('!') {
+            format!("{}!", kind)
+          } else {
+            (*kind).to_string()
+          }
+        }
+        None => (*kind).to_string()
+      }
+    }
+    None => "-".to_string()
+  }
 }
 
 #[cfg(test)]

@@ -27,7 +27,7 @@ but with the ability to track multiple projects in a monorepo.
   projects:
     - name: my-project
       id: 1
-      covers: ["*"]
+      covers: ["**/*"]
       located:
         file: "package.json"
         json: "version"
@@ -92,7 +92,7 @@ Versio can manage those version numbers, if you tell it where they are.
 ## How It Works
 
 - Versio reads from a `.versio.yaml` file at the root of your
-  repository, and reads the version number of each file references
+  repository, and reads the version number of each file referenced
   there.
 - It also reads older versions of the same `.versio.yaml` file from git
   history, and also reads historic version numbers of your projects.
@@ -100,12 +100,16 @@ Versio can manage those version numbers, if you tell it where they are.
   conventional commits, Versio can update version numbers to appropriate
   new values.
 
+## Running Versio
+
+Check out our [Using Versio](docs/usage.md) page for details on running
+Versio.
+
 ## Troubleshooting
 
 If you rebase your branch, it might cause the last `versio-prev` tag to
 no longer be an ancestor of your latest commit. In that case, Versio
-will be unable to find any commits, so will not properly increment
-versions.
+might not find the correct commits to update the version.
 
 If you perform such a rebase, you should manually move the `versio-prev`
 tag to the corresponding commit on your new branch, with the

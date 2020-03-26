@@ -396,8 +396,8 @@ pub fn run(prev: &PrevSource, curt: &CurrentSource, all: bool, dry: bool) -> Res
   if found {
     if dry {
       println!("Dry run: no actual changes.");
-    } else if prev.repo()?.add_and_commit()?.is_some() {
-      if prev.using_remote()? {
+    } else if prev.repo()?.push_changes()? {
+      if prev.has_remote()? {
         println!("Changes committed and pushed.");
       } else {
         println!("Changes committed.");
