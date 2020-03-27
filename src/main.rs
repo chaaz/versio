@@ -8,12 +8,11 @@ mod either;
 mod git;
 mod github;
 mod opts;
-mod parts;
 mod scan;
 
 use crate::either::IterEither2 as E2;
 use crate::error::Result;
-use crate::git::{Repo, FullPr};
+use crate::git::{FullPr, Repo};
 use crate::github::{changes, Changes};
 use regex::Regex;
 use std::iter;
@@ -39,9 +38,7 @@ pub struct CurrentSource {
 }
 
 impl CurrentSource {
-  pub fn open<P: AsRef<Path>>(dir: P) -> Result<CurrentSource> {
-    Ok(CurrentSource { root_dir: Repo::root_dir(dir)? })
-  }
+  pub fn open<P: AsRef<Path>>(dir: P) -> Result<CurrentSource> { Ok(CurrentSource { root_dir: Repo::root_dir(dir)? }) }
 }
 
 impl Source for CurrentSource {
@@ -139,9 +136,7 @@ impl PrevSourceInner {
     Ok(vec.into_iter().flatten())
   }
 
-  pub fn push_changes(&mut self) -> Result<bool> {
-    self.repo.push_changes()
-  }
+  pub fn push_changes(&mut self) -> Result<bool> { self.repo.push_changes() }
 }
 
 pub struct NamedData {

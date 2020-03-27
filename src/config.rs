@@ -2,12 +2,12 @@
 
 use crate::analyze::AnnotatedMark;
 use crate::error::Result;
+use crate::scan::parts::{deserialize_parts, Part};
 use crate::scan::JsonScanner;
-use crate::parts::{deserialize_parts, Part};
+use crate::scan::Scanner;
 use crate::scan::TomlScanner;
 use crate::scan::YamlScanner;
 use crate::{CurrentSource, Mark, MarkedData, NamedData, PrevSource, Source, CONFIG_FILENAME};
-use crate::scan::Scanner;
 use glob::{glob_with, MatchOptions, Pattern};
 use regex::Regex;
 use serde::de::{self, Deserializer, MapAccess, Visitor};

@@ -4,16 +4,16 @@ use crate::either::IterEither2 as E2;
 use crate::error::Result;
 use git2::build::CheckoutBuilder;
 use git2::{
-  AnnotatedCommit, AutotagOption, Blob, Commit, Cred, Diff, DiffOptions, FetchOptions, ObjectType, Oid, PushOptions,
-  Reference, ReferenceType, Remote, RemoteCallbacks, Repository, RepositoryState, ResetType, Signature, Status,
-  StatusOptions, Time, RepositoryOpenFlags, Object, Index
+  AnnotatedCommit, AutotagOption, Blob, Commit, Cred, Diff, DiffOptions, FetchOptions, Index, Object, ObjectType, Oid,
+  PushOptions, Reference, ReferenceType, Remote, RemoteCallbacks, Repository, RepositoryOpenFlags, RepositoryState,
+  ResetType, Signature, Status, StatusOptions, Time
 };
+use std::cell::RefCell;
 use std::cmp::min;
-use std::io::{stdout, Write};
-use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 use std::ffi::OsStr;
-use std::cell::RefCell;
+use std::io::{stdout, Write};
+use std::path::{Path, PathBuf};
 
 const PREV_TAG_NAME: &str = "versio-prev";
 
@@ -96,20 +96,20 @@ impl Repo {
       None
     };
 
-    path.map(|path| {
-      let len = path.len();
-      let path = if path.ends_with(".git") { &path[0 .. len - 4] } else { path };
+    path
+      .map(|path| {
+        let len = path.len();
+        let path = if path.ends_with(".git") { &path[0 .. len - 4] } else { path };
 
-      let slash = path.char_indices().find(|(_, c)| *c == '/').map(|(i, _)| i);
-      let slash = slash.ok_or_else(|| versio_error!("No slash found in github path \"{}\".", path))?;
+        let slash = path.char_indices().find(|(_, c)| *c == '/').map(|(i, _)| i);
+        let slash = slash.ok_or_else(|| versio_error!("No slash found in github path \"{}\".", path))?;
 
-      Ok(GithubInfo::new(path[0 .. slash].to_string(), path[slash + 1 ..].to_string()))
-    }).transpose()
+        Ok(GithubInfo::new(path[0 .. slash].to_string(), path[slash + 1 ..].to_string()))
+      })
+      .transpose()
   }
 
-  pub fn fetch(&self) -> Result<Option<Oid>> {
-    self.slice(self.branch_name.to_string()).fetch()
-  }
+  pub fn fetch(&self) -> Result<Option<Oid>> { self.slice(self.branch_name.to_string()).fetch() }
 
   pub fn pull(&self) -> Result<()> {
     if let Some(oid) = self.fetch()? {
@@ -229,7 +229,7 @@ impl Repo {
 
       cb.credentials(|_url, username_from_url, _allowed_types| Cred::ssh_key_from_agent(username_from_url.unwrap()));
 
-      // TODO: rollback the tag if the heads didn't succeed.
+      // TODO: do we have to rollback the tag if the heads didn't succeed.
       cb.push_update_reference(|rref, status| {
         if let Some(status) = status {
           println!("Couldn't push reference {}: {}", rref, status);
