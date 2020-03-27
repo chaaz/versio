@@ -10,7 +10,7 @@ mod github;
 mod opts;
 mod scan;
 
-use crate::either::IterEither2 as E2;
+use crate::either::{IterEither2 as E2, IterEither3 as E3};
 use crate::error::Result;
 use crate::git::{FullPr, Repo};
 use crate::github::{changes, Changes};
@@ -70,14 +70,12 @@ impl PrevSource {
     Ok(PrevSource { root_dir, inner: Arc::new(Mutex::new(inner)) })
   }
 
-  pub fn set_fetch(&mut self, _f: bool) -> Result<()> { unimplemented!() }
-  pub fn set_merge(&mut self, _m: bool) -> Result<()> { unimplemented!() }
-
+  pub fn set_fetch(&mut self, _f: bool) -> Result<()> { Ok(()) }
+  pub fn set_merge(&mut self, _m: bool) -> Result<()> { Ok(()) }
   pub fn has_remote(&self) -> Result<bool> { Ok(self.inner.lock()?.has_remote()) }
-
   pub fn changes(&self) -> Result<Changes> { self.inner.lock()?.changes() }
-
   pub fn repo(&self) -> Result<RepoGuard> { Ok(RepoGuard { guard: self.inner.lock()? }) }
+  pub fn pull(&self) -> Result<()> { self.inner.lock()?.pull() }
 }
 
 impl Source for PrevSource {
@@ -137,6 +135,8 @@ impl PrevSourceInner {
   }
 
   pub fn push_changes(&mut self) -> Result<bool> { self.repo.push_changes() }
+
+  pub fn pull(&self) -> Result<()> { self.repo.pull() }
 }
 
 pub struct NamedData {
@@ -238,7 +238,12 @@ impl CharMark {
 fn main() -> Result<()> { opts::execute() }
 
 fn pr_keyed_files<'a>(repo: &'a Repo, pr: FullPr) -> impl Iterator<Item = Result<(String, String)>> + 'a {
-  let iter = repo.commits_between(pr.base_oid(), pr.head_oid()).map(move |cmts| {
+  let head_oid = match pr.head_oid() {
+    Some(oid) => *oid,
+    None => return E3::C(iter::empty())
+  };
+
+  let iter = repo.commits_between(pr.base_oid(), head_oid).map(move |cmts| {
     cmts
       .filter_map(move |cmt| match cmt {
         Ok(cmt) => {
@@ -260,7 +265,7 @@ fn pr_keyed_files<'a>(repo: &'a Repo, pr: FullPr) -> impl Iterator<Item = Result
   });
 
   match iter {
-    Ok(iter) => E2::A(iter),
-    Err(e) => E2::B(iter::once(Err(e)))
+    Ok(iter) => E3::A(iter),
+    Err(e) => E3::B(iter::once(Err(e)))
   }
 }

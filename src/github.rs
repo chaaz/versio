@@ -31,13 +31,13 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// commits which should be excluded from them.
 // the "all_prs.contains_key/insert w/ a side effect" below causes a clippy false positive.
 #[allow(clippy::map_entry)]
-pub fn changes(repo: &Repo, head: String, base: String) -> Result<Changes> {
+pub fn changes(repo: &Repo, headref: String, base: String) -> Result<Changes> {
   let mut all_commits = HashSet::new();
   let mut all_prs = HashMap::new();
 
   let mut queue = VecDeque::new();
-  let pr_zero = FullPr::lookup(repo, head, base, 0)?;
-  queue.push_back(pr_zero.span());
+  let pr_zero = FullPr::lookup(repo, headref.clone(), base, 0)?;
+  queue.push_back(pr_zero.span().ok_or_else(|| versio_error!("Unable to get oid for seed ref \"{}\".", headref))?);
   all_prs.insert(pr_zero.number(), pr_zero);
 
   let github_info = match repo.github_info()? {
@@ -63,8 +63,8 @@ pub fn changes(repo: &Repo, head: String, base: String) -> Result<Changes> {
               Ok(pr) => pr,
               Err(e) => return Some(Err(e))
             };
-            if !full_pr.best_guess() {
-              queue.push_back(full_pr.span());
+            if let Some(span) = full_pr.span() {
+              queue.push_back(span);
             }
             all_prs.insert(number, full_pr);
           }
@@ -97,6 +97,8 @@ pub fn changes(repo: &Repo, head: String, base: String) -> Result<Changes> {
 
 fn commits_from_api(github_info: &GithubInfo, span: &Span) -> Result<Vec<ApiCommit>> {
   // TODO : respect "hasNextPage" and endCursor by using history(after:)
+  // TODO : also get PR's headRepository / baseRepository to (try to) look at other repos.
+
   let query = r#"
 query associatedPRs($since:GitTimestamp!, $sha:String!, $repo:String!, $owner:String!){
   repository(name:$repo, owner:$owner){
@@ -122,7 +124,7 @@ fragment commitResult on Commit {
         node {
           number
           state
-          headRefOid
+          headRefName
           baseRefOid
         }
       }
@@ -253,11 +255,11 @@ struct PrEdge {
 }
 
 #[derive(Deserialize)]
-pub struct PrEdgeNode {
+struct PrEdgeNode {
   number: u32,
   state: String,
-  #[serde(rename = "headRefOid")]
-  head_ref_oid: String,
+  #[serde(rename = "headRefName")]
+  head_ref_name: String,
   #[serde(rename = "baseRefOid")]
   base_ref_oid: String
 }
@@ -267,7 +269,7 @@ impl PrEdgeNode {
   pub fn state(&self) -> &str { &self.state }
 
   pub fn lookup_full(self, repo: &Repo) -> Result<FullPr> {
-    FullPr::lookup(repo, self.head_ref_oid, self.base_ref_oid, self.number)
+    FullPr::lookup(repo, self.head_ref_name, self.base_ref_oid, self.number)
   }
 }
 

@@ -132,10 +132,10 @@ impl Repo {
   }
 
   /// Return all commits as if `git rev-list from_sha..to_sha`, along with the earliest time in that range.
-  pub fn dated_revlist(&self, from_sha: &str, to_sha: &str) -> Result<(Vec<String>, Time)> {
+  pub fn dated_revlist(&self, from_sha: &str, to_oid: Oid) -> Result<(Vec<String>, Time)> {
     let mut revwalk = self.repo.revwalk()?;
     revwalk.hide(self.repo.revparse_single(from_sha)?.id())?;
-    revwalk.push(self.repo.revparse_single(to_sha)?.id())?;
+    revwalk.push(to_oid)?;
 
     revwalk
       .try_fold::<_, _, Result<Option<(Vec<String>, Time)>>>(None, |v, oid| {
@@ -151,15 +151,15 @@ impl Repo {
         }
       })
       .transpose()
-      .ok_or_else(|| versio_error!("No commits found in {}..{}", from_sha, to_sha))?
+      .ok_or_else(|| versio_error!("No commits found in {}..{}", from_sha, to_oid))?
   }
 
   pub fn commits_between<'a>(
-    &'a self, from_sha: &str, to_sha: &str
+    &'a self, from_sha: &str, to_oid: Oid
   ) -> Result<impl Iterator<Item = Result<CommitInfo<'a>>> + 'a> {
     let mut revwalk = self.repo.revwalk()?;
     revwalk.hide(self.repo.revparse_single(from_sha)?.id())?;
-    revwalk.push(self.repo.revparse_single(to_sha)?.id())?;
+    revwalk.push(to_oid)?;
 
     Ok(revwalk.map(move |id| Ok(CommitInfo::new(&self.repo, self.repo.find_commit(id?)?))))
   }
@@ -277,6 +277,10 @@ impl<'r> Slice<'r> {
     Ok(commit.time())
   }
 
+  /// Fetch this slice from the remote, if there is one.
+  ///
+  /// This will only work if the slice is actually a refspec: fetching by sha is currently unsupported (and will
+  /// result in an `Err`).
   pub fn fetch(&self) -> Result<Option<Oid>> {
     if let Some(oid) = self.repo.fetches.borrow().get(&self.refspec).cloned() {
       return Ok(Some(oid));
@@ -290,7 +294,15 @@ impl<'r> Slice<'r> {
 
     if let Some(remote_name) = &self.repo.remote_name {
       let mut remote = self.repo.repo.find_remote(remote_name)?;
-      let oid = do_fetch(&self.repo.repo, &mut remote, &[&self.refspec])?;
+      do_fetch(&mut remote, &[&self.refspec])?;
+
+      // Assume a standard git config `remote.<remote_name>.fetch` layout; if not we can force the tracking
+      // branch (change the refspec to "{refspec}:refs/remotes/{remote_name}/{refspec}"), or parse the config
+      // layout to see where it landed.
+      let local_spec = format!("remotes/{}/{}^{{}}", remote_name, self.refspec);
+
+      let obj = self.repo.repo.revparse_single(&local_spec)?;
+      let oid = obj.id();
       self.repo.fetches.borrow_mut().insert(self.refspec.to_string(), oid);
       Ok(Some(oid))
     } else {
@@ -398,58 +410,59 @@ impl<'repo> DeltaIter<'repo> {
 
 pub struct FullPr {
   number: u32,
-  head_oid: String,
+  head_ref: String,
+  head_oid: Option<Oid>,
   base_oid: String,
   base_time: Time,
   commits: Vec<String>,
-  excludes: Vec<String>,
-  best_guess: bool
+  excludes: Vec<String>
 }
 
 impl FullPr {
-  pub fn lookup(repo: &Repo, head: String, base: String, number: u32) -> Result<FullPr> {
-    let full_pr = match repo.slice(head.clone()).fetch() {
+  pub fn lookup(repo: &Repo, headref: String, base: String, number: u32) -> Result<FullPr> {
+    match repo.slice(headref.clone()).fetch() {
       Err(e) => {
-        println!("Couldn't fetch {}: using best-guess instead: {:?}", head, e);
-        FullPr {
+        println!("Couldn't fetch {}: using best-guess instead: {:?}", headref, e);
+        Ok(FullPr {
           number,
-          head_oid: head,
+          head_ref: headref,
+          head_oid: None,
           base_oid: base,
           base_time: Time::new(0, 0),
           commits: Vec::new(),
-          excludes: Vec::new(),
-          best_guess: true
-        }
+          excludes: Vec::new()
+        })
       }
-
-      Ok(_) => {
+      Ok(None) => versio_err!("No fetched oid for {} somehow.", headref),
+      Ok(Some(oid)) => {
         let base_time = repo.slice(base.clone()).date()?;
-        let (commits, early) = repo.dated_revlist(&base, &head)?;
+        let (commits, early) = repo.dated_revlist(&base, oid)?;
 
-        FullPr {
+        Ok(FullPr {
           number,
-          head_oid: head,
+          head_ref: headref,
+          head_oid: Some(oid),
           base_oid: base,
           base_time: min(base_time, early),
           commits,
-          excludes: Vec::new(),
-          best_guess: false
-        }
+          excludes: Vec::new()
+        })
       }
-    };
-
-    Ok(full_pr)
+    }
   }
 
   pub fn number(&self) -> u32 { self.number }
-  pub fn head_oid(&self) -> &str { &self.head_oid }
+  pub fn head_ref(&self) -> &str { &self.head_ref }
+  pub fn head_oid(&self) -> &Option<Oid> { &self.head_oid }
   pub fn base_oid(&self) -> &str { &self.base_oid }
   pub fn commits(&self) -> &[String] { &self.commits }
   pub fn excludes(&self) -> &[String] { &self.excludes }
-  pub fn best_guess(&self) -> bool { self.best_guess }
+  pub fn best_guess(&self) -> bool { self.head_oid.is_none() }
   pub fn has_exclude(&self, oid: &str) -> bool { self.excludes.iter().any(|c| c == oid) }
 
-  pub fn span(&self) -> Span { Span::new(self.number, self.head_oid.clone(), self.base_time, self.base_oid.clone()) }
+  pub fn span(&self) -> Option<Span> {
+    self.head_oid.map(|hoid| Span::new(self.number, hoid, self.base_time, self.base_oid.clone()))
+  }
 
   pub fn add_commit(&mut self, commit_oid: &str) {
     if !self.commits.iter().any(|c| c == commit_oid) {
@@ -468,22 +481,27 @@ impl FullPr {
 
 pub struct Span {
   number: u32,
-  end: String,
+  end: Oid,
   since: Time,
   begin: String
 }
 
 impl Span {
-  pub fn new(number: u32, end: String, since: Time, begin: String) -> Span { Span { number, end, since, begin } }
+  pub fn new(number: u32, end: Oid, since: Time, begin: String) -> Span { Span { number, end, since, begin } }
 
   pub fn number(&self) -> u32 { self.number }
-  pub fn end(&self) -> &str { &self.end }
+  pub fn end(&self) -> Oid { self.end }
   pub fn begin(&self) -> &str { &self.begin }
   pub fn since(&self) -> &Time { &self.since }
 }
 
 /// Fetch the given refspecs (and all tags) from the remote.
-fn do_fetch<'a>(repo: &'a Repository, remote: &'a mut Remote, refs: &[&str]) -> Result<Oid> {
+fn do_fetch<'a>(remote: &'a mut Remote, refs: &[&str]) -> Result<()> {
+  // WARNING: Currently not supporting fetching via sha:
+  //
+  // git has supported `git fetch <remote> <sha>` for a while, but it has to work a bit differently (since sha's
+  // are not technically refspecs).
+
   let mut cb = RemoteCallbacks::new();
 
   cb.credentials(|_url, username_from_url, _allowed_types| Cred::ssh_key_from_agent(username_from_url.unwrap()));
@@ -508,7 +526,6 @@ fn do_fetch<'a>(repo: &'a Repository, remote: &'a mut Remote, refs: &[&str]) -> 
   fo.remote_callbacks(cb);
 
   fo.download_tags(AutotagOption::All);
-  println!("Fetching {:?} from {}", refs, remote.name().unwrap());
   remote.fetch(refs, Some(&mut fo), None)?;
 
   let stats = remote.stats();
@@ -529,8 +546,7 @@ fn do_fetch<'a>(repo: &'a Repository, remote: &'a mut Remote, refs: &[&str]) -> 
     );
   }
 
-  let fetch_head = repo.find_reference("FETCH_HEAD")?;
-  Ok(repo.reference_to_annotated_commit(&fetch_head)?.id())
+  Ok(())
 }
 
 /// Merge the given commit into the working directory, but only if it's fast-forward-able.
@@ -538,7 +554,6 @@ fn do_merge<'a>(repo: &'a Repository, branch_name: &str, commit: AnnotatedCommit
   let analysis = repo.merge_analysis(&[&commit])?;
 
   if analysis.0.is_fast_forward() {
-    println!("Updating branch (fast forward)");
     let refname = format!("refs/heads/{}", branch_name);
     match repo.find_reference(&refname) {
       Ok(mut rfrnc) => Ok(fast_forward(repo, &mut rfrnc, &commit)?),

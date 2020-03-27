@@ -2,7 +2,7 @@
 
 use crate::error::Result;
 #[cfg(test)]
-use crate::parts::ToPart;
+use crate::scan::parts::ToPart;
 use crate::scan::parts::{IntoPartVec, Part};
 use crate::scan::Scanner;
 use crate::{CharMark, MarkedData, NamedData};

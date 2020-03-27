@@ -19,3 +19,26 @@ where
     }
   }
 }
+
+pub enum IterEither3<A, B, C> {
+  A(A),
+  B(B),
+  C(C)
+}
+
+impl<A, B, C> Iterator for IterEither3<A, B, C>
+where
+  A: Iterator,
+  B: Iterator<Item = A::Item>,
+  C: Iterator<Item = A::Item>
+{
+  type Item = A::Item;
+
+  fn next(&mut self) -> Option<A::Item> {
+    match self {
+      IterEither3::A(a) => a.next(),
+      IterEither3::B(b) => b.next(),
+      IterEither3::C(c) => c.next()
+    }
+  }
+}

@@ -351,6 +351,12 @@ pub fn plan(prev: &PrevSource, curt: &CurrentSource) -> Result<()> {
 }
 
 pub fn run(prev: &PrevSource, curt: &CurrentSource, all: bool, dry: bool) -> Result<()> {
+  if !dry {
+    // We're going to commit and push changes soon; let's make sure that we are up-to-date. But don't create a
+    // merge commit: fail immediately if we can't pull with a fast-forward.
+    prev.pull()?;
+  }
+
   let (plan, prev_cfg, curt_cfg) = configure_plan(prev, curt)?;
 
   if plan.incrs().is_empty() {
@@ -418,7 +424,8 @@ fn changes(prev: &PrevSource) -> Result<()> {
 
   println!("\ngroups:");
   for g in changes.groups().values() {
-    println!("  {}: {} -> {} (guess: {})", g.number(), g.base_oid(), g.head_oid(), g.best_guess());
+    let head_oid = g.head_oid().as_ref().map(|o| o.to_string()).unwrap_or_else(|| "<not found>".to_string());
+    println!("  {}: {} ({} -> {})", g.number(), g.head_ref(), g.base_oid(), head_oid);
     println!("    commits:");
     for cmt in g.commits() {
       println!("      {}", cmt);
@@ -457,9 +464,6 @@ fn get_id<S: Source>(src: S, id: &str, fmt: ShowFormat) -> Result<()> {
 }
 
 fn set_by_name(name: &str, val: &str) -> Result<()> { current_config()?.set_by_name(name, val) }
-
 fn set_by_id(id: &str, val: &str) -> Result<()> { current_config()?.set_by_id(id.parse()?, val) }
-
 fn unknown_cmd(c: &str) -> Result<()> { versio_err!("Unknown command: \"{}\" (try \"help\").", c) }
-
 fn empty_cmd() -> Result<()> { versio_err!("No command (try \"help\").") }
