@@ -132,26 +132,23 @@ impl Repo {
   }
 
   /// Return all commits as if `git rev-list from_sha..to_sha`, along with the earliest time in that range.
-  pub fn dated_revlist(&self, from_sha: &str, to_oid: Oid) -> Result<(Vec<String>, Time)> {
+  pub fn dated_revlist(&self, from_sha: &str, to_oid: Oid) -> Result<Option<(Vec<String>, Time)>> {
     let mut revwalk = self.repo.revwalk()?;
     revwalk.hide(self.repo.revparse_single(from_sha)?.id())?;
     revwalk.push(to_oid)?;
 
-    revwalk
-      .try_fold::<_, _, Result<Option<(Vec<String>, Time)>>>(None, |v, oid| {
-        let oid = oid?;
-        if let Some((mut oids, v)) = v {
-          oids.push(oid.to_string());
-          let t = min(v, self.repo.find_commit(oid)?.time());
-          Ok(Some((oids, t)))
-        } else {
-          let oids = vec![oid.to_string()];
-          let t = self.repo.find_commit(oid)?.time();
-          Ok(Some((oids, t)))
-        }
-      })
-      .transpose()
-      .ok_or_else(|| versio_error!("No commits found in {}..{}", from_sha, to_oid))?
+    revwalk.try_fold::<_, _, Result<Option<(Vec<String>, Time)>>>(None, |v, oid| {
+      let oid = oid?;
+      if let Some((mut oids, v)) = v {
+        oids.push(oid.to_string());
+        let t = min(v, self.repo.find_commit(oid)?.time());
+        Ok(Some((oids, t)))
+      } else {
+        let oids = vec![oid.to_string()];
+        let t = self.repo.find_commit(oid)?.time();
+        Ok(Some((oids, t)))
+      }
+    })
   }
 
   pub fn commits_between<'a>(
@@ -436,14 +433,18 @@ impl FullPr {
       Ok(None) => versio_err!("No fetched oid for {} somehow.", headref),
       Ok(Some(oid)) => {
         let base_time = repo.slice(base.clone()).date()?;
-        let (commits, early) = repo.dated_revlist(&base, oid)?;
+
+        let (commits, base_time) = repo
+          .dated_revlist(&base, oid)?
+          .map(|(commits, early)| (commits, min(base_time, early)))
+          .unwrap_or_else(|| (Vec::new(), base_time));
 
         Ok(FullPr {
           number,
           head_ref: headref,
           head_oid: Some(oid),
           base_oid: base,
-          base_time: min(base_time, early),
+          base_time,
           commits,
           excludes: Vec::new()
         })
