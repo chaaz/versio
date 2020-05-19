@@ -342,7 +342,7 @@ pub fn plan(prev: &PrevSource, curt: &CurrentSource) -> Result<()> {
   if plan.incrs().is_empty() {
     println!("(No projects)");
   } else {
-    for (id, size) in plan.incrs() {
+    for (id, (size, _)) in plan.incrs() {
       println!("{} : {}", curt_cfg.get_project(*id).unwrap().name(), size);
     }
   }
@@ -366,7 +366,7 @@ pub fn run(prev: &PrevSource, curt: &CurrentSource, all: bool, dry: bool) -> Res
 
   println!("Executing plan:");
   let mut found = false;
-  for (id, size) in plan.incrs() {
+  for (id, (size, _)) in plan.incrs() {
     let curt_name = curt_cfg.get_project(*id).unwrap().name();
     let curt_mark = curt_cfg.get_mark(*id).unwrap()?;
     let curt_vers = curt_mark.value();
@@ -428,7 +428,7 @@ fn changes(prev: &PrevSource) -> Result<()> {
     println!("  {}: {} ({} -> {})", g.number(), g.head_ref(), g.base_oid(), head_oid);
     println!("    commits:");
     for cmt in g.commits() {
-      println!("      {}", cmt);
+      println!("      {}", cmt.id());
     }
     println!("    excludes:");
     for cmt in g.excludes() {

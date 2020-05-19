@@ -1,7 +1,7 @@
 //! Interactions with github API v4.
 
 use crate::error::Result;
-use crate::git::{FullPr, GithubInfo, Repo, Span};
+use crate::git::{FullPr, GithubInfo, Repo, Span, CommitData};
 use chrono::{DateTime, FixedOffset, TimeZone};
 use git2::Time;
 use github_gql::{client::Github, IntoGithubRequest};
@@ -24,12 +24,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// Instead of including such commits, we want to include all of the commits from the associated PR (unless
 /// those commits are themselves squash-merges, etc.)
 ///
-/// To find all of the original commits, we first queue a "PR zero" that contains the naive `begin..end`. Then
+/// To find all of the original commits, we first queue a "PR zero" that contains the naïve `begin..end`. Then
 /// for each queued PR, we examine each commit, and exclude it if: (a) the commit is associated with another PR,
 /// and (b) that other PR's commits doesn't contain the original commit. We then queue that other PR, if
 /// possible. Our result is a list of PRs, each of which has "base..head" rev-parse-able refs, and a list of
 /// commits which should be excluded from them.
-// the "all_prs.contains_key/insert w/ a side effect" below causes a clippy false positive.
 #[allow(clippy::map_entry)]
 pub fn changes(repo: &Repo, headref: String, base: String) -> Result<Changes> {
   let mut all_commits = HashSet::new();
@@ -71,7 +70,7 @@ pub fn changes(repo: &Repo, headref: String, base: String) -> Result<Changes> {
           let full_pr = all_prs.get_mut(&number).unwrap();
 
           if full_pr.best_guess() {
-            full_pr.add_commit(&oid);
+            full_pr.add_commit(CommitData::guess(oid.clone()));
           } else if !full_pr.contains(&oid) {
             retain = false;
           }

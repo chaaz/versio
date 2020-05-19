@@ -74,7 +74,7 @@ projects:
 
 sizes:
   use_angular: true
-  major: [ breaking ]
+  major: [ breaking, incompatible ]
   minor: [ minor ]
   patch: [ "*" ]
   fail: [ "-" ]
@@ -97,8 +97,8 @@ style, refactor, perf, test, chore, build ]`.
 "-" is a special type which matches all non-conventional commits. "\*"
 is a special type which matches all commit types that are not matched
 elsewhere (including non-conventional commits, if "-" is not listed
-elsewhere). If you don't provide a "\*" type in your sizes config, the
-versio run will exit in error as soon as an unmatched commit message is
+elsewhere). If you don't provide a "\*" type in your sizes config,
+versio will exit in error as soon as an unmatched commit message is
 encountered.
 
 The "none" size indicates that a matched commit shouldn't trigger a
@@ -116,13 +116,14 @@ commit since the `versio-prev` tag:
 
 ```
 b3ed0f0 feat: Change an important file
- codebase/src/misc.js | 6 ++++++ 
+ codebase/src/misc.js | 6 ++++++
  1 file changed, 7 insertions(+)
 ```
 
-Notice that the commit message starts with "feat": "feat" maps to
-"minor" in our config. And it contains a file `codebase/src/misc.js`
-which is covered by the `codebase/**/*` glob in our single project.
+Notice that the commit message starts with "feat": "feat" maps to the
+"minor" size in our config. And the commit contains a file
+`codebase/src/misc.js` which is covered by the `codebase/**/*` glob in
+our single project.
 
 We can run the Versio git integration like this:
 
@@ -138,7 +139,7 @@ The `run` command will:
 1. fetch the latest branches from the "origin" remote
 1. merge the current branch from the remote into the clean and current
    working directory
-1. scan through the git log for conventional commits since the 
+1. scan through the git log for conventional commits since the
    `versio-prev` tag
 1. find the size for each commit
 1. increment each project version by the maximum size of commits
@@ -151,6 +152,8 @@ The fetch, merge, and push steps are not performed if the repository
 doesn't have any remotes added.
 
 ### Plans
+
+> TODO: the description here is unclear, and not entirely accurate.
 
 Plans are built with respect to **previous** projects and covers. That
 is, Versio will read the `.versio.yaml` file as it existed in the past
@@ -184,7 +187,6 @@ large enough.
 
 You can use Versio as part of a pre-merge and post-merge process, too:
 `versio check`, `versio diff`, and `versio plan` should all succeed
-before merging into a deployment branch, and they will output status and
-error messages that make it easy to track where changes to version
-numbers have occurred.
-
+before merging into a deployment branch, and they will output status
+messages that make it easy to track where changes to version numbers
+have occurred.

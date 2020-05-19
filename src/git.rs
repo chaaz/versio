@@ -15,7 +15,7 @@ use std::ffi::OsStr;
 use std::io::{stdout, Write};
 use std::path::{Path, PathBuf};
 
-const PREV_TAG_NAME: &str = "versio-prev";
+pub const PREV_TAG_NAME: &str = "versio-prev";
 
 pub struct Repo {
   repo: Repository,
@@ -111,6 +111,15 @@ impl Repo {
 
   pub fn fetch(&self) -> Result<Option<Oid>> { self.slice(self.branch_name.to_string()).fetch() }
 
+  pub fn fetch_current(&self) -> Result<Option<Oid>> {
+    if let Some(oid) = self.fetch()? {
+      self.check_after_fetch(oid)?;
+      Ok(Some(oid))
+    } else {
+      Ok(None)
+    }
+  }
+
   pub fn pull(&self) -> Result<()> {
     if let Some(oid) = self.fetch()? {
       self.merge_after_fetch(oid)?;
@@ -132,21 +141,21 @@ impl Repo {
   }
 
   /// Return all commits as if `git rev-list from_sha..to_sha`, along with the earliest time in that range.
-  pub fn dated_revlist(&self, from_sha: &str, to_oid: Oid) -> Result<Option<(Vec<String>, Time)>> {
+  pub fn dated_revlist(&self, from_sha: &str, to_oid: Oid) -> Result<Option<(Vec<CommitData>, Time)>> {
     let mut revwalk = self.repo.revwalk()?;
     revwalk.hide(self.repo.revparse_single(from_sha)?.id())?;
     revwalk.push(to_oid)?;
 
-    revwalk.try_fold::<_, _, Result<Option<(Vec<String>, Time)>>>(None, |v, oid| {
+    revwalk.try_fold::<_, _, Result<Option<(Vec<CommitData>, Time)>>>(None, |v, oid| {
       let oid = oid?;
-      if let Some((mut oids, v)) = v {
-        oids.push(oid.to_string());
-        let t = min(v, self.repo.find_commit(oid)?.time());
-        Ok(Some((oids, t)))
+      let commit = self.repo.find_commit(oid)?;
+      let ctime = commit.time();
+      if let Some((mut datas, time)) = v {
+        datas.push(CommitData::extract(&self.repo, &commit)?);
+        Ok(Some((datas, min(time, ctime))))
       } else {
-        let oids = vec![oid.to_string()];
-        let t = self.repo.find_commit(oid)?.time();
-        Ok(Some((oids, t)))
+        let datas = vec![CommitData::extract(&self.repo, &commit)?];
+        Ok(Some((datas, ctime)))
       }
     })
   }
@@ -161,7 +170,7 @@ impl Repo {
     Ok(revwalk.map(move |id| Ok(CommitInfo::new(&self.repo, self.repo.find_commit(id?)?))))
   }
 
-  fn merge_after_fetch(&self, fetch_oid: Oid) -> Result<()> {
+  fn check_after_fetch(&self, fetch_oid: Oid) -> Result<AnnotatedCommit> {
     let fetch_commit = self.repo.find_annotated_commit(fetch_oid)?;
 
     let mut status_opts = StatusOptions::new();
@@ -169,9 +178,14 @@ impl Repo {
     status_opts.include_untracked(true);
     status_opts.exclude_submodules(false);
     if self.repo.statuses(Some(&mut status_opts))?.iter().any(|s| s.status() != Status::CURRENT) {
-      return versio_err!("Can't pull: repository isn't current.");
+      return versio_err!("Can't complete fetch: repository isn't current.");
     }
 
+    Ok(fetch_commit)
+  }
+
+  fn merge_after_fetch(&self, fetch_oid: Oid) -> Result<()> {
+    let fetch_commit = self.check_after_fetch(fetch_oid)?;
     do_merge(&self.repo, &self.branch_name, fetch_commit)?;
     Ok(())
   }
@@ -300,6 +314,15 @@ impl<'r> Slice<'r> {
 
       let obj = self.repo.repo.revparse_single(&local_spec)?;
       let oid = obj.id();
+
+      // Make sure that the remote and workspace refer to the same ID
+      let workspace_spec = format!("{}^{{}}", self.refspec);
+      let ws_obj = self.repo.repo.revparse_single(&workspace_spec)?;
+      let ws_oid = ws_obj.id();
+      if ws_oid != oid {
+        println!("Warning: remote {} doesn't match local; repo may be out-of-date", remote_name);
+      }
+
       self.repo.fetches.borrow_mut().insert(self.refspec.to_string(), oid);
       Ok(Some(oid))
     } else {
@@ -319,6 +342,37 @@ impl GithubInfo {
   pub fn repo_name(&self) -> &str { &self.repo_name }
 }
 
+#[derive(Clone)]
+pub struct CommitData {
+  id: String,
+  summary: String,
+  kind: String,
+  files: Vec<String>
+}
+
+impl CommitData {
+  pub fn new(id: String, summary: String, files: Vec<String>) -> CommitData {
+    let kind = extract_kind(&summary);
+    CommitData { id, summary, kind, files }
+  }
+
+  pub fn guess(id: String) -> CommitData {
+    CommitData::new(id, "".into(), Vec::new())
+  }
+
+  pub fn extract<'a>(repo: &'a Repository, commit: &Commit<'a>) -> Result<CommitData> {
+    let id = commit.id().to_string();
+    let summary = commit.summary().unwrap_or("-").to_string();
+    let files = files_from_commit(repo, commit)?.collect();
+    Ok(CommitData::new(id, summary, files))
+  }
+
+  pub fn id(&self) -> &str { &self.id }
+  pub fn summary(&self) -> &str { &self.summary }
+  pub fn kind(&self) -> &str { &self.kind }
+  pub fn files(&self) -> &[String] { &self.files }
+}
+
 pub struct CommitInfo<'a> {
   repo: &'a Repository,
   commit: Commit<'a>
@@ -327,21 +381,12 @@ pub struct CommitInfo<'a> {
 impl<'a> CommitInfo<'a> {
   pub fn new(repo: &'a Repository, commit: Commit<'a>) -> CommitInfo<'a> { CommitInfo { repo, commit } }
 
-  pub fn kind(&self) -> String { extract_kind(self.commit.summary().unwrap_or("-")) }
-
   pub fn id(&self) -> String { self.commit.id().to_string() }
+  pub fn summary(&self) -> &str { self.commit.summary().unwrap_or("-") }
+  pub fn kind(&self) -> String { extract_kind(self.summary()) }
 
   pub fn files(&self) -> Result<impl Iterator<Item = String> + 'a> {
-    if self.commit.parents().len() == 1 {
-      let parent = self.commit.parent(0)?;
-      let ptree = parent.tree()?;
-      let ctree = self.commit.tree()?;
-      let diff = self.repo.diff_tree_to_tree(Some(&ptree), Some(&ctree), Some(&mut DiffOptions::new()))?;
-      let iter = DeltaIter::new(diff);
-      Ok(E2::A(iter.map(move |path| path.to_string_lossy().into_owned())))
-    } else {
-      Ok(E2::B(std::iter::empty()))
-    }
+    files_from_commit(&self.repo, &self.commit)
   }
 }
 
@@ -411,7 +456,7 @@ pub struct FullPr {
   head_oid: Option<Oid>,
   base_oid: String,
   base_time: Time,
-  commits: Vec<String>,
+  commits: Vec<CommitData>,
   excludes: Vec<String>
 }
 
@@ -456,18 +501,22 @@ impl FullPr {
   pub fn head_ref(&self) -> &str { &self.head_ref }
   pub fn head_oid(&self) -> &Option<Oid> { &self.head_oid }
   pub fn base_oid(&self) -> &str { &self.base_oid }
-  pub fn commits(&self) -> &[String] { &self.commits }
+  pub fn commits(&self) -> &[CommitData] { &self.commits }
   pub fn excludes(&self) -> &[String] { &self.excludes }
   pub fn best_guess(&self) -> bool { self.head_oid.is_none() }
   pub fn has_exclude(&self, oid: &str) -> bool { self.excludes.iter().any(|c| c == oid) }
+
+  pub fn included_commits(&self) -> impl Iterator<Item = &CommitData> + '_ {
+    self.commits.iter().filter(move |c| !self.has_exclude(c.id()))
+  }
 
   pub fn span(&self) -> Option<Span> {
     self.head_oid.map(|hoid| Span::new(self.number, hoid, self.base_time, self.base_oid.clone()))
   }
 
-  pub fn add_commit(&mut self, commit_oid: &str) {
-    if !self.commits.iter().any(|c| c == commit_oid) {
-      self.commits.push(commit_oid.to_string());
+  pub fn add_commit(&mut self, data: CommitData) {
+    if !self.commits.iter().any(|c| c.id() == data.id()) {
+      self.commits.push(data)
     }
   }
 
@@ -477,7 +526,7 @@ impl FullPr {
     }
   }
 
-  pub fn contains(&self, commit_oid: &str) -> bool { self.commits.iter().any(|c| c == commit_oid) }
+  pub fn contains(&self, commit_oid: &str) -> bool { self.commits.iter().any(|c| c.id() == commit_oid) }
 }
 
 pub struct Span {
@@ -646,6 +695,19 @@ mod test {
   #[test]
   fn test_kind_backwards() {
     assert_eq!(&extract_kind("thing!(scope): this is thing"), "thing!");
+  }
+}
+
+fn files_from_commit<'a>(repo: &'a Repository, commit: &Commit<'a>) -> Result<impl Iterator<Item = String> + 'a> {
+  if commit.parents().len() == 1 {
+    let parent = commit.parent(0)?;
+    let ptree = parent.tree()?;
+    let ctree = commit.tree()?;
+    let diff = repo.diff_tree_to_tree(Some(&ptree), Some(&ctree), Some(&mut DiffOptions::new()))?;
+    let iter = DeltaIter::new(diff);
+    Ok(E2::A(iter.map(move |path| path.to_string_lossy().into_owned())))
+  } else {
+    Ok(E2::B(std::iter::empty()))
   }
 }
 

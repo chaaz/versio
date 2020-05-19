@@ -2,16 +2,13 @@
 
 use crate::analyze::AnnotatedMark;
 use crate::error::Result;
-use crate::scan::parts::{deserialize_parts, Part};
-use crate::scan::JsonScanner;
-use crate::scan::Scanner;
-use crate::scan::TomlScanner;
-use crate::scan::YamlScanner;
+use crate::git::{CommitData, FullPr};
+use crate::scan::{parts::{deserialize_parts, Part}, JsonScanner, Scanner, TomlScanner, YamlScanner};
 use crate::{CurrentSource, Mark, MarkedData, NamedData, PrevSource, Source, CONFIG_FILENAME};
 use glob::{glob_with, MatchOptions, Pattern};
 use regex::Regex;
-use serde::de::{self, Deserializer, MapAccess, Visitor};
 use serde::Deserialize;
+use serde::de::{self, Deserializer, MapAccess, Visitor};
 use std::borrow::Cow;
 use std::cmp::{max, Ord, Ordering};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -25,10 +22,19 @@ pub fn configure_plan<'s>(
   let curt_config = Config::from_source(curt)?;
   let mut plan = prev_config.start_plan(&curt_config);
 
-  for result in prev.repo()?.keyed_files()? {
-    let (key, path) = result?;
-    plan.consider(&key, &path)?;
+  for pr in prev.changes()?.groups().values() {
+    plan.consider_pr(pr)?;
+    for commit in pr.included_commits() {
+      plan.consider_commit(commit.clone())?;
+      for file in commit.files() {
+        plan.consider_file(file)?;
+        plan.finish_file()?;
+      }
+      plan.finish_commit()?;
+    }
+    plan.finish_pr()?;
   }
+
   plan.consider_deps()?;
 
   let plan = plan.finish_plan()?;
@@ -49,16 +55,18 @@ pub struct Config<S: Source> {
   file: ConfigFile
 }
 
+impl<'s> Config<&'s PrevSource> {
+  fn start_plan<C: Source>(&'s self, current: &'s Config<C>) -> PlanConsider<C> {
+    PlanConsider::new(self, current)
+  }
+}
+
 impl<S: Source> Config<S> {
   pub fn has_config_file(source: S) -> Result<bool> { source.has(CONFIG_FILENAME.as_ref()) }
 
   pub fn from_source(source: S) -> Result<Config<S>> {
     let file = ConfigFile::load(&source)?;
     Ok(Config { source, file })
-  }
-
-  fn start_plan<'s, C: Source>(&'s self, current: &'s Config<C>) -> PlanConsider<S, C> {
-    PlanConsider::new(self, current)
   }
 
   pub fn annotate(&self) -> Result<Vec<AnnotatedMark>> {
@@ -124,62 +132,143 @@ impl<S: Source> Config<S> {
 }
 
 pub struct Plan {
-  incrs: Vec<(u32, Size)>
+  incrs: HashMap<u32, (Size, ChangeLog)>,   // proj ID, incr size, change log
+  ineffective: Vec<SizedPr>                 // PRs that didn't apply to any project
 }
 
 impl Plan {
-  pub fn incrs(&self) -> &Vec<(u32, Size)> { &self.incrs }
+  pub fn incrs(&self) -> &HashMap<u32, (Size, ChangeLog)> { &self.incrs }
+  pub fn ineffective(&self) -> &[SizedPr] { &self.ineffective }
 }
 
-struct PlanConsider<'s, P: Source, C: Source> {
-  prev: &'s Config<P>,
+pub struct ChangeLog {
+  entries: Vec<(SizedPr, Size)>
+}
+
+impl ChangeLog {
+  pub fn empty() -> ChangeLog { ChangeLog { entries: Vec::new() } }
+}
+
+impl ChangeLog {
+  pub fn add_entry(&mut self, pr: SizedPr, size: Size) {
+    self.entries.push((pr, size));
+  }
+}
+
+pub struct SizedPr {
+  number: u32,
+  commits: Vec<(String, String, Size, bool)>    // oid, message, size, applies to this project
+}
+
+impl SizedPr {
+  pub fn empty(number: u32) -> SizedPr { SizedPr { number, commits: Vec::new() } }
+  pub fn number(&self) -> u32 { self.number }
+  pub fn commits(&self) -> &[(String, String, Size, bool)] { &self.commits }
+}
+
+pub struct PlanConsider<'s, C: Source> {
+  on_pr_sizes: HashMap<u32, SizedPr>,
+  on_ineffective: Option<SizedPr>,
+  on_commit: Option<CommitData>,
+  prev: OnPrev<'s>,
   current: &'s Config<C>,
-  incrs: HashMap<u32, Size>
+  incrs: HashMap<u32, (Size, ChangeLog)>,   // proj ID, incr size, change log
+  ineffective: Vec<SizedPr>                 // PRs that didn't apply to any project
 }
 
-impl<'s, P: Source, C: Source> PlanConsider<'s, P, C> {
-  fn new(prev: &'s Config<P>, current: &'s Config<C>) -> PlanConsider<'s, P, C> {
-    PlanConsider { prev, current, incrs: HashMap::new() }
+impl<'s, C: Source> PlanConsider<'s, C> {
+  fn new(prev: &'s Config<&'s PrevSource>, current: &'s Config<C>) -> PlanConsider<'s, C> {
+    let prev = OnPrev::Initial(prev);
+    PlanConsider {
+      on_pr_sizes: HashMap::new(),
+      on_ineffective: None,
+      on_commit: None,
+      prev,
+      current,
+      incrs: HashMap::new(),
+      ineffective: Vec::new()
+    }
   }
 
-  pub fn finish_plan(&mut self) -> Result<Plan> {
-    let incrs = self
-      .current
-      .file
-      .projects
-      .iter()
-      .map(|p| if let Some(size) = self.incrs.get(&p.id) { (p.id, *size) } else { (p.id, Size::None) })
-      .collect();
-
-    Ok(Plan { incrs })
+  pub fn consider_pr(&mut self, pr: &FullPr) -> Result<()> {
+    self.on_pr_sizes = self.current.file.projects.iter().map(|p| (p.id(), SizedPr::empty(pr.number()))).collect();
+    self.on_ineffective = Some(SizedPr::empty(pr.number()));
+    Ok(())
   }
 
-  pub fn consider(&mut self, kind: &str, path: &str) -> Result<()> {
-    for prev_project in &self.prev.file.projects {
-      if let Some(cur_project) = self.current.get_project(prev_project.id) {
-        let size = cur_project.size(&self.current.file.sizes, kind)?;
-        if prev_project.does_cover(path, &self.prev.source)? {
-          let val = self.incrs.entry(prev_project.id).or_insert(Size::None);
-          *val = max(*val, size);
+  pub fn finish_pr(&mut self) -> Result<()> {
+    let mut found = false;
+    for (proj_id, sized_pr) in self.on_pr_sizes.drain() {
+      let (size, change_log) = self.incrs.entry(proj_id).or_insert((Size::None, ChangeLog::empty()));
+      let pr_size = sized_pr.commits.iter().filter(|(_, _, _, appl)| *appl).map(|(_, _, sz, _)| sz).max().cloned();
+      if let Some(pr_size) = pr_size {
+        found = true;
+        *size = max(*size, pr_size);
+        change_log.add_entry(sized_pr, pr_size);
+      }
+    }
+
+    let ineffective = self.on_ineffective.take().unwrap();
+    if !found {
+      self.ineffective.push(ineffective);
+    }
+
+    Ok(())
+  }
+
+  pub fn consider_commit(&mut self, commit: CommitData) -> Result<()> {
+    let id = commit.id().to_string();
+    let kind = commit.kind().to_string();
+    let summary = commit.summary().to_string();
+    self.on_commit = Some(commit);
+    self.prev = OnPrev::Updated(Config::from_source(PrevSource::open_at(".", id.clone())?)?);
+
+    for (proj_id, sized_pr) in &mut self.on_pr_sizes {
+      if let Some(cur_project) = self.current.get_project(*proj_id) {
+        let size = cur_project.size(&self.current.file.sizes, &kind)?;
+        sized_pr.commits.push((id.clone(), summary.clone(), size, false));
+      }
+    }
+
+    Ok(())
+  }
+
+  pub fn finish_commit(&mut self) -> Result<()> {
+    Ok(())
+  }
+
+  pub fn consider_file(&mut self, path: &str) -> Result<()> {
+    let commit = self.on_commit.as_ref().ok_or_else(|| versio_error!("Not on a commit"))?;
+    let commit_id = commit.id();
+
+    for prev_project in &self.prev.file().projects {
+      if let Some(sized_pr) = self.on_pr_sizes.get_mut(&prev_project.id) {
+        if prev_project.does_cover(path, &self.prev.source())? {
+          let (_, _, _, applies) = sized_pr.commits.iter_mut().find(|(id, _, _, _)| id == commit_id).unwrap();
+          *applies = true;
         }
       }
     }
     Ok(())
   }
 
+  pub fn finish_file(&mut self) -> Result<()> {
+    Ok(())
+  }
+
   pub fn consider_deps(&mut self) -> Result<()> {
     // Use a modified Kahn's algorithm to traverse deps in order.
-    let mut queue = VecDeque::new();
+    let mut queue: VecDeque<(u32, Size)> = VecDeque::new();
 
     let mut dependents: HashMap<u32, HashSet<u32>> = HashMap::new();
-    for project in &self.prev.file.projects {
+    for project in &self.current.file.projects {
       for dep in &project.depends {
         dependents.entry(*dep).or_insert_with(HashSet::new).insert(project.id);
       }
 
       if project.depends.is_empty() {
-        if let Some(&size) = self.incrs.get(&project.id) {
-          queue.push_back((project.id, size));
+        if let Some((size, _)) = self.incrs.get(&project.id) {
+          queue.push_back((project.id, *size));
         } else {
           queue.push_back((project.id, Size::None))
         }
@@ -187,14 +276,14 @@ impl<'s, P: Source, C: Source> PlanConsider<'s, P, C> {
     }
 
     while let Some((id, size)) = queue.pop_front() {
-      let val = self.incrs.entry(id).or_insert(Size::None);
+      let val = &mut self.incrs.entry(id).or_insert((Size::None, ChangeLog::empty())).0;
       *val = max(*val, size);
 
       let depds: Option<HashSet<u32>> = dependents.get(&id).cloned();
       if let Some(depds) = depds {
         for depd in depds {
           dependents.get_mut(&id).unwrap().remove(&depd);
-          let val = self.incrs.entry(depd).or_insert(Size::None);
+          let val = &mut self.incrs.entry(depd).or_insert((Size::None, ChangeLog::empty())).0;
           *val = max(*val, size);
 
           if dependents.values().all(|ds| !ds.contains(&depd)) {
@@ -205,6 +294,43 @@ impl<'s, P: Source, C: Source> PlanConsider<'s, P, C> {
     }
 
     Ok(())
+  }
+
+  pub fn finish_plan(self) -> Result<Plan> {
+    Ok(Plan { incrs: self.incrs, ineffective: self.ineffective })
+
+    // let incrs = self
+    //   .current
+    //   .file
+    //   .projects
+    //   .iter()
+    //   .map(|p| if let Some(size) = self.incrs.get(&p.id) {
+    //     (p.id, *size, ChangeLog::empty())
+    //   } else {
+    //     (p.id, Size::None, ChangeLog::empty())
+    //   })
+    //   .collect();
+  }
+}
+
+enum OnPrev<'s> {
+  Initial(&'s Config<&'s PrevSource>),
+  Updated(Config<PrevSource>)
+}
+
+impl<'s> OnPrev<'s> {
+  pub fn source(&self) -> &PrevSource {
+    match self {
+      OnPrev::Initial(s) => &s.source,
+      OnPrev::Updated(s) => &s.source
+    }
+  }
+
+  pub fn file(&self) -> &ConfigFile {
+    match self {
+      OnPrev::Initial(s) => &s.file,
+      OnPrev::Updated(s) => &s.file
+    }
   }
 }
 
@@ -264,6 +390,7 @@ impl Project {
   }
 
   pub fn name(&self) -> &str { &self.name }
+  pub fn id(&self) -> u32 { self.id }
 
   fn get_mark(&self, source: &dyn Source) -> Result<MarkedData> { self.located.get_mark(source) }
 

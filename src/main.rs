@@ -1,14 +1,14 @@
 //! Versio is a version management utility.
 
 #[macro_use]
-mod error;
-mod analyze;
-mod config;
-mod either;
-mod git;
-mod github;
-mod opts;
-mod scan;
+pub mod error;
+pub mod analyze;
+pub mod config;
+pub mod either;
+pub mod git;
+pub mod github;
+pub mod opts;
+pub mod scan;
 
 use crate::either::{IterEither2 as E2, IterEither3 as E3};
 use crate::error::Result;
@@ -65,13 +65,20 @@ pub struct PrevSource {
 
 impl PrevSource {
   pub fn open<P: AsRef<Path>>(dir: P) -> Result<PrevSource> {
-    let inner = PrevSourceInner::open(dir.as_ref())?;
+    PrevSource::open_with(PrevSourceInner::open(dir.as_ref())?)
+  }
+
+  pub fn open_at<P: AsRef<Path>>(dir: P, spec: String) -> Result<PrevSource> {
+    PrevSource::open_with(PrevSourceInner::open_at(dir.as_ref(), spec)?)
+  }
+
+  fn open_with(inner: PrevSourceInner) -> Result<PrevSource> {
     let root_dir = inner.repo.working_dir()?.to_path_buf();
     Ok(PrevSource { root_dir, inner: Arc::new(Mutex::new(inner)) })
   }
 
-  pub fn set_fetch(&mut self, _f: bool) -> Result<()> { Ok(()) }
-  pub fn set_merge(&mut self, _m: bool) -> Result<()> { Ok(()) }
+  pub fn set_fetch(&mut self, _f: bool) -> Result<()> { /* TODO */ Ok(()) }
+  pub fn set_merge(&mut self, _m: bool) -> Result<()> { /* TODO */ Ok(()) }
   pub fn has_remote(&self) -> Result<bool> { Ok(self.inner.lock()?.has_remote()) }
   pub fn changes(&self) -> Result<Changes> { self.inner.lock()?.changes() }
   pub fn repo(&self) -> Result<RepoGuard> { Ok(RepoGuard { guard: self.inner.lock()? }) }
@@ -101,23 +108,33 @@ impl<'a> RepoGuard<'a> {
 }
 
 pub struct PrevSourceInner {
-  repo: Repo
+  repo: Repo,
+  spec: String
 }
 
 impl PrevSourceInner {
-  pub fn open(dir: &Path) -> Result<PrevSourceInner> { Ok(PrevSourceInner { repo: Repo::open(dir)? }) }
+  pub fn open(dir: &Path) -> Result<PrevSourceInner> {
+    let repo = Repo::open(dir)?;
+    let spec = repo.prev().refspec().to_string();
+    Ok(PrevSourceInner { repo, spec })
+  }
+
+  pub fn open_at(dir: &Path, spec: String) -> Result<PrevSourceInner> {
+    Ok(PrevSourceInner { repo: Repo::open(dir)?, spec })
+  }
+
   pub fn has_remote(&self) -> bool { self.repo.has_remote() }
-  pub fn has(&mut self, rel_path: &Path) -> Result<bool> { self.repo.prev().has_blob(rel_path) }
+  pub fn has(&mut self, rel_path: &Path) -> Result<bool> { self.repo.slice(self.spec.clone()).has_blob(rel_path) }
 
   fn load<P: AsRef<Path>>(&mut self, rel_path: P) -> Result<NamedData> {
-    let prev = self.repo.prev();
+    let prev = self.repo.slice(self.spec.clone());
     let blob = prev.blob(rel_path)?;
     let cont: &str = std::str::from_utf8(blob.content())?;
     Ok(NamedData::new(None, cont.to_string()))
   }
 
   pub fn changes(&self) -> Result<Changes> {
-    let base = self.repo.prev().refspec().to_string();
+    let base = self.repo.slice(self.spec.clone()).refspec().to_string();
     let head = self.repo.branch_name().to_string();
     changes(&self.repo, head, base)
   }
