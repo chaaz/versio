@@ -2,6 +2,7 @@
 
 use crate::either::IterEither2 as E2;
 use crate::error::Result;
+use chrono::{DateTime, FixedOffset};
 use git2::build::CheckoutBuilder;
 use git2::{
   AnnotatedCommit, AutotagOption, Blob, Commit, Cred, Diff, DiffOptions, FetchOptions, Index, Object, ObjectType, Oid,
@@ -356,9 +357,7 @@ impl CommitData {
     CommitData { id, summary, kind, files }
   }
 
-  pub fn guess(id: String) -> CommitData {
-    CommitData::new(id, "".into(), Vec::new())
-  }
+  pub fn guess(id: String) -> CommitData { CommitData::new(id, "".into(), Vec::new()) }
 
   pub fn extract<'a>(repo: &'a Repository, commit: &Commit<'a>) -> Result<CommitData> {
     let id = commit.id().to_string();
@@ -385,9 +384,7 @@ impl<'a> CommitInfo<'a> {
   pub fn summary(&self) -> &str { self.commit.summary().unwrap_or("-") }
   pub fn kind(&self) -> String { extract_kind(self.summary()) }
 
-  pub fn files(&self) -> Result<impl Iterator<Item = String> + 'a> {
-    files_from_commit(&self.repo, &self.commit)
-  }
+  pub fn files(&self) -> Result<impl Iterator<Item = String> + 'a> { files_from_commit(&self.repo, &self.commit) }
 }
 
 struct DeltaIter<'repo> {
@@ -457,11 +454,14 @@ pub struct FullPr {
   base_oid: String,
   base_time: Time,
   commits: Vec<CommitData>,
-  excludes: Vec<String>
+  excludes: Vec<String>,
+  closed_at: DateTime<FixedOffset>
 }
 
 impl FullPr {
-  pub fn lookup(repo: &Repo, headref: String, base: String, number: u32) -> Result<FullPr> {
+  pub fn lookup(
+    repo: &Repo, headref: String, base: String, number: u32, closed_at: DateTime<FixedOffset>
+  ) -> Result<FullPr> {
     match repo.slice(headref.clone()).fetch() {
       Err(e) => {
         println!("Couldn't fetch {}: using best-guess instead: {:?}", headref, e);
@@ -472,7 +472,8 @@ impl FullPr {
           base_oid: base,
           base_time: Time::new(0, 0),
           commits: Vec::new(),
-          excludes: Vec::new()
+          excludes: Vec::new(),
+          closed_at
         })
       }
       Ok(None) => versio_err!("No fetched oid for {} somehow.", headref),
@@ -491,7 +492,8 @@ impl FullPr {
           base_oid: base,
           base_time,
           commits,
-          excludes: Vec::new()
+          excludes: Vec::new(),
+          closed_at
         })
       }
     }
@@ -505,6 +507,7 @@ impl FullPr {
   pub fn excludes(&self) -> &[String] { &self.excludes }
   pub fn best_guess(&self) -> bool { self.head_oid.is_none() }
   pub fn has_exclude(&self, oid: &str) -> bool { self.excludes.iter().any(|c| c == oid) }
+  pub fn closed_at(&self) -> &DateTime<FixedOffset> { &self.closed_at }
 
   pub fn included_commits(&self) -> impl Iterator<Item = &CommitData> + '_ {
     self.commits.iter().filter(move |c| !self.has_exclude(c.id()))

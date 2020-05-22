@@ -5,7 +5,7 @@ use crate::error::Result;
 use crate::scan::parts::ToPart;
 use crate::scan::parts::{IntoPartVec, Part};
 use crate::scan::Scanner;
-use crate::{CharMark, MarkedData, NamedData};
+use crate::source::{CharMark, MarkedData, NamedData};
 use yaml_rust::parser::{Event, MarkedEventReceiver, Parser};
 use yaml_rust::scanner::{Marker, TScalarStyle};
 
@@ -202,7 +202,7 @@ enum Expect {
 #[cfg(test)]
 mod test {
   use super::{scan_yaml, YamlScanner};
-  use crate::{scan::Scanner, NamedData};
+  use crate::{scan::Scanner, source::NamedData};
 
   #[test]
   fn test_yaml() {

@@ -1,14 +1,18 @@
 //! Interactions with github API v4.
 
 use crate::error::Result;
-use crate::git::{FullPr, GithubInfo, Repo, Span, CommitData};
-use chrono::{DateTime, FixedOffset, TimeZone};
+use crate::git::{CommitData, FullPr, GithubInfo, Repo, Span};
+use chrono::{DateTime, FixedOffset, TimeZone, Utc};
 use git2::Time;
 use github_gql::{client::Github, IntoGithubRequest};
 use hyper::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 use hyper::Request;
-use serde::Deserialize;
+use serde::{
+  de::{self, Deserializer, Visitor},
+  Deserialize
+};
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::fmt;
 
 /// Find all changes in a repo more cleverly than `git rev-parse begin..end` using the GitHub v4 API.
 ///
@@ -35,7 +39,8 @@ pub fn changes(repo: &Repo, headref: String, base: String) -> Result<Changes> {
   let mut all_prs = HashMap::new();
 
   let mut queue = VecDeque::new();
-  let pr_zero = FullPr::lookup(repo, headref.clone(), base, 0)?;
+  let offset = FixedOffset::west(0);
+  let pr_zero = FullPr::lookup(repo, headref.clone(), base, 0, offset.timestamp(Utc::now().timestamp(), 0))?;
   queue.push_back(pr_zero.span().ok_or_else(|| versio_error!("Unable to get oid for seed ref \"{}\".", headref))?);
   all_prs.insert(pr_zero.number(), pr_zero);
 
@@ -125,6 +130,7 @@ fragment commitResult on Commit {
           state
           headRefName
           baseRefOid
+          closedAt
         }
       }
     }
@@ -260,7 +266,9 @@ struct PrEdgeNode {
   #[serde(rename = "headRefName")]
   head_ref_name: String,
   #[serde(rename = "baseRefOid")]
-  base_ref_oid: String
+  base_ref_oid: String,
+  #[serde(rename = "closedAt", deserialize_with = "deserialize_datetime")]
+  closed_at: DateTime<FixedOffset>
 }
 
 impl PrEdgeNode {
@@ -268,7 +276,7 @@ impl PrEdgeNode {
   pub fn state(&self) -> &str { &self.state }
 
   pub fn lookup_full(self, repo: &Repo) -> Result<FullPr> {
-    FullPr::lookup(repo, self.head_ref_name, self.base_ref_oid, self.number)
+    FullPr::lookup(repo, self.head_ref_name, self.base_ref_oid, self.number, self.closed_at)
   }
 }
 
@@ -321,18 +329,26 @@ fn escape(val: &str) -> String {
   escaped
 }
 
-// fn deserialize_datetime<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<DateTime<FixedOffset>, D::Error> {
-//   struct DateTimeVisitor;
-//
-//   impl<'de> Visitor<'de> for DateTimeVisitor {
-//     type Value = DateTime<FixedOffset>;
-//
-//     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result { formatter.write_str("an RFC 3339 datetime") }
-//
-//     fn visit_str<E: de::Error>(self, v: &str) -> std::result::Result<Self::Value, E> {
-//       DateTime::parse_from_rfc3339(v).map_err(|e| de::Error::custom(format!("Couldn't parse date {}: {:?}", v, e)))
-//     }
-//   }
-//
-//   desr.deserialize_str(DateTimeVisitor)
-// }
+fn deserialize_datetime<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<DateTime<FixedOffset>, D::Error> {
+  struct DateTimeVisitor;
+
+  impl<'de> Visitor<'de> for DateTimeVisitor {
+    type Value = DateTime<FixedOffset>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result { formatter.write_str("an RFC 3339 datetime") }
+
+    fn visit_str<E: de::Error>(self, v: &str) -> std::result::Result<Self::Value, E> {
+      if v.is_empty() {
+        return self.visit_none();
+      }
+      DateTime::parse_from_rfc3339(v).map_err(|e| de::Error::custom(format!("Couldn't parse date {}: {:?}", v, e)))
+    }
+
+    fn visit_none<E: de::Error>(self) -> std::result::Result<Self::Value, E> {
+      let offset = FixedOffset::west(0);
+      Ok(offset.timestamp(Utc::now().timestamp(), 0))
+    }
+  }
+
+  desr.deserialize_str(DateTimeVisitor)
+}

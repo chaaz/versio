@@ -3,7 +3,7 @@
 use crate::analyze::analyze;
 use crate::config::{configure_plan, Config, ShowFormat, Size};
 use crate::error::Result;
-use crate::{CurrentSource, PrevSource, Source};
+use crate::source::{CurrentSource, PrevSource, Source};
 use clap::{crate_version, App, AppSettings, Arg, ArgGroup, ArgMatches, SubCommand};
 
 pub fn execute() -> Result<()> {
@@ -342,8 +342,35 @@ pub fn plan(prev: &PrevSource, curt: &CurrentSource) -> Result<()> {
   if plan.incrs().is_empty() {
     println!("(No projects)");
   } else {
-    for (id, (size, _)) in plan.incrs() {
-      println!("{} : {}", curt_cfg.get_project(*id).unwrap().name(), size);
+    for (id, (size, change_log)) in plan.incrs() {
+      let curt_proj = curt_cfg.get_project(*id).unwrap();
+      println!("{} : {}", curt_proj.name(), size);
+      for dep in curt_proj.depends() {
+        let size = plan.incrs().get(dep).unwrap().0;
+        let dep_proj = curt_cfg.get_project(*dep).unwrap();
+        println!("  Depends on {} : {}", dep_proj.name(), size);
+      }
+      for (pr, size) in change_log.entries() {
+        if !pr.commits().iter().any(|c| c.included()) {
+          continue;
+        }
+        if pr.number() == 0 {
+          // "PR zero" is the top-level set of commits.
+          println!("  Other commits : {}", size);
+        } else {
+          println!("  PR {} : {}", pr.number(), size);
+        }
+        for c /* (oid, msg, size, appl, dup) */ in pr.commits().iter().filter(|c| c.included()) {
+          let symbol = if c.duplicate() {
+            "."
+          } else if c.applies() {
+            "*"
+          } else {
+            " "
+          };
+          println!("    {} commit {} ({}) : {}", symbol, &c.oid()[.. 7], c.size(), c.message());
+        }
+      }
     }
   }
 

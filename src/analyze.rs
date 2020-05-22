@@ -1,4 +1,4 @@
-use crate::MarkedData;
+use crate::source::MarkedData;
 use std::cmp::Eq;
 use std::collections::HashMap;
 use std::collections::HashSet;

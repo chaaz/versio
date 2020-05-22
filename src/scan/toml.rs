@@ -5,7 +5,7 @@ use crate::error::Result;
 use crate::scan::parts::ToPart;
 use crate::scan::parts::{IntoPartVec, Part};
 use crate::scan::Scanner;
-use crate::{Mark, MarkedData, NamedData};
+use crate::source::{Mark, MarkedData, NamedData};
 use serde::de::{self, DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Unexpected, Visitor};
 use toml::Spanned;
 
@@ -134,7 +134,7 @@ impl<'de> DeserializeSeed<'de> for NthElement {
 #[cfg(test)]
 mod test {
   use super::TomlScanner;
-  use crate::{scan::Scanner, NamedData};
+  use crate::{scan::Scanner, source::NamedData};
 
   #[test]
   fn test_toml() {

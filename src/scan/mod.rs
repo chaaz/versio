@@ -4,7 +4,8 @@ mod toml;
 mod yaml;
 
 pub use self::toml::TomlScanner;
-use crate::{error::Result, MarkedData, NamedData};
+use crate::error::Result;
+use crate::source::{MarkedData, NamedData};
 pub use json::JsonScanner;
 pub use yaml::YamlScanner;
 
