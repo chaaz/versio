@@ -290,7 +290,6 @@ fn diff(prev: PrevSource, curt: CurrentSource) -> Result<()> {
     for mark in analysis.older() {
       println!("  {} : {}", mark.name(), mark.mark().value());
     }
-    println!();
   }
 
   if !analysis.newer().is_empty() {
@@ -298,7 +297,6 @@ fn diff(prev: PrevSource, curt: CurrentSource) -> Result<()> {
     for mark in analysis.newer() {
       println!("  {} : {}", mark.name(), mark.mark().value());
     }
-    println!();
   }
 
   if analysis.changes().iter().any(|c| c.value().is_some()) {
@@ -316,7 +314,6 @@ fn diff(prev: PrevSource, curt: CurrentSource) -> Result<()> {
       }
       println!();
     }
-    println!();
   }
 
   if analysis.changes().iter().any(|c| c.value().is_none()) {
@@ -330,7 +327,6 @@ fn diff(prev: PrevSource, curt: CurrentSource) -> Result<()> {
       print!(" : {}", change.new_mark().mark().value());
       println!();
     }
-    println!();
   }
 
   Ok(())
