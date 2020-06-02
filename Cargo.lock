@@ -1254,6 +1254,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "toml",
+ "xmlparser",
  "yaml-rust",
 ]
 
@@ -1337,6 +1338,12 @@ dependencies = [
  "winapi 0.2.8",
  "winapi-build",
 ]
+
+[[package]]
+name = "xmlparser"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ccb4240203dadf40be2de9369e5c6dec1bf427528115b030baca3334c18362d7"
 
 [[package]]
 name = "yaml-rust"

@@ -5,7 +5,7 @@ use crate::error::Result;
 use crate::git::{CommitData, FullPr};
 use crate::scan::{
   parts::{deserialize_parts, Part},
-  JsonScanner, Scanner, TomlScanner, YamlScanner
+  JsonScanner, Scanner, TomlScanner, XmlScanner, YamlScanner
 };
 use crate::source::{CurrentSource, Mark, MarkedData, NamedData, PrevSource, Source, CONFIG_FILENAME};
 use chrono::{DateTime, FixedOffset};
@@ -411,6 +411,7 @@ pub struct Project {
   covers: Vec<String>,
   #[serde(default)]
   depends: Vec<u32>,
+  change_log: Option<String>,
   located: Location
 }
 
@@ -422,6 +423,17 @@ impl Project {
   pub fn name(&self) -> &str { &self.name }
   pub fn id(&self) -> u32 { self.id }
   pub fn depends(&self) -> &[u32] { &self.depends }
+  pub fn change_log(&self) -> &Option<String> { &self.change_log }
+
+  pub fn write_change_log(&self, cl: &ChangeLog, src: &dyn Source) -> Result<Option<String>> {
+    if let Some(cl_path) = self.change_log().as_ref() {
+      let log_path = src.root_dir().join(cl_path);
+      std::fs::write(&log_path, construct_change_log_html(cl)?)?;
+      Ok(Some(cl_path.clone()))
+    } else {
+      Ok(None)
+    }
+  }
 
   fn get_mark(&self, source: &dyn Source) -> Result<MarkedData> { self.located.get_mark(source) }
 
@@ -493,6 +505,7 @@ enum Picker {
   Json(JsonPicker),
   Yaml(YamlPicker),
   Toml(TomlPicker),
+  Xml(XmlPicker),
   Line(LinePicker),
   File(FilePicker)
 }
@@ -503,6 +516,7 @@ impl Picker {
       Picker::Json(_) => "json",
       Picker::Yaml(_) => "yaml",
       Picker::Toml(_) => "toml",
+      Picker::Xml(_) => "xml",
       Picker::Line(_) => "line",
       Picker::File(_) => "file"
     }
@@ -513,6 +527,7 @@ impl Picker {
       Picker::Json(p) => p.scan(data),
       Picker::Yaml(p) => p.scan(data),
       Picker::Toml(p) => p.scan(data),
+      Picker::Xml(p) => p.scan(data),
       Picker::Line(p) => p.scan(data),
       Picker::File(p) => p.scan(data)
     }
@@ -547,6 +562,16 @@ struct TomlPicker {
 
 impl TomlPicker {
   pub fn scan(&self, data: NamedData) -> Result<MarkedData> { TomlScanner::new(self.toml.clone()).scan(data) }
+}
+
+#[derive(Deserialize, Debug)]
+struct XmlPicker {
+  #[serde(deserialize_with = "deserialize_parts")]
+  xml: Vec<Part>
+}
+
+impl XmlPicker {
+  pub fn scan(&self, data: NamedData) -> Result<MarkedData> { XmlScanner::new(self.xml.clone()).scan(data) }
 }
 
 #[derive(Deserialize, Debug)]
@@ -747,6 +772,43 @@ fn absolutize_pattern<'a>(cover: &'a str, root_dir: &Path) -> Cow<'a, str> {
   } else {
     Cow::Borrowed(cover.to_str().unwrap())
   }
+}
+
+fn construct_change_log_html(cl: &ChangeLog) -> Result<String> {
+  let mut output = String::new();
+  output.push_str("<html>\n");
+  output.push_str("<body>\n");
+
+  output.push_str("<ul>\n");
+  for (pr, size) in cl.entries() {
+    if !pr.commits().iter().any(|c| c.included()) {
+      continue;
+    }
+    if pr.number() == 0 {
+      // "PR zero" is the top-level set of commits.
+      output.push_str(&format!("  <li>Other commits : {} </li>\n", size));
+    } else {
+      output.push_str(&format!("  <li>PR {} : {} </li>\n", pr.number(), size));
+    }
+    output.push_str("  <ul>\n");
+    for c /* (oid, msg, size, appl, dup) */ in pr.commits().iter().filter(|c| c.included()) {
+      let symbol = if c.duplicate() {
+        "(dup) "
+      } else if c.applies() {
+        ""
+      } else {
+        "(not appl) "
+      };
+      output.push_str(&format!("    <li>{}commit {} ({}) : {}</li>", symbol, &c.oid()[.. 7], c.size(), c.message()));
+    }
+    output.push_str("  </ul>\n");
+  }
+  output.push_str("</ul>\n");
+
+  output.push_str("</body>\n");
+  output.push_str("</html>\n");
+
+  Ok(output)
 }
 
 #[cfg(test)]

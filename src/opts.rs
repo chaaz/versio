@@ -158,9 +158,18 @@ pub fn execute() -> Result<()> {
         .display_order(1)
     )
     .subcommand(
+      SubCommand::with_name("log")
+        .setting(AppSettings::UnifiedHelpMessage)
+        .about("Write plans to change logs")
+        .arg(
+          Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
+        )
+        .display_order(1)
+    )
+    .subcommand(
       SubCommand::with_name("run")
         .setting(AppSettings::UnifiedHelpMessage)
-        .about("Find versions that need to change")
+        .about("Change and commit version numbers")
         .arg(
           Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
         )
@@ -268,6 +277,12 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
       }
       run(&prev, &curt, m.is_present("all"), m.is_present("dry"))
     }
+    ("log", Some(m)) => {
+      if m.is_present("nofetch") {
+        prev.set_fetch(false)?;
+      }
+      log(&prev, &curt)
+    }
     ("changes", Some(m)) => {
       if m.is_present("nofetch") {
         prev.set_fetch(false)?;
@@ -373,6 +388,25 @@ pub fn plan(prev: &PrevSource, curt: &CurrentSource) -> Result<()> {
   Ok(())
 }
 
+pub fn log(prev: &PrevSource, curt: &CurrentSource) -> Result<()> {
+  let (plan, _, curt_cfg) = configure_plan(prev, curt)?;
+
+  if plan.incrs().is_empty() {
+    println!("(No projects)");
+    return Ok(());
+  }
+
+  println!("Executing plan:");
+  for (id, (_, change_log)) in plan.incrs() {
+    let proj = curt_cfg.get_project(*id).unwrap();
+
+    if let Some(wrote) = proj.write_change_log(&change_log, curt)? {
+      println!("Wrote {}", wrote);
+    }
+  }
+  Ok(())
+}
+
 pub fn run(prev: &PrevSource, curt: &CurrentSource, all: bool, dry: bool) -> Result<()> {
   if !dry {
     // We're going to commit and push changes soon; let's make sure that we are up-to-date. But don't create a
@@ -389,12 +423,15 @@ pub fn run(prev: &PrevSource, curt: &CurrentSource, all: bool, dry: bool) -> Res
 
   println!("Executing plan:");
   let mut found = false;
-  for (id, (size, _)) in plan.incrs() {
-    let curt_name = curt_cfg.get_project(*id).unwrap().name();
+  for (id, (size, change_log)) in plan.incrs() {
+    let proj = curt_cfg.get_project(*id).unwrap();
+    let curt_name = proj.name();
     let curt_mark = curt_cfg.get_mark(*id).unwrap()?;
     let curt_vers = curt_mark.value();
     let prev_mark = prev_cfg.get_mark(*id).transpose()?;
     let prev_vers = prev_mark.as_ref().map(|m| m.value());
+
+    proj.write_change_log(&change_log, curt)?;
 
     if let Some(prev_vers) = prev_vers {
       let target = size.apply(prev_vers)?;

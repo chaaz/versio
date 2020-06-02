@@ -7,32 +7,22 @@ use git2::Time;
 use github_gql::{client::Github, IntoGithubRequest};
 use hyper::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 use hyper::Request;
-use serde::{
-  de::{self, Deserializer, Visitor},
-  Deserialize
-};
+use serde::de::{self, Deserializer, Visitor};
+use serde::Deserialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 
-/// Find all changes in a repo more cleverly than `git rev-parse begin..end` using the GitHub v4 API.
+/// Find all changes in a repo more cleverly than `git rev-parse begin..end` using the GitHub v4 GraphQL API.
 ///
-/// Our rationale is such: When GitHub squash-merges a PR, it creates a new commit on the base-ref branch. While
-/// the commit is not a descendent of any commit on the PR, the commit still is associated with the source PR in
-/// the GitHub API, and by default contains the PR number in its commit headline. Thus, it is associated with a
-/// PR that it is not itself a part of, which is how we identify it.
+/// This method groups the commits into pull requests (PRs), starting with "PR zero" (which is an artificial
+/// group that contains all commits in the given range) and for each commit, ask the GitHub API for "associated
+/// pull requests". For each such associated PR, it performs a rev-parse on the base/head of that PR to search
+/// for more commits, and continues recursively. Each commit found may placed into more than one PR.
 ///
-/// We want to exclude such commits because these commits have lost some of the information contained in the
-/// original PR: namely, what files are associated with what commit sizes. All the files altered in the commit
-/// are associated with whatever size the single squash commit is, which may not be strictly correct.
-///
-/// Instead of including such commits, we want to include all of the commits from the associated PR (unless
-/// those commits are themselves squash-merges, etc.)
-///
-/// To find all of the original commits, we first queue a "PR zero" that contains the naïve `begin..end`. Then
-/// for each queued PR, we examine each commit, and exclude it if: (a) the commit is associated with another PR,
-/// and (b) that other PR's commits doesn't contain the original commit. We then queue that other PR, if
-/// possible. Our result is a list of PRs, each of which has "base..head" rev-parse-able refs, and a list of
-/// commits which should be excluded from them.
+/// When a commit is found where it itself does not belong to one of its own associated PRs' "base..head"
+/// rev-parse, we assume that this is the result of a "squash merge" from that PR (or some other type of PR
+/// rebase). The squash commit is excluded from all PRs: instead the PR's own commits are examined normally. In
+/// this way, the original type and size information from the PR is preserved.
 #[allow(clippy::map_entry)]
 pub fn changes(repo: &Repo, headref: String, base: String) -> Result<Changes> {
   let mut all_commits = HashSet::new();

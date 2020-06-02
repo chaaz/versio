@@ -69,6 +69,10 @@ impl From<github_gql::errors::Error> for Error {
   fn from(err: github_gql::errors::Error) -> Error { Error { description: format!("github error {:?}", err) } }
 }
 
+impl From<xmlparser::Error> for Error {
+  fn from(err: xmlparser::Error) -> Error { Error { description: format!("xmlparser error {:?}", err) } }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]
