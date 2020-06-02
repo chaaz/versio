@@ -83,17 +83,20 @@ the per-project size information inherent in the PR.
 If your repository uses GitHub as its remote, then Versio will use the
 GitHub v4 GraphQL API to extract more information about the PRs and
 associated commits that went into the release changes. If Versio creates
-or updates a changelog, it will group commits into whatever respective
-PRs can be found.
+or updates a changelog, it will group commits into whatever PRs can be
+found.
 
-If a PR has been squashed onto the release branch, Versio will
-"unsquash" that PR for the changelog and increment sizing. Unsquashing
-is only possible if the PR's commits still exist on the Git remote: if
-the branch has been deleted (which is typical for squashes), then the
+If a PR has been squashed onto the branch, Versio will "unsquash" that
+PR for changelog and increment sizing purposes. Unsquashing is only
+possible if the PR's commits still exist on the Git remote: if the
+branch has been deleted (which is typical for squashes), then the
 commits may have been garbage collected, and unavailable for
 examination. In this case, Versio will make some guesses, but might get
 some sizing or grouping wrong. If unsquashing is important, don't delete
 PR branches from GitHub until after they've been part of a release.
+
+> TODO: After using a PR as part of release, Version can delete its
+> associated branch, since it won't need to be used anymore.
 
 ## Go Style Projects
 
@@ -110,6 +113,14 @@ located:
   tags:
     all: {}
 ```
+
+> Warning! This style of project requires the `tag_prefix` property to
+> be present, which creates/updates git tags like
+> `<<tag_prefix>>-v1.2.3` for the project. Since only one project in the
+> repository can have a `tag_prefix` of "" (the empty string results in
+> Go-standard tags without a prefix like `v1.2.3`), this makes it
+> difficult to properly deploy monorepos that contain more than one
+> Go-style project.
 
 This allows for standard go-style subdirectories on any branch inside of
 the `projectName` folder. You can use `at: .` if your project exists at

@@ -37,6 +37,14 @@ the `projectName` folder. You can use `at: .` if your project exists at
 the top-level of your repository. Projects that use this style of
 manifest are required to have `tag_prefix` property.
 
+> Warning! This style of project requires the `tag_prefix` property to
+> be present, which creates/updates git tags like
+> `<<tag_prefix>>-v1.2.3` for the project. Since only one project in the
+> repository can have a `tag_prefix` of "" (the empty string results in
+> Go-standard tags without a prefix like `v1.2.3`), this makes it
+> difficult to properly deploy monorepos that contain more than one
+> Go-style project.
+
 You can express the branch / directory structures in finer detail when
 needed. If, for example, part of your project integrates with [Google's
 JavaScript engine](https://v8.dev/), `v8` might be directory name

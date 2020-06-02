@@ -390,11 +390,26 @@ impl ConfigFile {
   /// Check that IDs are unique, etc.
   fn validate(&self) -> Result<()> {
     let mut ids = HashSet::new();
+    let mut names = HashSet::new();
+    let mut prefs = HashSet::new();
+
     for p in &self.projects {
       if ids.contains(&p.id) {
-        return versio_err!("Id {} is duplicated", p.id);
+        return versio_err!("id {} is duplicated", p.id);
       }
       ids.insert(p.id);
+
+      if names.contains(&p.name) {
+        return versio_err!("name {} is duplicated", p.name);
+      }
+      names.insert(p.name.clone());
+
+      if let Some(pref) = &p.tag_prefix {
+        if prefs.contains(pref) {
+          return versio_err!("tag_prefix {} is duplicated", pref);
+        }
+        prefs.insert(pref.clone());
+      }
     }
 
     // TODO: no circular deps
@@ -412,7 +427,8 @@ pub struct Project {
   #[serde(default)]
   depends: Vec<u32>,
   change_log: Option<String>,
-  located: Location
+  located: Location,
+  tag_prefix: Option<String>
 }
 
 impl Project {
@@ -424,6 +440,7 @@ impl Project {
   pub fn id(&self) -> u32 { self.id }
   pub fn depends(&self) -> &[u32] { &self.depends }
   pub fn change_log(&self) -> &Option<String> { &self.change_log }
+  pub fn tag_prefix(&self) -> &Option<String> { &self.tag_prefix }
 
   pub fn write_change_log(&self, cl: &ChangeLog, src: &dyn Source) -> Result<Option<String>> {
     if let Some(cl_path) = self.change_log().as_ref() {

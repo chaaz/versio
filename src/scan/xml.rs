@@ -1,12 +1,14 @@
 //! Utilities to find a mark in a XML file.
+//!
+//! TODO: versions in CDATA, attributes
 
 use crate::error::Result;
 #[cfg(test)]
 use crate::scan::parts::ToPart;
-use crate::scan::parts::{IntoPartVec, Part, is_match_str};
+use crate::scan::parts::{is_match_str, IntoPartVec, Part};
 use crate::scan::Scanner;
 use crate::source::{Mark, MarkedData, NamedData};
-use xmlparser::{Tokenizer, Token, ElementEnd};
+use xmlparser::{ElementEnd, Token, Tokenizer};
 
 pub struct XmlScanner {
   target: Vec<Part>
@@ -58,7 +60,7 @@ fn scan_xml<P: IntoPartVec>(data: &str, loc: P) -> Result<Mark> {
       }
       Token::Text { text } => {
         if on_target {
-          return Mark::make(text.as_str().into(), text.start())
+          return Mark::make(text.as_str().into(), text.start());
         }
       }
       _ => ()
@@ -83,53 +85,47 @@ mod test {
   #[test]
   fn test_xml() {
     let doc = r#"
-version = "1.2.3""#;
+<version>1.2.3</version>"#;
 
     let marked_data = XmlScanner::new("version").scan(NamedData::new(None, doc.to_string())).unwrap();
     assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(12, marked_data.start());
-  }
-
-  #[test]
-  fn test_xml_seq() {
-    let doc = r#"
-thing = [ "thing2", "1.2.3" ]"#;
-
-    let marked_data = XmlScanner::new("thing.1").scan(NamedData::new(None, doc.to_string())).unwrap();
-    assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(22, marked_data.start());
+    assert_eq!(10, marked_data.start());
   }
 
   #[test]
   fn test_xml_complex() {
     let doc = r#"
-[version]
-"thing" = [ "2.4.6", { "version" = "1.2.3" } ]"#;
+<version>
+  <thing>
+    <version>1.2.3</version>
+  </thing>
+</version>"#;
 
-    let marked_data = XmlScanner::new("version.thing.1.version").scan(NamedData::new(None, doc.to_string())).unwrap();
+    let marked_data = XmlScanner::new("version.thing.version").scan(NamedData::new(None, doc.to_string())).unwrap();
     assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(47, marked_data.start());
+    assert_eq!(34, marked_data.start());
   }
 
   #[test]
   fn test_xml_clever() {
     let doc = r#"
-[[0]]
-"the.version" = "1.2.3""#;
+<_0>
+  <the.version>1.2.3</version>
+</_0>"#;
 
     let marked_data =
-      XmlScanner::from_parts(&[&"0", &0, &"the.version"]).scan(NamedData::new(None, doc.to_string())).unwrap();
+      XmlScanner::from_parts(&[&"_0", &"the.version"]).scan(NamedData::new(None, doc.to_string())).unwrap();
     assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(24, marked_data.start());
+    assert_eq!(21, marked_data.start());
   }
 
   #[test]
   fn test_xml_utf8() {
     let doc = r#"
-"thíng" = [ "thíng2", "1.2.3" ]"#;
+<naïve><versíøn>1.2.3</naïve></versíøn>"#;
 
-    let marked_data = XmlScanner::new("thíng.1").scan(NamedData::new(None, doc.to_string())).unwrap();
+    let marked_data = XmlScanner::new("naïve.versíøn").scan(NamedData::new(None, doc.to_string())).unwrap();
     assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(26, marked_data.start());
+    assert_eq!(20, marked_data.start());
   }
 }
