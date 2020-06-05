@@ -1,7 +1,7 @@
 //! The command-line options for the executable.
 
 use crate::analyze::analyze;
-use crate::config::{configure_plan, Config, ShowFormat, Size};
+use crate::config::{configure_plan, find_last_commits, Config, NewTags, ShowFormat, Size};
 use crate::error::Result;
 use crate::source::{CurrentSource, PrevSource, Source};
 use clap::{crate_version, App, AppSettings, Arg, ArgGroup, ArgMatches, SubCommand};
@@ -247,9 +247,9 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
     }
     ("set", Some(m)) => {
       if m.is_present("id") {
-        set_by_id(m.value_of("id").unwrap(), m.value_of("value").unwrap())
+        set_by_id(m.value_of("id").unwrap(), m.value_of("value").unwrap(), &prev, &curt)
       } else {
-        set_by_name(m.value_of("name").unwrap(), m.value_of("value").unwrap())
+        set_by_name(m.value_of("name").unwrap(), m.value_of("value").unwrap(), &prev, &curt)
       }
     }
     ("files", Some(m)) => {
@@ -353,7 +353,7 @@ pub fn plan(prev: &PrevSource, curt: &CurrentSource) -> Result<()> {
   if plan.incrs().is_empty() {
     println!("(No projects)");
   } else {
-    for (id, (size, change_log)) in plan.incrs() {
+    for (id, (size, _, change_log)) in plan.incrs() {
       let curt_proj = curt_cfg.get_project(*id).unwrap();
       println!("{} : {}", curt_proj.name(), size);
       for dep in curt_proj.depends() {
@@ -397,7 +397,7 @@ pub fn log(prev: &PrevSource, curt: &CurrentSource) -> Result<()> {
   }
 
   println!("Executing plan:");
-  for (id, (_, change_log)) in plan.incrs() {
+  for (id, (.., change_log)) in plan.incrs() {
     let proj = curt_cfg.get_project(*id).unwrap();
 
     if let Some(wrote) = proj.write_change_log(&change_log, curt)? {
@@ -422,13 +422,13 @@ pub fn run(prev: &PrevSource, curt: &CurrentSource, all: bool, dry: bool) -> Res
   }
 
   println!("Executing plan:");
-  let mut found = false;
-  for (id, (size, change_log)) in plan.incrs() {
-    let proj = curt_cfg.get_project(*id).unwrap();
+  let mut new_tags = NewTags::new();
+  for (&id, (size, last_commit, change_log)) in plan.incrs() {
+    let proj = curt_cfg.get_project(id).unwrap();
     let curt_name = proj.name();
-    let curt_mark = curt_cfg.get_mark(*id).unwrap()?;
+    let curt_mark = curt_cfg.get_mark(id).unwrap()?;
     let curt_vers = curt_mark.value();
-    let prev_mark = prev_cfg.get_mark(*id).transpose()?;
+    let prev_mark = prev_cfg.get_mark(id).transpose()?;
     let prev_vers = prev_mark.as_ref().map(|m| m.value());
 
     proj.write_change_log(&change_log, curt)?;
@@ -436,22 +436,26 @@ pub fn run(prev: &PrevSource, curt: &CurrentSource, all: bool, dry: bool) -> Res
     if let Some(prev_vers) = prev_vers {
       let target = size.apply(prev_vers)?;
       if Size::less_than(curt_vers, &target)? {
-        found = true;
         if !dry {
-          curt_cfg.set_by_id(*id, &target)?;
+          curt_cfg.set_by_id(id, &target, last_commit.as_ref(), &mut new_tags)?;
         }
         if prev_vers == curt_vers {
           println!("  {} : {} -> {}", curt_name, prev_vers, &target);
         } else {
           println!("  {} : {} -> {} instead of {}", curt_name, prev_vers, &target, curt_vers);
         }
-      } else if all {
-        if prev_vers == curt_vers {
-          println!("  {} : no change to {}", curt_name, curt_vers);
-        } else if curt_vers == target {
-          println!("  {} : no change: already {} -> {}", curt_name, prev_vers, &target);
-        } else {
-          println!("  {} : no change: {} -> {} exceeds {}", curt_name, prev_vers, curt_vers, &target);
+      } else {
+        if !dry {
+          curt_cfg.forward_by_id(id, curt_vers, last_commit.as_ref(), &mut new_tags)?;
+        }
+        if all {
+          if prev_vers == curt_vers {
+            println!("  {} : no change to {}", curt_name, curt_vers);
+          } else if curt_vers == target {
+            println!("  {} : no change: already {} -> {}", curt_name, prev_vers, &target);
+          } else {
+            println!("  {} : no change: {} -> {} exceeds {}", curt_name, prev_vers, curt_vers, &target);
+          }
         }
       }
     } else if all {
@@ -459,7 +463,7 @@ pub fn run(prev: &PrevSource, curt: &CurrentSource, all: bool, dry: bool) -> Res
     }
   }
 
-  if found {
+  if new_tags.should_commit() {
     if dry {
       println!("Dry run: no actual changes.");
     } else if prev.repo()?.push_changes()? {
@@ -523,7 +527,15 @@ fn get_id<S: Source>(src: S, id: &str, fmt: ShowFormat) -> Result<()> {
   Config::from_source(src)?.show_id(id.parse()?, fmt)
 }
 
-fn set_by_name(name: &str, val: &str) -> Result<()> { current_config()?.set_by_name(name, val) }
-fn set_by_id(id: &str, val: &str) -> Result<()> { current_config()?.set_by_id(id.parse()?, val) }
+fn set_by_name(name: &str, val: &str, prev: &PrevSource, curt: &CurrentSource) -> Result<()> {
+  current_config()?.set_by_name(name, val, prev, curt)
+}
+
+fn set_by_id(id: &str, val: &str, prev: &PrevSource, curt: &CurrentSource) -> Result<()> {
+  let id = id.parse()?;
+  let last_commits = find_last_commits(prev, curt)?;
+  current_config()?.set_by_id(id, val, last_commits.get(&id), &mut NewTags::new())
+}
+
 fn unknown_cmd(c: &str) -> Result<()> { versio_err!("Unknown command: \"{}\" (try \"help\").", c) }
 fn empty_cmd() -> Result<()> { versio_err!("No command (try \"help\").") }

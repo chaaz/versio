@@ -2,8 +2,8 @@
 
 use crate::either::{IterEither2 as E2, IterEither3 as E3};
 use crate::error::Result;
-use crate::git::{FullPr, Repo};
-use crate::github::{changes, Changes};
+use crate::git::{CommitData, FullPr, Repo};
+use crate::github::{changes, line_commits, Changes};
 use regex::Regex;
 use std::iter;
 use std::path::{Path, PathBuf};
@@ -77,6 +77,7 @@ impl PrevSource {
   }
   pub fn has_remote(&self) -> Result<bool> { Ok(self.inner.lock()?.has_remote()) }
   pub fn changes(&self) -> Result<Changes> { self.inner.lock()?.changes() }
+  pub fn line_commits(&self) -> Result<Vec<CommitData>> { self.inner.lock()?.line_commits() }
   pub fn repo(&self) -> Result<RepoGuard> { Ok(RepoGuard { guard: self.inner.lock()? }) }
   pub fn pull(&self) -> Result<()> { self.inner.lock()?.pull() }
 }
@@ -133,6 +134,12 @@ impl PrevSourceInner {
     let base = self.repo.slice(self.spec.clone()).refspec().to_string();
     let head = self.repo.branch_name().to_string();
     changes(&self.repo, head, base)
+  }
+
+  pub fn line_commits(&self) -> Result<Vec<CommitData>> {
+    let base = self.repo.slice(self.spec.clone()).refspec().to_string();
+    let head = self.repo.branch_name().to_string();
+    line_commits(&self.repo, head, base)
   }
 
   fn keyed_files<'a>(&'a mut self) -> Result<impl Iterator<Item = Result<(String, String)>> + 'a> {

@@ -19,6 +19,27 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 use std::path::Path;
 
+type ProjectId = u32;
+
+pub fn find_last_commits<'s>(prev: &'s PrevSource, curt: &'s CurrentSource) -> Result<HashMap<ProjectId, String>> {
+  let prev_config = Config::from_source(prev)?;
+  let curt_config = Config::from_source(curt)?;
+
+  let mut last_finder = prev_config.start_last_finder(&curt_config);
+
+  // Consider the in-line commits to determine the last commit (if any) for each project.
+  for commit in prev.line_commits()? {
+    last_finder.consider_line_commit(&commit)?;
+    for file in commit.files() {
+      last_finder.consider_line_file(file)?;
+      last_finder.finish_line_file()?;
+    }
+    last_finder.finish_line_commit()?;
+  }
+
+  last_finder.finish_finder()
+}
+
 pub fn configure_plan<'s>(
   prev: &'s PrevSource, curt: &'s CurrentSource
 ) -> Result<(Plan, Config<&'s PrevSource>, Config<&'s CurrentSource>)> {
@@ -26,6 +47,7 @@ pub fn configure_plan<'s>(
   let curt_config = Config::from_source(curt)?;
   let mut plan = prev_config.start_plan(&curt_config);
 
+  // Consider the grouped, unsquashed commits to determine project sizing and changelogs.
   for pr in prev.changes()?.groups().values() {
     plan.consider_pr(pr)?;
     for commit in pr.included_commits() {
@@ -39,7 +61,13 @@ pub fn configure_plan<'s>(
     plan.finish_pr()?;
   }
 
+  let last_commits = find_last_commits(prev, curt)?;
+  plan.consider_last_commits(&last_commits)?;
+
+  // Some projects might depend on other projects.
   plan.consider_deps()?;
+
+  // Sort projects by earliest closed date, mark duplicate commits.
   plan.sort_and_dedup()?;
 
   let plan = plan.finish_plan()?;
@@ -62,6 +90,10 @@ pub struct Config<S: Source> {
 
 impl<'s> Config<&'s PrevSource> {
   fn start_plan<C: Source>(&'s self, current: &'s Config<C>) -> PlanConsider<C> { PlanConsider::new(self, current) }
+
+  fn start_last_finder<C: Source>(&'s self, current: &'s Config<C>) -> LastCommitFinder<C> {
+    LastCommitFinder::new(self, current)
+  }
 }
 
 impl<S: Source> Config<S> {
@@ -83,7 +115,7 @@ impl<S: Source> Config<S> {
     Ok(())
   }
 
-  pub fn get_mark(&self, id: u32) -> Option<Result<MarkedData>> {
+  pub fn get_mark(&self, id: ProjectId) -> Option<Result<MarkedData>> {
     self.get_project(id).map(|p| p.get_mark(&self.source))
   }
 
@@ -96,9 +128,9 @@ impl<S: Source> Config<S> {
     Ok(())
   }
 
-  pub fn get_project(&self, id: u32) -> Option<&Project> { self.file.projects.iter().find(|p| p.id == id) }
+  pub fn get_project(&self, id: ProjectId) -> Option<&Project> { self.file.projects.iter().find(|p| p.id == id) }
 
-  pub fn show_id(&self, id: u32, format: ShowFormat) -> Result<()> {
+  pub fn show_id(&self, id: ProjectId, format: ShowFormat) -> Result<()> {
     let project = self.get_project(id).ok_or_else(|| versio_error!("No such project {}", id))?;
     project.show(&self.source, 0, &format)
   }
@@ -113,18 +145,29 @@ impl<S: Source> Config<S> {
     Ok(())
   }
 
-  pub fn set_by_name(&self, name: &str, val: &str) -> Result<()> {
+  pub fn set_by_name(&self, name: &str, val: &str, prev: &PrevSource, curt: &CurrentSource) -> Result<()> {
     let id = self.find_unique(name)?;
-    self.set_by_id(id, val)
+    let last_commits = find_last_commits(prev, curt)?;
+    self.set_by_id(id, val, last_commits.get(&id), &mut NewTags::new())
   }
 
-  pub fn set_by_id(&self, id: u32, val: &str) -> Result<()> {
+  pub fn set_by_id(
+    &self, id: ProjectId, val: &str, last_commit: Option<&String>, new_tags: &mut NewTags
+  ) -> Result<()> {
     let project =
       self.file.projects.iter().find(|p| p.id == id).ok_or_else(|| versio_error!("No such project {}", id))?;
-    project.set_value(&self.source, val)
+    project.set_value(&self.source, val, last_commit, new_tags)
   }
 
-  fn find_unique(&self, name: &str) -> Result<u32> {
+  pub fn forward_by_id(
+    &self, id: ProjectId, val: &str, last_commit: Option<&String>, new_tags: &mut NewTags
+  ) -> Result<()> {
+    let project =
+      self.file.projects.iter().find(|p| p.id == id).ok_or_else(|| versio_error!("No such project {}", id))?;
+    project.forward_value(&self.source, val, last_commit, new_tags)
+  }
+
+  fn find_unique(&self, name: &str) -> Result<ProjectId> {
     let mut iter = self.file.projects.iter().filter(|p| p.name.contains(name)).map(|p| p.id);
     let id = iter.next().ok_or_else(|| versio_error!("No project named {}", name))?;
     if iter.next().is_some() {
@@ -135,12 +178,12 @@ impl<S: Source> Config<S> {
 }
 
 pub struct Plan {
-  incrs: HashMap<u32, (Size, ChangeLog)>, // proj ID, incr size, change log
-  ineffective: Vec<SizedPr>               // PRs that didn't apply to any project
+  incrs: HashMap<ProjectId, (Size, Option<String>, ChangeLog)>, // proj ID, incr size, last_commit, change log
+  ineffective: Vec<SizedPr>                                     // PRs that didn't apply to any project
 }
 
 impl Plan {
-  pub fn incrs(&self) -> &HashMap<u32, (Size, ChangeLog)> { &self.incrs }
+  pub fn incrs(&self) -> &HashMap<ProjectId, (Size, Option<String>, ChangeLog)> { &self.incrs }
   pub fn ineffective(&self) -> &[SizedPr] { &self.ineffective }
 }
 
@@ -197,13 +240,13 @@ impl SizedPrCommit {
 }
 
 pub struct PlanConsider<'s, C: Source> {
-  on_pr_sizes: HashMap<u32, SizedPr>,
+  on_pr_sizes: HashMap<ProjectId, SizedPr>,
   on_ineffective: Option<SizedPr>,
   on_commit: Option<CommitData>,
   prev: OnPrev<'s>,
   current: &'s Config<C>,
-  incrs: HashMap<u32, (Size, ChangeLog)>, // proj ID, incr size, change log
-  ineffective: Vec<SizedPr>               // PRs that didn't apply to any project
+  incrs: HashMap<ProjectId, (Size, Option<String>, ChangeLog)>, // proj ID, incr size, last_commit, change log
+  ineffective: Vec<SizedPr>                                     // PRs that didn't apply to any project
 }
 
 impl<'s, C: Source> PlanConsider<'s, C> {
@@ -229,7 +272,7 @@ impl<'s, C: Source> PlanConsider<'s, C> {
   pub fn finish_pr(&mut self) -> Result<()> {
     let mut found = false;
     for (proj_id, sized_pr) in self.on_pr_sizes.drain() {
-      let (size, change_log) = self.incrs.entry(proj_id).or_insert((Size::None, ChangeLog::empty()));
+      let (size, _, change_log) = self.incrs.entry(proj_id).or_insert((Size::None, None, ChangeLog::empty()));
       let pr_size = sized_pr.commits.iter().filter(|c| c.applies).map(|c| c.size).max();
       if let Some(pr_size) = pr_size {
         found = true;
@@ -284,16 +327,16 @@ impl<'s, C: Source> PlanConsider<'s, C> {
 
   pub fn consider_deps(&mut self) -> Result<()> {
     // Use a modified Kahn's algorithm to traverse deps in order.
-    let mut queue: VecDeque<(u32, Size)> = VecDeque::new();
+    let mut queue: VecDeque<(ProjectId, Size)> = VecDeque::new();
 
-    let mut dependents: HashMap<u32, HashSet<u32>> = HashMap::new();
+    let mut dependents: HashMap<ProjectId, HashSet<ProjectId>> = HashMap::new();
     for project in &self.current.file.projects {
       for dep in &project.depends {
         dependents.entry(*dep).or_insert_with(HashSet::new).insert(project.id);
       }
 
       if project.depends.is_empty() {
-        if let Some((size, _)) = self.incrs.get(&project.id) {
+        if let Some((size, ..)) = self.incrs.get(&project.id) {
           queue.push_back((project.id, *size));
         } else {
           queue.push_back((project.id, Size::None))
@@ -302,14 +345,14 @@ impl<'s, C: Source> PlanConsider<'s, C> {
     }
 
     while let Some((id, size)) = queue.pop_front() {
-      let val = &mut self.incrs.entry(id).or_insert((Size::None, ChangeLog::empty())).0;
+      let val = &mut self.incrs.entry(id).or_insert((Size::None, None, ChangeLog::empty())).0;
       *val = max(*val, size);
 
-      let depds: Option<HashSet<u32>> = dependents.get(&id).cloned();
+      let depds: Option<HashSet<ProjectId>> = dependents.get(&id).cloned();
       if let Some(depds) = depds {
         for depd in depds {
           dependents.get_mut(&id).unwrap().remove(&depd);
-          let val = &mut self.incrs.entry(depd).or_insert((Size::None, ChangeLog::empty())).0;
+          let val = &mut self.incrs.entry(depd).or_insert((Size::None, None, ChangeLog::empty())).0;
           *val = max(*val, size);
 
           if dependents.values().all(|ds| !ds.contains(&depd)) {
@@ -323,7 +366,7 @@ impl<'s, C: Source> PlanConsider<'s, C> {
   }
 
   pub fn sort_and_dedup(&mut self) -> Result<()> {
-    for (_, change_log) in self.incrs.values_mut() {
+    for (.., change_log) in self.incrs.values_mut() {
       change_log.entries.sort_by_key(|(pr, _)| *pr.closed_at());
 
       let mut seen_commits = HashSet::new();
@@ -335,6 +378,15 @@ impl<'s, C: Source> PlanConsider<'s, C> {
           seen_commits.insert(oid.clone());
         }
         *size = pr.commits().iter().filter(|c| c.included()).map(|c| c.size).max().unwrap_or(Size::None);
+      }
+    }
+    Ok(())
+  }
+
+  pub fn consider_last_commits(&mut self, lasts: &HashMap<ProjectId, String>) -> Result<()> {
+    for (proj_id, found_commit) in lasts {
+      if let Some((_, last_commit, _)) = self.incrs.get_mut(proj_id) {
+        *last_commit = Some(found_commit.clone());
       }
     }
     Ok(())
@@ -362,6 +414,45 @@ impl<'s> OnPrev<'s> {
       OnPrev::Updated(s) => &s.file
     }
   }
+}
+
+pub struct LastCommitFinder<'s, C: Source> {
+  on_line_commit: Option<String>,
+  last_commits: HashMap<ProjectId, String>,
+  prev: OnPrev<'s>,
+  current: &'s Config<C>
+}
+
+impl<'s, C: Source> LastCommitFinder<'s, C> {
+  fn new(prev: &'s Config<&'s PrevSource>, current: &'s Config<C>) -> LastCommitFinder<'s, C> {
+    let prev = OnPrev::Initial(prev);
+    LastCommitFinder { on_line_commit: None, last_commits: HashMap::new(), prev, current }
+  }
+
+  pub fn consider_line_commit(&mut self, commit: &CommitData) -> Result<()> {
+    let id = commit.id().to_string();
+    self.on_line_commit = Some(id.clone());
+    self.prev = OnPrev::Updated(Config::from_source(PrevSource::open_at(".", id)?)?);
+    Ok(())
+  }
+
+  pub fn finish_line_commit(&mut self) -> Result<()> { Ok(()) }
+
+  pub fn consider_line_file(&mut self, path: &str) -> Result<()> {
+    let commit_id = self.on_line_commit.as_ref().ok_or_else(|| versio_error!("Not on a line commit"))?;
+
+    for prev_project in &self.prev.file().projects {
+      let proj_id = prev_project.id();
+      if self.current.get_project(proj_id).is_some() && prev_project.does_cover(path, &self.prev.source())? {
+        self.last_commits.insert(proj_id, commit_id.clone());
+      }
+    }
+    Ok(())
+  }
+
+  pub fn finish_line_file(&mut self) -> Result<()> { Ok(()) }
+
+  pub fn finish_finder(self) -> Result<HashMap<ProjectId, String>> { Ok(self.last_commits) }
 }
 
 #[derive(Deserialize, Debug)]
@@ -408,6 +499,9 @@ impl ConfigFile {
         if prefs.contains(pref) {
           return versio_err!("tag_prefix {} is duplicated", pref);
         }
+        if !legal_tag(pref) {
+          return versio_err!("illegal tag_prefix \"{}\"", pref);
+        }
         prefs.insert(pref.clone());
       }
     }
@@ -418,14 +512,20 @@ impl ConfigFile {
   }
 }
 
+fn legal_tag(prefix: &str) -> bool {
+  prefix.is_empty()
+    || ((prefix.starts_with('_') || prefix.chars().next().unwrap().is_alphabetic())
+      && (prefix.chars().all(|c| c.is_ascii() && (c == '_' || c == '-' || c.is_alphanumeric()))))
+}
+
 #[derive(Deserialize, Debug)]
 pub struct Project {
   name: String,
-  id: u32,
+  id: ProjectId,
   #[serde(default)]
   covers: Vec<String>,
   #[serde(default)]
-  depends: Vec<u32>,
+  depends: Vec<ProjectId>,
   change_log: Option<String>,
   located: Location,
   tag_prefix: Option<String>
@@ -437,8 +537,8 @@ impl Project {
   }
 
   pub fn name(&self) -> &str { &self.name }
-  pub fn id(&self) -> u32 { self.id }
-  pub fn depends(&self) -> &[u32] { &self.depends }
+  pub fn id(&self) -> ProjectId { self.id }
+  pub fn depends(&self) -> &[ProjectId] { &self.depends }
   pub fn change_log(&self) -> &Option<String> { &self.change_log }
   pub fn tag_prefix(&self) -> &Option<String> { &self.tag_prefix }
 
@@ -496,9 +596,23 @@ impl Project {
     Ok(())
   }
 
-  fn set_value(&self, source: &dyn Source, val: &str) -> Result<()> {
+  fn set_value(
+    &self, source: &dyn Source, val: &str, _last_commit: Option<&String>, new_tags: &mut NewTags
+  ) -> Result<()> {
     let mut mark = self.located.get_mark(source)?;
-    mark.write_new_value(val)
+    new_tags.flag_commit();
+    mark.write_new_value(val)?;
+
+    // TODO: add to tags_for_new_commit
+
+    Ok(())
+  }
+
+  fn forward_value(
+    &self, _source: &dyn Source, _val: &str, _last_commit: Option<&String>, _new_tags: &mut NewTags
+  ) -> Result<()> {
+    // TODO
+    Ok(())
   }
 }
 
@@ -828,6 +942,34 @@ fn construct_change_log_html(cl: &ChangeLog) -> Result<String> {
   Ok(output)
 }
 
+pub struct NewTags {
+  pending_commit: bool,
+  tags_for_new_commit: Vec<String>,
+  changed_tags: HashMap<String, String>
+}
+
+impl Default for NewTags {
+  fn default() -> NewTags { NewTags::new() }
+}
+
+impl NewTags {
+  pub fn new() -> NewTags {
+    NewTags { tags_for_new_commit: Vec::new(), changed_tags: HashMap::new(), pending_commit: false }
+  }
+
+  pub fn should_commit(&self) -> bool { self.pending_commit }
+
+  pub fn flag_commit(&mut self) { self.pending_commit = true; }
+  pub fn add_tag(&mut self, tag: &str) { self.tags_for_new_commit.push(tag.to_string()) }
+
+  pub fn change_tag(&mut self, tag: &str, commit: &str) {
+    self.changed_tags.insert(tag.to_string(), commit.to_string());
+  }
+
+  pub fn tags_for_new_commit(&self) -> &[String] { &self.tags_for_new_commit }
+  pub fn changed_tags(&self) -> &HashMap<String, String> { &self.changed_tags }
+}
+
 #[cfg(test)]
 mod test {
   use super::{find_reg_data, ConfigFile, Size};
@@ -886,6 +1028,92 @@ projects:
     "#;
 
     assert!(ConfigFile::read(config).is_err());
+  }
+
+  #[test]
+  fn test_validate_names() {
+    let config = r#"
+projects:
+  - name: p1
+    id: 1
+    covers: ["**"]
+    located: { file: f1 }
+
+  - name: p1
+    id: 2
+    covers: ["**"]
+    located: { file: f2 }
+    "#;
+
+    assert!(ConfigFile::read(config).is_err());
+  }
+
+  #[test]
+  fn test_validate_illegal_prefix() {
+    let config = r#"
+projects:
+  - name: p1
+    id: 1
+    tag_prefix: "ixth*&o"
+    covers: ["**"]
+    located: { file: f1 }
+    "#;
+
+    assert!(ConfigFile::read(config).is_err());
+  }
+
+  #[test]
+  fn test_validate_unascii_prefix() {
+    let config = r#"
+projects:
+  - name: p1
+    id: 1
+    tag_prefix: "ixthïo"
+    covers: ["**"]
+    located: { file: f1 }
+    "#;
+
+    assert!(ConfigFile::read(config).is_err());
+  }
+
+  #[test]
+  fn test_validate_prefix() {
+    let config = r#"
+projects:
+  - name: p1
+    id: 1
+    tag_prefix: proj
+    covers: ["**"]
+    located: { file: f1 }
+
+  - name: p2
+    id: 2
+    tag_prefix: proj
+    covers: ["**"]
+    located: { file: f2 }
+    "#;
+
+    assert!(ConfigFile::read(config).is_err());
+  }
+
+  #[test]
+  fn test_validate_ok() {
+    let config = r#"
+projects:
+  - name: p1
+    id: 1
+    tag_prefix: "_proj1-abc"
+    covers: ["**"]
+    located: { file: f1 }
+
+  - name: p2
+    id: 2
+    tag_prefix: proj2
+    covers: ["**"]
+    located: { file: f2 }
+    "#;
+
+    assert!(ConfigFile::read(config).is_ok());
   }
 
   #[test]

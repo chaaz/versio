@@ -398,7 +398,7 @@ impl<'repo> Iterator for DeltaIter<'repo> {
   type Item = PathBuf;
 
   fn next(&mut self) -> Option<PathBuf> {
-    while let None = self.current() {
+    while self.current().is_none() {
       if self.advance() {
         break;
       }
@@ -508,6 +508,7 @@ impl FullPr {
   pub fn best_guess(&self) -> bool { self.head_oid.is_none() }
   pub fn has_exclude(&self, oid: &str) -> bool { self.excludes.iter().any(|c| c == oid) }
   pub fn closed_at(&self) -> &DateTime<FixedOffset> { &self.closed_at }
+  pub fn into_commits(self) -> Vec<CommitData> { self.commits }
 
   pub fn included_commits(&self) -> impl Iterator<Item = &CommitData> + '_ {
     self.commits.iter().filter(move |c| !self.has_exclude(c.id()))

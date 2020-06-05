@@ -89,6 +89,12 @@ pub fn changes(repo: &Repo, headref: String, base: String) -> Result<Changes> {
   Ok(Changes { commits: all_commits, groups: all_prs })
 }
 
+pub fn line_commits(repo: &Repo, headref: String, base: String) -> Result<Vec<CommitData>> {
+  let offset = FixedOffset::west(0);
+  let pr_zero = FullPr::lookup(repo, headref, base, 0, offset.timestamp(Utc::now().timestamp(), 0))?;
+  Ok(pr_zero.into_commits())
+}
+
 fn commits_from_api(github_info: &GithubInfo, span: &Span) -> Result<Vec<ApiCommit>> {
   // TODO : respect "hasNextPage" and endCursor by using history(after:)
   // TODO : also get PR's headRepository / baseRepository to (try to) look at other repos.
