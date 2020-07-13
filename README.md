@@ -95,7 +95,7 @@ examination. In this case, Versio will make some guesses, but might get
 some sizing or grouping wrong. If unsquashing is important, don't delete
 PR branches from GitHub until after they've been part of a release.
 
-> TODO: After using a PR as part of release, Version can delete its
+> TODO: After using a PR as part of release, Versio can delete its
 > associated branch, since it won't need to be used anymore.
 
 ## Go Style Projects
@@ -118,9 +118,9 @@ located:
 > be present, which creates/updates git tags like
 > `<<tag_prefix>>-v1.2.3` for the project. Since only one project in the
 > repository can have a `tag_prefix` of "" (the empty string results in
-> Go-standard tags without a prefix like `v1.2.3`), this makes it
-> difficult to properly deploy monorepos that contain more than one
-> Go-style project.
+> Go-standard prefix-less tags like `v1.2.3`), this makes it difficult
+> to properly deploy monorepos that contain more than one Go-style
+> project.
 
 This allows for standard go-style subdirectories on any branch inside of
 the `projectName` folder. You can use `at: .` if your project exists at
@@ -132,9 +132,12 @@ details.
 
 ## Running
 
-Check out our [Using Versio](docs/usage.md) page for details on running
+Check out the [Using Versio](docs/usage.md) page for details on running
 Versio, including all command-line options and the format of the
-`.versio.yaml` config file.
+`.versio.yaml` config file. The [Publishing](./docs/publishing.md)
+document shows specifically how Versio can publish your software. And
+the [Go Projects](./docs/gostyle.md) doc talks about how to use Versio
+for the unique versioning approach of "Go"-style projects.
 
 ## Troubleshooting
 

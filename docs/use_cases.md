@@ -7,13 +7,13 @@ projects, please let us know!
 ## Quick Start
 
 Get up and running quickly with Versio, and get a brief introduction to
-what it does.
+what it does. This example assumes a standard Node.js layout, but you
+can adjust your config easily to something else.
 
 - Install versio:
   ```
   $ cargo install versio  # or download a pre-built binary to your PATH
   ```
-
 - Take a look at your project:
   ```
   $ cd ${project_root_dir}

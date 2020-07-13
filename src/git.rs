@@ -272,6 +272,7 @@ pub struct Slice<'r> {
 impl<'r> Slice<'r> {
   pub fn refspec(&self) -> &str { &self.refspec }
   pub fn has_blob<P: AsRef<Path>>(&self, path: P) -> Result<bool> { Ok(self.object(path).is_ok()) }
+  pub fn slice(&self, refspec: String) -> Slice<'r> { Slice { repo: self.repo, refspec } }
 
   pub fn blob<P: AsRef<Path>>(&self, path: P) -> Result<Blob> {
     let obj = self.object(path.as_ref())?;

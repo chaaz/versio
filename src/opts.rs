@@ -1,16 +1,14 @@
 //! The command-line options for the executable.
 
-use crate::analyze::analyze;
-use crate::config::{configure_plan, find_last_commits, Config, NewTags, ShowFormat, Size};
+use crate::config::{configure_plan, Mono, NewTags, ShowFormat, Size};
 use crate::error::Result;
-use crate::source::{CurrentSource, PrevSource, Source};
 use clap::{crate_version, App, AppSettings, Arg, ArgGroup, ArgMatches, SubCommand};
 
 pub fn execute() -> Result<()> {
   let m = App::new("versio")
     .setting(AppSettings::UnifiedHelpMessage)
     .author("Charlie Ozinga, charlie@cloud-elements.com")
-    .version(concat!(crate_version!(), " (", env!("GIT_SHORT_HASH"), ")"))
+    .version(concat!(crate_version!(), " (", env!("GIT_SHORT_HASH"), " ", env!("DATE_DASH"), ")"))
     .about("Manage version numbers")
     .subcommand(
       SubCommand::with_name("check")
@@ -206,57 +204,56 @@ pub fn execute() -> Result<()> {
 }
 
 fn parse_matches(m: ArgMatches) -> Result<()> {
-  let mut prev = PrevSource::open(".")?;
-  let curt = CurrentSource::open(".")?;
+  let mono = Mono::here()?;
 
   match m.subcommand() {
-    ("check", _) => check(curt),
+    ("check", _) => check(&mono),
     ("show", Some(m)) => {
       if m.is_present("nofetch") {
-        prev.set_fetch(false)?;
+        // TODO
       }
       let fmt = ShowFormat::new(m.is_present("wide"), false);
       if m.is_present("prev") {
-        show(prev, fmt)
+        mono.previous_config().show(fmt)
       } else {
-        show(curt, fmt)
+        mono.current_config().show(fmt)
       }
     }
     ("get", Some(m)) => {
       if m.is_present("nofetch") {
-        prev.set_fetch(false)?;
+        // TODO
       }
       let fmt = ShowFormat::new(m.is_present("wide"), m.is_present("versiononly"));
       if m.is_present("prev") {
         if m.is_present("id") {
-          get_id(prev, m.value_of("id").unwrap(), fmt)
+          mono.previous_config().show_id(m.value_of("id").unwrap().parse()?, fmt)
         } else {
-          get_name(prev, m.value_of("name").unwrap(), fmt)
+          mono.previous_config().show_names(m.value_of("name").unwrap(), fmt)
         }
       } else if m.is_present("id") {
-        get_id(curt, m.value_of("id").unwrap(), fmt)
+        mono.current_config().show_id(m.value_of("id").unwrap().parse()?, fmt)
       } else {
-        get_name(curt, m.value_of("name").unwrap(), fmt)
+        mono.current_config().show_names(m.value_of("name").unwrap(), fmt)
       }
     }
     ("diff", Some(m)) => {
       if m.is_present("nofetch") {
-        prev.set_fetch(false)?;
+        // TODO
       }
-      diff(prev, curt)
+      diff(&mono)
     }
     ("set", Some(m)) => {
       if m.is_present("id") {
-        set_by_id(m.value_of("id").unwrap(), m.value_of("value").unwrap(), &prev, &curt)
+        mono.set_by_id(m.value_of("id").unwrap().parse()?, m.value_of("value").unwrap(), &mut NewTags::new())
       } else {
-        set_by_name(m.value_of("name").unwrap(), m.value_of("value").unwrap(), &prev, &curt)
+        mono.set_by_name(m.value_of("name").unwrap(), m.value_of("value").unwrap(), &mut NewTags::new())
       }
     }
     ("files", Some(m)) => {
       if m.is_present("nofetch") {
-        prev.set_fetch(false)?;
+        // TODO
       }
-      for result in prev.repo()?.keyed_files()? {
+      for result in mono.keyed_files()? {
         let (key, path) = result?;
         println!("{} : {}", key, path);
       }
@@ -264,41 +261,35 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
     }
     ("plan", Some(m)) => {
       if m.is_present("nofetch") {
-        prev.set_fetch(false)?;
+        // TODO
       }
-      plan(&prev, &curt)
+      plan(&mono)
     }
     ("run", Some(m)) => {
       if m.is_present("nofetch") {
-        prev.set_fetch(false)?;
+        // TODO
       }
-      if !m.is_present("dry") {
-        prev.set_merge(true)?;
-      }
-      run(&prev, &curt, m.is_present("all"), m.is_present("dry"))
+      run(&mono, m.is_present("all"), m.is_present("dry"))
     }
     ("log", Some(m)) => {
       if m.is_present("nofetch") {
-        prev.set_fetch(false)?;
+        // TODO
       }
-      log(&prev, &curt)
+      log(&mono)
     }
     ("changes", Some(m)) => {
       if m.is_present("nofetch") {
-        prev.set_fetch(false)?;
+        // TODO
       }
-      changes(&prev)
+      changes(&mono)
     }
     ("", _) => empty_cmd(),
     (c, _) => unknown_cmd(c)
   }
 }
 
-fn diff(prev: PrevSource, curt: CurrentSource) -> Result<()> {
-  let prev_at = Config::from_source(prev)?.annotate()?;
-  let curt_at = Config::from_source(curt)?.annotate()?;
-
-  let analysis = analyze(&prev_at, &curt_at);
+fn diff(mono: &Mono) -> Result<()> {
+  let analysis = mono.diff()?;
 
   if !analysis.older().is_empty() {
     println!("Removed projects:");
@@ -347,8 +338,9 @@ fn diff(prev: PrevSource, curt: CurrentSource) -> Result<()> {
   Ok(())
 }
 
-pub fn plan(prev: &PrevSource, curt: &CurrentSource) -> Result<()> {
-  let (plan, _prev_cfg, curt_cfg) = configure_plan(prev, curt)?;
+pub fn plan(mono: &Mono) -> Result<()> {
+  let plan = configure_plan(mono)?;
+  let curt_cfg = mono.current_config();
 
   if plan.incrs().is_empty() {
     println!("(No projects)");
@@ -388,13 +380,16 @@ pub fn plan(prev: &PrevSource, curt: &CurrentSource) -> Result<()> {
   Ok(())
 }
 
-pub fn log(prev: &PrevSource, curt: &CurrentSource) -> Result<()> {
-  let (plan, _, curt_cfg) = configure_plan(prev, curt)?;
+pub fn log(mono: &Mono) -> Result<()> {
+  let plan = configure_plan(mono)?;
 
   if plan.incrs().is_empty() {
     println!("(No projects)");
     return Ok(());
   }
+
+  let curt_cfg = mono.current_config();
+  let curt = mono.current_source();
 
   println!("Executing plan:");
   for (id, (.., change_log)) in plan.incrs() {
@@ -407,19 +402,25 @@ pub fn log(prev: &PrevSource, curt: &CurrentSource) -> Result<()> {
   Ok(())
 }
 
-pub fn run(prev: &PrevSource, curt: &CurrentSource, all: bool, dry: bool) -> Result<()> {
+pub fn run(mono: &Mono, all: bool, dry: bool) -> Result<()> {
   if !dry {
+    // TODO: mono.set_merge(true)?;
+
     // We're going to commit and push changes soon; let's make sure that we are up-to-date. But don't create a
     // merge commit: fail immediately if we can't pull with a fast-forward.
-    prev.pull()?;
+    mono.pull()?;
   }
 
-  let (plan, prev_cfg, curt_cfg) = configure_plan(prev, curt)?;
+  let plan = configure_plan(mono)?;
 
   if plan.incrs().is_empty() {
     println!("(No projects)");
     return Ok(());
   }
+
+  let curt_cfg = mono.current_config();
+  let prev_cfg = mono.previous_config();
+  let curt = mono.current_source();
 
   println!("Executing plan:");
   let mut new_tags = NewTags::new();
@@ -438,6 +439,8 @@ pub fn run(prev: &PrevSource, curt: &CurrentSource, all: bool, dry: bool) -> Res
       if Size::less_than(curt_vers, &target)? {
         if !dry {
           curt_cfg.set_by_id(id, &target, last_commit.as_ref(), &mut new_tags)?;
+        } else {
+          new_tags.flag_commit();
         }
         if prev_vers == curt_vers {
           println!("  {} : {} -> {}", curt_name, prev_vers, &target);
@@ -463,11 +466,13 @@ pub fn run(prev: &PrevSource, curt: &CurrentSource, all: bool, dry: bool) -> Res
     }
   }
 
+  let prev = mono.previous_source();
+
   if new_tags.should_commit() {
     if dry {
       println!("Dry run: no actual changes.");
     } else if prev.repo()?.push_changes()? {
-      if prev.has_remote()? {
+      if prev.has_remote() {
         println!("Changes committed and pushed.");
       } else {
         println!("Changes committed.");
@@ -483,7 +488,8 @@ pub fn run(prev: &PrevSource, curt: &CurrentSource, all: bool, dry: bool) -> Res
   Ok(())
 }
 
-fn changes(prev: &PrevSource) -> Result<()> {
+fn changes(mono: &Mono) -> Result<()> {
+  let prev = mono.previous_source();
   let changes = prev.changes()?;
 
   println!("\ngroups:");
@@ -508,33 +514,11 @@ fn changes(prev: &PrevSource) -> Result<()> {
   Ok(())
 }
 
-fn check(curt: CurrentSource) -> Result<()> {
-  if !Config::has_config_file(&curt)? {
+fn check(mono: &Mono) -> Result<()> {
+  if !mono.is_configured()? {
     return versio_err!("No versio config file found.");
   }
-  Config::from_source(curt)?.check()
-}
-
-fn show<S: Source>(source: S, fmt: ShowFormat) -> Result<()> { Config::from_source(source)?.show(fmt) }
-
-fn current_config() -> Result<Config<CurrentSource>> { Config::from_source(CurrentSource::open(".")?) }
-
-fn get_name<S: Source>(src: S, name: &str, fmt: ShowFormat) -> Result<()> {
-  Config::from_source(src)?.show_names(name, fmt)
-}
-
-fn get_id<S: Source>(src: S, id: &str, fmt: ShowFormat) -> Result<()> {
-  Config::from_source(src)?.show_id(id.parse()?, fmt)
-}
-
-fn set_by_name(name: &str, val: &str, prev: &PrevSource, curt: &CurrentSource) -> Result<()> {
-  current_config()?.set_by_name(name, val, prev, curt)
-}
-
-fn set_by_id(id: &str, val: &str, prev: &PrevSource, curt: &CurrentSource) -> Result<()> {
-  let id = id.parse()?;
-  let last_commits = find_last_commits(prev, curt)?;
-  current_config()?.set_by_id(id, val, last_commits.get(&id), &mut NewTags::new())
+  mono.current_config().check()
 }
 
 fn unknown_cmd(c: &str) -> Result<()> { versio_err!("Unknown command: \"{}\" (try \"help\").", c) }

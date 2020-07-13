@@ -1,13 +1,11 @@
 //! The configuration and top-level commands for Versio.
 
-use crate::analyze::AnnotatedMark;
+use crate::analyze::{analyze, Analysis, AnnotatedMark};
 use crate::error::Result;
-use crate::git::{CommitData, FullPr};
-use crate::scan::{
-  parts::{deserialize_parts, Part},
-  JsonScanner, Scanner, TomlScanner, XmlScanner, YamlScanner
-};
-use crate::source::{CurrentSource, Mark, MarkedData, NamedData, PrevSource, Source, CONFIG_FILENAME};
+use crate::git::{CommitData, FullPr, Repo};
+use crate::scan::parts::{deserialize_parts, Part};
+use crate::scan::{JsonScanner, Scanner, TomlScanner, XmlScanner, YamlScanner};
+use crate::source::{CurrentSource, Mark, MarkedData, NamedData, PrevSource, SliceSource, Source, CONFIG_FILENAME};
 use chrono::{DateTime, FixedOffset};
 use glob::{glob_with, MatchOptions, Pattern};
 use regex::Regex;
@@ -17,13 +15,61 @@ use std::borrow::Cow;
 use std::cmp::{max, Ord, Ordering};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
-use std::path::Path;
+use std::ops::Deref;
+use std::path::{Path, PathBuf};
 
 type ProjectId = u32;
 
-pub fn find_last_commits<'s>(prev: &'s PrevSource, curt: &'s CurrentSource) -> Result<HashMap<ProjectId, String>> {
-  let prev_config = Config::from_source(prev)?;
-  let curt_config = Config::from_source(curt)?;
+pub struct Mono {
+  current: Config<CurrentSource>,
+  previous: Config<PrevSource>
+}
+
+impl Mono {
+  pub fn open<P: AsRef<Path>>(dir: P) -> Result<Mono> {
+    Ok(Mono {
+      current: Config::from_source(CurrentSource::open(dir.as_ref())?)?,
+      previous: Config::from_source(PrevSource::open(dir.as_ref())?)?
+    })
+  }
+
+  pub fn here() -> Result<Mono> { Mono::open(".") }
+  pub fn current_source(&self) -> &CurrentSource { self.current.source() }
+  pub fn previous_source(&self) -> &PrevSource { self.previous.source() }
+  pub fn current_config(&self) -> &Config<CurrentSource> { &self.current }
+  pub fn previous_config(&self) -> &Config<PrevSource> { &self.previous }
+  pub fn repo(&self) -> Result<&Repo> { self.previous_source().repo() }
+  pub fn pull(&self) -> Result<()> { self.previous_source().pull() }
+  pub fn is_configured(&self) -> Result<bool> { Config::has_config_file(self.current_source()) }
+
+  pub fn set_by_id(&self, id: ProjectId, val: &str, new_tags: &mut NewTags) -> Result<()> {
+    let last_commits = find_last_commits(self)?;
+    self.current_config().set_by_id(id, val, last_commits.get(&id), new_tags)
+  }
+
+  pub fn set_by_name(&self, name: &str, val: &str, new_tags: &mut NewTags) -> Result<()> {
+    let curt_cfg = self.current_config();
+    let id = curt_cfg.find_unique(name)?;
+    let last_commits = find_last_commits(self)?;
+    curt_cfg.set_by_id(id, val, last_commits.get(&id), new_tags)
+  }
+
+  pub fn keyed_files<'a>(&'a self) -> Result<impl Iterator<Item = Result<(String, String)>> + 'a> {
+    self.previous_source().keyed_files()
+  }
+
+  pub fn diff(&self) -> Result<Analysis> {
+    let prev_at = self.previous_config().annotate()?;
+    let curt_at = self.current_config().annotate()?;
+    Ok(analyze(prev_at, curt_at))
+  }
+}
+
+/// Find the last covering commit ID, if any, for each current project.
+fn find_last_commits(mono: &Mono) -> Result<HashMap<ProjectId, String>> {
+  let prev_config = mono.previous_config();
+  let curt_config = mono.current_config();
+  let prev = mono.previous_source();
 
   let mut last_finder = prev_config.start_last_finder(&curt_config);
 
@@ -40,11 +86,10 @@ pub fn find_last_commits<'s>(prev: &'s PrevSource, curt: &'s CurrentSource) -> R
   last_finder.finish_finder()
 }
 
-pub fn configure_plan<'s>(
-  prev: &'s PrevSource, curt: &'s CurrentSource
-) -> Result<(Plan, Config<&'s PrevSource>, Config<&'s CurrentSource>)> {
-  let prev_config = Config::from_source(prev)?;
-  let curt_config = Config::from_source(curt)?;
+pub fn configure_plan(mono: &Mono) -> Result<Plan> {
+  let prev_config = mono.previous_config();
+  let curt_config = mono.current_config();
+  let prev = mono.previous_source();
   let mut plan = prev_config.start_plan(&curt_config);
 
   // Consider the grouped, unsquashed commits to determine project sizing and changelogs.
@@ -61,7 +106,7 @@ pub fn configure_plan<'s>(
     plan.finish_pr()?;
   }
 
-  let last_commits = find_last_commits(prev, curt)?;
+  let last_commits = find_last_commits(mono)?;
   plan.consider_last_commits(&last_commits)?;
 
   // Some projects might depend on other projects.
@@ -70,8 +115,7 @@ pub fn configure_plan<'s>(
   // Sort projects by earliest closed date, mark duplicate commits.
   plan.sort_and_dedup()?;
 
-  let plan = plan.finish_plan()?;
-  Ok((plan, prev_config, curt_config))
+  plan.finish_plan()
 }
 
 pub struct ShowFormat {
@@ -88,16 +132,25 @@ pub struct Config<S: Source> {
   file: ConfigFile
 }
 
-impl<'s> Config<&'s PrevSource> {
-  fn start_plan<C: Source>(&'s self, current: &'s Config<C>) -> PlanConsider<C> { PlanConsider::new(self, current) }
+impl Config<PrevSource> {
+  fn start_plan<'s, C: Source>(&'s self, current: &'s Config<C>) -> PlanConsider<'s, C> {
+    PlanConsider::new(self, current)
+  }
 
-  fn start_last_finder<C: Source>(&'s self, current: &'s Config<C>) -> LastCommitFinder<C> {
+  fn start_last_finder<'s, C: Source>(&'s self, current: &'s Config<C>) -> LastCommitFinder<'s, C> {
     LastCommitFinder::new(self, current)
   }
+
+  fn slice(&self, spec: String) -> Result<Config<SliceSource>> { Config::from_source(self.source.slice(spec)) }
+}
+
+impl<'s> Config<SliceSource<'s>> {
+  fn slice(&self, spec: String) -> Result<Config<SliceSource<'s>>> { Config::from_source(self.source.slice(spec)) }
 }
 
 impl<S: Source> Config<S> {
   pub fn has_config_file(source: S) -> Result<bool> { source.has(CONFIG_FILENAME.as_ref()) }
+  pub fn source(&self) -> &S { &self.source }
 
   pub fn from_source(source: S) -> Result<Config<S>> {
     let file = ConfigFile::load(&source)?;
@@ -128,8 +181,6 @@ impl<S: Source> Config<S> {
     Ok(())
   }
 
-  pub fn get_project(&self, id: ProjectId) -> Option<&Project> { self.file.projects.iter().find(|p| p.id == id) }
-
   pub fn show_id(&self, id: ProjectId, format: ShowFormat) -> Result<()> {
     let project = self.get_project(id).ok_or_else(|| versio_error!("No such project {}", id))?;
     project.show(&self.source, 0, &format)
@@ -143,12 +194,6 @@ impl<S: Source> Config<S> {
       project.show(&self.source, name_width, &format)?;
     }
     Ok(())
-  }
-
-  pub fn set_by_name(&self, name: &str, val: &str, prev: &PrevSource, curt: &CurrentSource) -> Result<()> {
-    let id = self.find_unique(name)?;
-    let last_commits = find_last_commits(prev, curt)?;
-    self.set_by_id(id, val, last_commits.get(&id), &mut NewTags::new())
   }
 
   pub fn set_by_id(
@@ -166,6 +211,8 @@ impl<S: Source> Config<S> {
       self.file.projects.iter().find(|p| p.id == id).ok_or_else(|| versio_error!("No such project {}", id))?;
     project.forward_value(&self.source, val, last_commit, new_tags)
   }
+
+  pub fn get_project(&self, id: ProjectId) -> Option<&Project> { self.file.projects.iter().find(|p| p.id == id) }
 
   fn find_unique(&self, name: &str) -> Result<ProjectId> {
     let mut iter = self.file.projects.iter().filter(|p| p.name.contains(name)).map(|p| p.id);
@@ -250,7 +297,7 @@ pub struct PlanConsider<'s, C: Source> {
 }
 
 impl<'s, C: Source> PlanConsider<'s, C> {
-  fn new(prev: &'s Config<&'s PrevSource>, current: &'s Config<C>) -> PlanConsider<'s, C> {
+  fn new(prev: &'s Config<PrevSource>, current: &'s Config<C>) -> PlanConsider<'s, C> {
     let prev = OnPrev::Initial(prev);
     PlanConsider {
       on_pr_sizes: HashMap::new(),
@@ -294,7 +341,7 @@ impl<'s, C: Source> PlanConsider<'s, C> {
     let kind = commit.kind().to_string();
     let summary = commit.summary().to_string();
     self.on_commit = Some(commit);
-    self.prev = OnPrev::Updated(Config::from_source(PrevSource::open_at(".", id.clone())?)?);
+    self.prev = self.prev.slice(id.clone())?;
 
     for (proj_id, sized_pr) in &mut self.on_pr_sizes {
       if let Some(cur_project) = self.current.get_project(*proj_id) {
@@ -314,7 +361,7 @@ impl<'s, C: Source> PlanConsider<'s, C> {
 
     for prev_project in &self.prev.file().projects {
       if let Some(sized_pr) = self.on_pr_sizes.get_mut(&prev_project.id) {
-        if prev_project.does_cover(path, &self.prev.source())? {
+        if prev_project.does_cover(path)? {
           let SizedPrCommit { applies, .. } = sized_pr.commits.iter_mut().find(|c| c.oid == commit_id).unwrap();
           *applies = true;
         }
@@ -396,22 +443,22 @@ impl<'s, C: Source> PlanConsider<'s, C> {
 }
 
 enum OnPrev<'s> {
-  Initial(&'s Config<&'s PrevSource>),
-  Updated(Config<PrevSource>)
+  Initial(&'s Config<PrevSource>),
+  Updated(Config<SliceSource<'s>>)
 }
 
 impl<'s> OnPrev<'s> {
-  pub fn source(&self) -> &PrevSource {
+  pub fn file(&self) -> &ConfigFile {
     match self {
-      OnPrev::Initial(s) => &s.source,
-      OnPrev::Updated(s) => &s.source
+      OnPrev::Initial(c) => &c.file,
+      OnPrev::Updated(c) => &c.file
     }
   }
 
-  pub fn file(&self) -> &ConfigFile {
+  pub fn slice(&self, spec: String) -> Result<OnPrev<'s>> {
     match self {
-      OnPrev::Initial(s) => &s.file,
-      OnPrev::Updated(s) => &s.file
+      OnPrev::Updated(c) => c.slice(spec).map(OnPrev::Updated),
+      OnPrev::Initial(c) => c.slice(spec).map(OnPrev::Updated)
     }
   }
 }
@@ -424,7 +471,7 @@ pub struct LastCommitFinder<'s, C: Source> {
 }
 
 impl<'s, C: Source> LastCommitFinder<'s, C> {
-  fn new(prev: &'s Config<&'s PrevSource>, current: &'s Config<C>) -> LastCommitFinder<'s, C> {
+  fn new(prev: &'s Config<PrevSource>, current: &'s Config<C>) -> LastCommitFinder<'s, C> {
     let prev = OnPrev::Initial(prev);
     LastCommitFinder { on_line_commit: None, last_commits: HashMap::new(), prev, current }
   }
@@ -432,7 +479,7 @@ impl<'s, C: Source> LastCommitFinder<'s, C> {
   pub fn consider_line_commit(&mut self, commit: &CommitData) -> Result<()> {
     let id = commit.id().to_string();
     self.on_line_commit = Some(id.clone());
-    self.prev = OnPrev::Updated(Config::from_source(PrevSource::open_at(".", id)?)?);
+    self.prev = self.prev.slice(id)?;
     Ok(())
   }
 
@@ -443,7 +490,7 @@ impl<'s, C: Source> LastCommitFinder<'s, C> {
 
     for prev_project in &self.prev.file().projects {
       let proj_id = prev_project.id();
-      if self.current.get_project(proj_id).is_some() && prev_project.does_cover(path, &self.prev.source())? {
+      if self.current.get_project(proj_id).is_some() && prev_project.does_cover(path)? {
         self.last_commits.insert(proj_id, commit_id.clone());
       }
     }
@@ -522,8 +569,11 @@ fn legal_tag(prefix: &str) -> bool {
 pub struct Project {
   name: String,
   id: ProjectId,
+  root: Option<String>,
   #[serde(default)]
-  covers: Vec<String>,
+  includes: Vec<String>,
+  #[serde(default)]
+  excludes: Vec<String>,
   #[serde(default)]
   depends: Vec<ProjectId>,
   change_log: Option<String>,
@@ -533,26 +583,37 @@ pub struct Project {
 
 impl Project {
   fn annotate(&self, source: &dyn Source) -> Result<AnnotatedMark> {
-    Ok(AnnotatedMark::new(self.id, self.name.clone(), self.located.get_mark(source)?))
+    Ok(AnnotatedMark::new(self.id, self.name.clone(), self.get_mark(source)?))
   }
 
+  pub fn root(&self) -> &Option<String> { &self.root }
   pub fn name(&self) -> &str { &self.name }
   pub fn id(&self) -> ProjectId { self.id }
   pub fn depends(&self) -> &[ProjectId] { &self.depends }
-  pub fn change_log(&self) -> &Option<String> { &self.change_log }
+
+  pub fn change_log(&self) -> Option<Cow<str>> {
+    self.change_log.as_ref().map(|change_log| {
+      if let Some(root) = &self.root {
+        Cow::Owned(PathBuf::from(root).join(change_log).to_string_lossy().to_string())
+      } else {
+        Cow::Borrowed(change_log.as_str())
+      }
+    })
+  }
+
   pub fn tag_prefix(&self) -> &Option<String> { &self.tag_prefix }
 
   pub fn write_change_log(&self, cl: &ChangeLog, src: &dyn Source) -> Result<Option<String>> {
     if let Some(cl_path) = self.change_log().as_ref() {
-      let log_path = src.root_dir().join(cl_path);
+      let log_path = src.root_dir().join(cl_path.deref());
       std::fs::write(&log_path, construct_change_log_html(cl)?)?;
-      Ok(Some(cl_path.clone()))
+      Ok(Some(cl_path.to_string()))
     } else {
       Ok(None)
     }
   }
 
-  fn get_mark(&self, source: &dyn Source) -> Result<MarkedData> { self.located.get_mark(source) }
+  fn get_mark(&self, source: &dyn Source) -> Result<MarkedData> { self.located.get_mark(source, &self.root) }
 
   fn size(&self, parent_sizes: &HashMap<String, Size>, kind: &str) -> Result<Size> {
     let kind = kind.trim();
@@ -564,28 +625,49 @@ impl Project {
     })
   }
 
-  pub fn does_cover(&self, path: &str, _source: &dyn Source) -> Result<bool> {
-    self.covers.iter().fold(Ok(false), |val, cov| {
-      if val.is_err() || *val.as_ref().unwrap() {
-        return val;
-      }
-      Ok(Pattern::new(cov)?.matches_with(path, match_opts()))
+  pub fn does_cover(&self, path: &str) -> Result<bool> {
+    let excludes = self.excludes.iter().try_fold::<_, _, Result<_>>(false, |val, cov| {
+      Ok(val || Pattern::new(&self.rooted_pattern(cov))?.matches_with(path, match_opts()))
+    })?;
+
+    if excludes {
+      return Ok(false);
+    }
+
+    self.includes.iter().try_fold(false, |val, cov| {
+      Ok(val || Pattern::new(&self.rooted_pattern(cov))?.matches_with(path, match_opts()))
     })
   }
 
   fn check(&self, source: &dyn Source) -> Result<()> {
-    self.located.get_mark(source)?;
-    for cover in &self.covers {
-      let cover = absolutize_pattern(cover, source.root_dir());
-      if glob_with(&cover, match_opts())?.count() == 0 {
-        return versio_err!("No files covered by \"{}\".", cover);
+    // Check that we can find the given mark.
+    self.get_mark(source)?;
+
+    self.check_excludes()?;
+
+    // Check that each pattern includes at least one file.
+    for cov in &self.includes {
+      let pattern = self.rooted_pattern(cov);
+      let cover = absolutize_pattern(&pattern, source.root_dir());
+      if !glob_with(&cover, match_opts())?.any(|_| true) {
+        return versio_err!("No files in proj. {} covered by \"{}\".", self.id, cover);
       }
     }
+
+    Ok(())
+  }
+
+  /// Ensure that we don't have excludes without includes.
+  fn check_excludes(&self) -> Result<()> {
+    if !self.excludes.is_empty() && self.includes.is_empty() {
+      return versio_err!("Proj {} has excludes, but no includes.", self.id);
+    }
+
     Ok(())
   }
 
   fn show(&self, source: &dyn Source, name_width: usize, format: &ShowFormat) -> Result<()> {
-    let mark = self.located.get_mark(source)?;
+    let mark = self.get_mark(source)?;
     if format.version_only {
       println!("{}", mark.value());
     } else if format.wide {
@@ -599,7 +681,7 @@ impl Project {
   fn set_value(
     &self, source: &dyn Source, val: &str, _last_commit: Option<&String>, new_tags: &mut NewTags
   ) -> Result<()> {
-    let mut mark = self.located.get_mark(source)?;
+    let mut mark = self.get_mark(source)?;
     new_tags.flag_commit();
     mark.write_new_value(val)?;
 
@@ -614,19 +696,63 @@ impl Project {
     // TODO
     Ok(())
   }
+
+  fn rooted_pattern(&self, pat: &str) -> String {
+    if let Some(root) = &self.root {
+      PathBuf::from(root).join(pat).to_string_lossy().to_string()
+    } else {
+      pat.to_string()
+    }
+  }
 }
 
 #[derive(Deserialize, Debug)]
-struct Location {
+#[serde(untagged)]
+enum Location {
+  File(FileLocation),
+  Tag(TagLocation)
+}
+
+impl Location {
+  pub fn get_mark(&self, source: &dyn Source, root: &Option<String>) -> Result<MarkedData> {
+    match self {
+      Location::File(l) => l.get_mark(source, root),
+      Location::Tag(l) => l.get_mark(source, root)
+    }
+  }
+
+  #[cfg(test)]
+  pub fn picker(&self) -> &Picker {
+    match self {
+      Location::File(l) => &l.picker,
+      _ => panic!("Not a file location")
+    }
+  }
+}
+
+#[derive(Deserialize, Debug)]
+struct TagLocation {}
+
+impl TagLocation {
+  pub fn get_mark(&self, _source: &dyn Source, _root: &Option<String>) -> Result<MarkedData> { unimplemented!() }
+}
+
+#[derive(Deserialize, Debug)]
+struct FileLocation {
   file: String,
   #[serde(flatten)]
   picker: Picker
 }
 
-impl Location {
-  pub fn get_mark(&self, source: &dyn Source) -> Result<MarkedData> {
-    let data = source.load(&self.file.as_ref())?.ok_or_else(|| versio_error!("No file at {}.", self.file))?;
-    self.picker.get_mark(data).map_err(|e| versio_error!("Can't mark {}: {:?}", self.file, e))
+impl FileLocation {
+  pub fn get_mark(&self, source: &dyn Source, root: &Option<String>) -> Result<MarkedData> {
+    let file = match root {
+      Some(root) => PathBuf::from(root).join(&self.file),
+      None => PathBuf::from(&self.file)
+    };
+
+    let data = source.load(&file)?.ok_or_else(|| versio_error!("No file at {}.", file.to_string_lossy()))?;
+    self.picker.get_mark(data).map_err(|e| versio_error!("Can't mark {}: {:?}", file.to_string_lossy(), e))
   }
 }
 
@@ -642,7 +768,8 @@ enum Picker {
 }
 
 impl Picker {
-  pub fn _type(&self) -> &'static str {
+  #[cfg(test)]
+  pub fn picker_type(&self) -> &'static str {
     match self {
       Picker::Json(_) => "json",
       Picker::Yaml(_) => "yaml",
@@ -972,8 +1099,9 @@ impl NewTags {
 
 #[cfg(test)]
 mod test {
-  use super::{find_reg_data, ConfigFile, Size};
+  use super::{find_reg_data, ConfigFile, Size, Project, Location, FileLocation, Picker, JsonPicker};
   use crate::source::NamedData;
+  use crate::scan::parts::Part;
 
   #[test]
   fn test_scan() {
@@ -981,21 +1109,21 @@ mod test {
 projects:
   - name: everything
     id: 1
-    covers: ["**"]
+    includes: ["**/*"]
     located:
       file: "toplevel.json"
       json: "version"
 
   - name: project1
     id: 2
-    covers: ["project1/**"]
+    includes: ["project1/**/*"]
     located:
       file: "project1/Cargo.toml"
       toml: "version"
 
   - name: "combined a and b"
     id: 3
-    covers: ["nested/project_a/**", "nested/project_b/**"]
+    includes: ["nested/project_a/**/*", "nested/project_b/**/*"]
     located:
       file: "nested/version.txt"
       pattern: "v([0-9]+\\.[0-9]+\\.[0-9]+) .*"
@@ -1009,7 +1137,7 @@ projects:
     let config = ConfigFile::read(data).unwrap();
 
     assert_eq!(config.projects[0].id, 1);
-    assert_eq!("line", config.projects[2].located.picker._type());
+    assert_eq!("line", config.projects[2].located.picker().picker_type());
   }
 
   #[test]
@@ -1018,12 +1146,12 @@ projects:
 projects:
   - name: p1
     id: 1
-    covers: ["**"]
+    includes: ["**/*"]
     located: { file: f1 }
 
   - name: project1
     id: 1
-    covers: ["**"]
+    includes: ["**/*"]
     located: { file: f2 }
     "#;
 
@@ -1036,12 +1164,12 @@ projects:
 projects:
   - name: p1
     id: 1
-    covers: ["**"]
+    includes: ["**/*"]
     located: { file: f1 }
 
   - name: p1
     id: 2
-    covers: ["**"]
+    includes: ["**/*"]
     located: { file: f2 }
     "#;
 
@@ -1055,7 +1183,7 @@ projects:
   - name: p1
     id: 1
     tag_prefix: "ixth*&o"
-    covers: ["**"]
+    includes: ["**/*"]
     located: { file: f1 }
     "#;
 
@@ -1069,7 +1197,7 @@ projects:
   - name: p1
     id: 1
     tag_prefix: "ixthïo"
-    covers: ["**"]
+    includes: ["**/*"]
     located: { file: f1 }
     "#;
 
@@ -1083,13 +1211,13 @@ projects:
   - name: p1
     id: 1
     tag_prefix: proj
-    covers: ["**"]
+    includes: ["**/*"]
     located: { file: f1 }
 
   - name: p2
     id: 2
     tag_prefix: proj
-    covers: ["**"]
+    includes: ["**/*"]
     located: { file: f2 }
     "#;
 
@@ -1103,13 +1231,13 @@ projects:
   - name: p1
     id: 1
     tag_prefix: "_proj1-abc"
-    covers: ["**"]
+    includes: ["**/*"]
     located: { file: f1 }
 
   - name: p2
     id: 2
     tag_prefix: proj2
-    covers: ["**"]
+    includes: ["**/*"]
     located: { file: f2 }
     "#;
 
@@ -1158,5 +1286,72 @@ sizes:
 "#;
 
     assert!(ConfigFile::read(config).is_err());
+  }
+
+  #[test]
+  fn test_include_w_root() {
+    let proj = Project {
+      name: "test".into(),
+      id: 1,
+      root: Some("base".into()),
+      includes: vec!["**/*".into()],
+      excludes: Vec::new(),
+      depends: Vec::new(),
+      change_log: None,
+      located: Location::File(
+        FileLocation {
+          file: "package.json".into(),
+          picker: Picker::Json(JsonPicker { json: vec![Part::Map("version".into())] }),
+        }
+      ),
+      tag_prefix: None
+    };
+
+    assert!(proj.does_cover("base/somefile.txt").unwrap());
+    assert!(!proj.does_cover("outerfile.txt").unwrap());
+  }
+
+  #[test]
+  fn test_exclude_w_root() {
+    let proj = Project {
+      name: "test".into(),
+      id: 1,
+      root: Some("base".into()),
+      includes: vec!["**/*".into()],
+      excludes: vec!["internal/**/*".into()],
+      depends: Vec::new(),
+      change_log: None,
+      located: Location::File(
+        FileLocation {
+          file: "package.json".into(),
+          picker: Picker::Json(JsonPicker { json: vec![Part::Map("version".into())] }),
+        }
+      ),
+      tag_prefix: None
+    };
+
+    assert!(!proj.does_cover("base/internal/infile.txt").unwrap());
+  }
+
+  #[test]
+  fn test_excludes_check() {
+    let proj = Project {
+      name: "test".into(),
+      id: 1,
+      root: Some("base".into()),
+      includes: vec![],
+      excludes: vec!["internal/**/*".into()],
+      depends: Vec::new(),
+      change_log: None,
+      located: Location::File(
+        FileLocation {
+          file: "package.json".into(),
+          picker: Picker::Json(JsonPicker { json: vec![Part::Map("version".into())] }),
+        }
+      ),
+      tag_prefix: None
+    };
+
+    assert!(proj.check_excludes().is_err());
   }
 }

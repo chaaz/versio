@@ -1,29 +1,20 @@
 use crate::source::MarkedData;
-use std::cmp::Eq;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::hash::Hash;
 
-pub fn analyze<'a>(olds: &'a [AnnotatedMark], news: &'a [AnnotatedMark]) -> Analysis<'a> {
-  let olds_order: Vec<u32> = olds.iter().map(|m| m.id).collect();
-  let news_order: Vec<u32> = news.iter().map(|m| m.id).collect();
-
-  let olds_map: HashMap<u32, &'a AnnotatedMark> = olds.iter().map(|m| (m.id, m)).collect();
-  let news_map: HashMap<u32, &'a AnnotatedMark> = news.iter().map(|m| (m.id, m)).collect();
-
+pub fn analyze(olds: Vec<AnnotatedMark>, news: Vec<AnnotatedMark>) -> Analysis {
   let olds_ids: HashSet<u32> = olds.iter().map(|m| m.id).collect();
   let news_ids: HashSet<u32> = news.iter().map(|m| m.id).collect();
-  let olds_only = difference(&olds_order, &news_ids);
-  let news_only = difference(&news_order, &olds_ids);
-  let both_ids = intersection(&news_order, &olds_ids);
 
-  let changes = both_ids.iter().map(|i| Change::calc(olds_map[i], news_map[i])).collect();
+  let (older, old_matches): (Vec<_>, Vec<_>) = olds.into_iter().partition(|m| !news_ids.contains(&m.id));
+  let (newer, new_matches): (Vec<_>, Vec<_>) = news.into_iter().partition(|m| !olds_ids.contains(&m.id));
 
-  Analysis {
-    newer: news_only.iter().map(|i| news_map[i]).collect(),
-    older: olds_only.iter().map(|i| olds_map[i]).collect(),
-    changes
-  }
+  let old_matches: HashMap<_, _> = old_matches.into_iter().map(|m| (m.id, m)).collect();
+  let mut new_matches: HashMap<_, _> = new_matches.into_iter().map(|m| (m.id, m)).collect();
+
+  let changes = old_matches.into_iter().map(|(id, o)| Change::calc(o, new_matches.remove(&id).unwrap())).collect();
+
+  Analysis { newer, older, changes }
 }
 
 pub struct AnnotatedMark {
@@ -38,49 +29,57 @@ impl AnnotatedMark {
   pub fn mark(&self) -> &MarkedData { &self.mark }
 }
 
-pub struct Analysis<'a> {
-  newer: Vec<&'a AnnotatedMark>,
-  older: Vec<&'a AnnotatedMark>,
-  changes: Vec<Change<'a>>
+pub struct Analysis {
+  newer: Vec<AnnotatedMark>,
+  older: Vec<AnnotatedMark>,
+  changes: Vec<Change>
 }
 
-impl<'a> Analysis<'a> {
-  pub fn newer(&self) -> &Vec<&'a AnnotatedMark> { &self.newer }
-  pub fn older(&self) -> &Vec<&'a AnnotatedMark> { &self.older }
-  pub fn changes(&self) -> &Vec<Change<'a>> { &self.changes }
+impl Analysis {
+  pub fn newer(&self) -> &Vec<AnnotatedMark> { &self.newer }
+  pub fn older(&self) -> &Vec<AnnotatedMark> { &self.older }
+  pub fn changes(&self) -> &Vec<Change> { &self.changes }
 }
 
-pub struct Change<'a> {
-  new_mark: &'a AnnotatedMark,
-  name: Option<(&'a str, &'a str)>,
-  value: Option<(&'a str, &'a str)>
+pub struct Change {
+  old_mark: AnnotatedMark,
+  new_mark: AnnotatedMark,
+  name_change: bool,
+  value_change: bool
 }
 
-impl<'a> Change<'a> {
-  pub fn new(
-    new_mark: &'a AnnotatedMark, name: Option<(&'a str, &'a str)>, value: Option<(&'a str, &'a str)>
-  ) -> Change<'a> {
-    Change { new_mark, name, value }
+impl Change {
+  pub fn calc(old_mark: AnnotatedMark, new_mark: AnnotatedMark) -> Change {
+    let name_change = old_mark.name() != new_mark.name();
+    let value_change = old_mark.mark.value() != new_mark.mark().value();
+
+    Change { old_mark, new_mark, name_change, value_change }
   }
 
-  pub fn calc(old: &'a AnnotatedMark, new: &'a AnnotatedMark) -> Change<'a> {
-    let name = if old.name() == new.name() { None } else { Some((old.name(), new.name())) };
+  pub fn new_mark(&self) -> &AnnotatedMark { &self.new_mark }
+  pub fn old_mark(&self) -> &AnnotatedMark { &self.old_mark }
 
-    let value =
-      if old.mark.value() == new.mark().value() { None } else { Some((old.mark().value(), new.mark().value())) };
-
-    Change::new(new, name, value)
+  pub fn name(&self) -> Option<(&str, &str)> {
+    if self.name_change {
+      Some((self.old_mark.name(), self.new_mark.name()))
+    } else {
+      None
+    }
   }
 
-  pub fn new_mark(&self) -> &'a AnnotatedMark { self.new_mark }
-  pub fn name(&self) -> &Option<(&'a str, &'a str)> { &self.name }
-  pub fn value(&self) -> &Option<(&'a str, &'a str)> { &self.value }
+  pub fn value(&self) -> Option<(&str, &str)> {
+    if self.value_change {
+      Some((self.old_mark.mark.value(), self.new_mark.mark.value()))
+    } else {
+      None
+    }
+  }
 }
 
-fn difference<T: Copy + Eq + Hash>(o1: &[T], o2: &HashSet<T>) -> Vec<T> {
-  o1.iter().filter(|t| !o2.contains(t)).copied().collect()
-}
-
-fn intersection<T: Copy + Eq + Hash>(o1: &[T], o2: &HashSet<T>) -> Vec<T> {
-  o1.iter().filter(|t| o2.contains(t)).copied().collect()
-}
+// fn difference<T: Copy + Eq + Hash>(o1: &[T], o2: &HashSet<T>) -> Vec<T> {
+//   o1.iter().filter(|t| !o2.contains(t)).copied().collect()
+// }
+//
+// fn intersection<T: Copy + Eq + Hash>(o1: &[T], o2: &HashSet<T>) -> Vec<T> {
+//   o1.iter().filter(|t| o2.contains(t)).copied().collect()
+// }

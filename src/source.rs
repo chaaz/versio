@@ -2,12 +2,11 @@
 
 use crate::either::{IterEither2 as E2, IterEither3 as E3};
 use crate::error::Result;
-use crate::git::{CommitData, FullPr, Repo};
+use crate::git::{CommitData, FullPr, Repo, Slice};
 use crate::github::{changes, line_commits, Changes};
 use regex::Regex;
 use std::iter;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
 
 pub const CONFIG_FILENAME: &str = ".versio.yaml";
 
@@ -47,83 +46,41 @@ impl Source for CurrentSource {
   }
 }
 
-#[derive(Clone)]
 pub struct PrevSource {
-  root_dir: PathBuf,
-  inner: Arc<Mutex<PrevSourceInner>>
-}
-
-impl PrevSource {
-  pub fn open<P: AsRef<Path>>(dir: P) -> Result<PrevSource> {
-    PrevSource::open_with(PrevSourceInner::open(dir.as_ref())?)
-  }
-
-  pub fn open_at<P: AsRef<Path>>(dir: P, spec: String) -> Result<PrevSource> {
-    PrevSource::open_with(PrevSourceInner::open_at(dir.as_ref(), spec)?)
-  }
-
-  fn open_with(inner: PrevSourceInner) -> Result<PrevSource> {
-    let root_dir = inner.repo.working_dir()?.to_path_buf();
-    Ok(PrevSource { root_dir, inner: Arc::new(Mutex::new(inner)) })
-  }
-
-  pub fn set_fetch(&mut self, _f: bool) -> Result<()> {
-    // TODO
-    Ok(())
-  }
-  pub fn set_merge(&mut self, _m: bool) -> Result<()> {
-    // TODO
-    Ok(())
-  }
-  pub fn has_remote(&self) -> Result<bool> { Ok(self.inner.lock()?.has_remote()) }
-  pub fn changes(&self) -> Result<Changes> { self.inner.lock()?.changes() }
-  pub fn line_commits(&self) -> Result<Vec<CommitData>> { self.inner.lock()?.line_commits() }
-  pub fn repo(&self) -> Result<RepoGuard> { Ok(RepoGuard { guard: self.inner.lock()? }) }
-  pub fn pull(&self) -> Result<()> { self.inner.lock()?.pull() }
+  repo: Repo,
+  spec: String,
+  root_dir: PathBuf
 }
 
 impl Source for PrevSource {
   fn root_dir(&self) -> &Path { &self.root_dir }
-
-  fn has(&self, rel_path: &Path) -> Result<bool> { self.inner.lock()?.has(rel_path) }
-
-  fn load(&self, rel_path: &Path) -> Result<Option<NamedData>> { self.inner.lock()?.load(rel_path).map(Some) }
+  fn has(&self, rel_path: &Path) -> Result<bool> { self.has_path(rel_path) }
+  fn load(&self, rel_path: &Path) -> Result<Option<NamedData>> { self.load_path(rel_path).map(Some) }
 }
 
-pub struct RepoGuard<'a> {
-  guard: MutexGuard<'a, PrevSourceInner>
-}
-
-impl<'a> RepoGuard<'a> {
-  pub fn repo(&self) -> &Repo { &self.guard.repo }
-
-  pub fn keyed_files<'b>(&'b mut self) -> Result<impl Iterator<Item = Result<(String, String)>> + 'b> {
-    self.guard.keyed_files()
-  }
-
-  pub fn push_changes(&mut self) -> Result<bool> { self.guard.push_changes() }
-}
-
-pub struct PrevSourceInner {
-  repo: Repo,
-  spec: String
-}
-
-impl PrevSourceInner {
-  pub fn open(dir: &Path) -> Result<PrevSourceInner> {
+impl PrevSource {
+  pub fn open(dir: &Path) -> Result<PrevSource> {
     let repo = Repo::open(dir)?;
     let spec = repo.prev().refspec().to_string();
-    Ok(PrevSourceInner { repo, spec })
+    let root_dir = repo.working_dir()?.to_path_buf();
+    Ok(PrevSource { repo, spec, root_dir })
   }
 
-  pub fn open_at(dir: &Path, spec: String) -> Result<PrevSourceInner> {
-    Ok(PrevSourceInner { repo: Repo::open(dir)?, spec })
+  pub fn open_at<P: AsRef<Path>>(dir: P, spec: String) -> Result<PrevSource> {
+    let repo = Repo::open(dir.as_ref())?;
+    let root_dir = repo.working_dir()?.to_path_buf();
+    Ok(PrevSource { repo, spec, root_dir })
   }
+
+  pub fn slice(&self, spec: String) -> SliceSource { SliceSource::new(self.repo.slice(spec), self.root_dir.clone()) }
 
   pub fn has_remote(&self) -> bool { self.repo.has_remote() }
-  pub fn has(&mut self, rel_path: &Path) -> Result<bool> { self.repo.slice(self.spec.clone()).has_blob(rel_path) }
+  pub fn has_path(&self, rel_path: &Path) -> Result<bool> { self.repo.slice(self.spec.clone()).has_blob(rel_path) }
+  pub fn repo(&self) -> Result<&Repo> { Ok(&self.repo) }
+  pub fn pull(&self) -> Result<()> { self.repo.pull() }
+  pub fn push_changes(&self) -> Result<bool> { self.repo.push_changes() }
 
-  fn load<P: AsRef<Path>>(&mut self, rel_path: P) -> Result<NamedData> {
+  fn load_path<P: AsRef<Path>>(&self, rel_path: P) -> Result<NamedData> {
     let prev = self.repo.slice(self.spec.clone());
     let blob = prev.blob(rel_path)?;
     let cont: &str = std::str::from_utf8(blob.content())?;
@@ -142,7 +99,7 @@ impl PrevSourceInner {
     line_commits(&self.repo, head, base)
   }
 
-  fn keyed_files<'a>(&'a mut self) -> Result<impl Iterator<Item = Result<(String, String)>> + 'a> {
+  pub fn keyed_files<'a>(&'a self) -> Result<impl Iterator<Item = Result<(String, String)>> + 'a> {
     let changes = self.changes()?;
     let prs = changes.into_groups().into_iter().map(|(_, v)| v).filter(|pr| !pr.best_guess());
 
@@ -153,10 +110,33 @@ impl PrevSourceInner {
 
     Ok(vec.into_iter().flatten())
   }
+}
 
-  pub fn push_changes(&mut self) -> Result<bool> { self.repo.push_changes() }
+pub struct SliceSource<'r> {
+  slice: Slice<'r>,
+  root_dir: PathBuf
+}
 
-  pub fn pull(&self) -> Result<()> { self.repo.pull() }
+impl<'r> Source for SliceSource<'r> {
+  fn root_dir(&self) -> &Path { &self.root_dir }
+  fn has(&self, rel_path: &Path) -> Result<bool> { self.has_path(rel_path) }
+  fn load(&self, rel_path: &Path) -> Result<Option<NamedData>> { self.load_path(rel_path).map(Some) }
+}
+
+impl<'r> SliceSource<'r> {
+  pub fn new(slice: Slice<'r>, root_dir: PathBuf) -> SliceSource { SliceSource { slice, root_dir } }
+
+  pub fn has_path(&self, rel_path: &Path) -> Result<bool> { self.slice.has_blob(rel_path) }
+
+  pub fn slice(&self, spec: String) -> SliceSource<'r> {
+    SliceSource::new(self.slice.slice(spec), self.root_dir.clone())
+  }
+
+  fn load_path<P: AsRef<Path>>(&self, rel_path: P) -> Result<NamedData> {
+    let blob = self.slice.blob(rel_path)?;
+    let cont: &str = std::str::from_utf8(blob.content())?;
+    Ok(NamedData::new(None, cont.to_string()))
+  }
 }
 
 pub struct NamedData {
