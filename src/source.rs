@@ -78,7 +78,7 @@ impl PrevSource {
   pub fn has_path(&self, rel_path: &Path) -> Result<bool> { self.repo.slice(self.spec.clone()).has_blob(rel_path) }
   pub fn repo(&self) -> Result<&Repo> { Ok(&self.repo) }
   pub fn pull(&self) -> Result<()> { self.repo.pull() }
-  pub fn push_changes(&self) -> Result<bool> { self.repo.push_changes() }
+  pub fn make_changes(&self, new_tags: &[String]) -> Result<bool> { self.repo.make_changes(new_tags) }
 
   fn load_path<P: AsRef<Path>>(&self, rel_path: P) -> Result<NamedData> {
     let prev = self.repo.slice(self.spec.clone());

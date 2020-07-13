@@ -128,17 +128,33 @@ impl Repo {
     Ok(())
   }
 
-  pub fn push_changes(&self) -> Result<bool> {
+  pub fn make_changes(&self, new_tags: &[String]) -> Result<bool> {
     if let Some(mut index) = self.add_all_modified()? {
       let tree_oid = index.write_tree()?;
       self.commit_tree(tree_oid)?;
-      self.update_tag()?;
-      self.push()?;
+      self.update_other_tags(new_tags)?;
+      self.push(new_tags)?;
       Ok(true)
     } else {
       // TODO: push the tag regardless
       Ok(false)
     }
+  }
+
+  pub fn forward_tags(&self, changed_tags: &HashMap<String, String>) -> Result<bool> {
+    if !changed_tags.is_empty() {
+      self.forward_other_tags(changed_tags)?;
+      self.push_forward_tags(changed_tags)?;
+      Ok(true)
+    } else {
+      Ok(false)
+    }
+  }
+
+  pub fn forward_prev_tag(&self) -> Result<()> {
+    self.update_prev_tag()?;
+    self.push_prev_tag()?;
+    Ok(())
   }
 
   /// Return all commits as if `git rev-list from_sha..to_sha`, along with the earliest time in that range.
@@ -225,20 +241,80 @@ impl Repo {
     Ok(())
   }
 
-  fn update_tag(&self) -> Result<()> {
+  fn update_prev_tag(&self) -> Result<()> {
     let obj = self.repo.revparse_single("HEAD")?;
     self.repo.tag_lightweight(PREV_TAG_NAME, &obj, true)?;
     Ok(())
   }
 
-  fn push(&self) -> Result<()> {
+  fn update_other_tags(&self, new_tags: &[String]) -> Result<()> {
+    let obj = self.repo.revparse_single("HEAD")?;
+    for tag in new_tags {
+      self.repo.tag_lightweight(tag, &obj, true)?;
+    }
+    Ok(())
+  }
+
+  fn forward_other_tags(&self, changed_tags: &HashMap<String, String>) -> Result<()> {
+    for (tag, commit) in changed_tags {
+      let obj = self.repo.revparse_single(commit)?;
+      self.repo.tag_lightweight(tag, &obj, true)?;
+    }
+    Ok(())
+  }
+
+  fn push_forward_tags(&self, changed_tags: &HashMap<String, String>) -> Result<()> {
+    if let Some(remote_name) = &self.remote_name {
+      let mut remote = self.repo.find_remote(remote_name)?;
+      let refs: Vec<_> = changed_tags.keys().map(|tag| format!("refs/tags/{}", tag)).collect();
+      // TODO: do we need to do something here to force-push tag refs if they already exist on the remote?
+      //   (see also force-push comment in `fn push`)
+
+      let mut cb = RemoteCallbacks::new();
+      cb.credentials(|_url, username_from_url, _allowed_types| Cred::ssh_key_from_agent(username_from_url.unwrap()));
+
+      let mut push_opts = PushOptions::new();
+      push_opts.remote_callbacks(cb);
+
+      remote.push(&refs, Some(&mut push_opts))?;
+    }
+
+    Ok(())
+  }
+
+  fn push_prev_tag(&self) -> Result<()> {
+    if let Some(remote_name) = &self.remote_name {
+      let mut remote = self.repo.find_remote(remote_name)?;
+      let refs = &[format!("refs/tags/{}", PREV_TAG_NAME)];
+      // TODO: do we need to do something here to force-push tag refs if they already exist on the remote?
+      //   (see also force-push comment in `fn push`)
+
+      // TODO: collapse this duplicated callbacs/push_opts/push dance
+      let mut cb = RemoteCallbacks::new();
+      cb.credentials(|_url, username_from_url, _allowed_types| Cred::ssh_key_from_agent(username_from_url.unwrap()));
+
+      let mut push_opts = PushOptions::new();
+      push_opts.remote_callbacks(cb);
+
+      remote.push(refs, Some(&mut push_opts))?;
+    }
+
+    Ok(())
+  }
+
+  fn push(&self, new_tags: &[String]) -> Result<()> {
     if let Some(remote_name) = &self.remote_name {
       let mut remote = self.repo.find_remote(remote_name)?;
       let bchref = format!("refs/heads/{}", self.branch_name);
-      let tagref = format!("refs/tags/{}", PREV_TAG_NAME);
+
+      let mut refs = vec![bchref];
+      for tag in new_tags {
+        refs.push(format!("refs/tags/{}", tag));
+      }
+      // TODO: do we need to do something here to force-push tag refs if they already exist on the remote?
+      //   (see also force-push comment in `fn push_forward_tags`)
 
       let mut cb = RemoteCallbacks::new();
-
       cb.credentials(|_url, username_from_url, _allowed_types| Cred::ssh_key_from_agent(username_from_url.unwrap()));
 
       // TODO: do we have to rollback the tag if the heads didn't succeed.
@@ -253,7 +329,7 @@ impl Repo {
       let mut push_opts = PushOptions::new();
       push_opts.remote_callbacks(cb);
 
-      remote.push(&[&bchref, &tagref], Some(&mut push_opts))?;
+      remote.push(&refs, Some(&mut push_opts))?;
     }
     Ok(())
   }

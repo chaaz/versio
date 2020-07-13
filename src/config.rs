@@ -685,15 +685,30 @@ impl Project {
     new_tags.flag_commit();
     mark.write_new_value(val)?;
 
-    // TODO: add to tags_for_new_commit
+    if let Some(tag_prefix) = &self.tag_prefix {
+      if tag_prefix.is_empty() {
+        new_tags.add_tag(format!("v{}", val));
+      } else {
+        new_tags.add_tag(format!("{}-v{}", tag_prefix, val));
+      }
+    }
 
     Ok(())
   }
 
   fn forward_value(
-    &self, _source: &dyn Source, _val: &str, _last_commit: Option<&String>, _new_tags: &mut NewTags
+    &self, _source: &dyn Source, val: &str, last_commit: Option<&String>, new_tags: &mut NewTags
   ) -> Result<()> {
-    // TODO
+    if let Some(tag_prefix) = &self.tag_prefix {
+      if let Some(last_commit) = last_commit {
+        if tag_prefix.is_empty() {
+          new_tags.change_tag(format!("v{}", val), last_commit);
+        } else {
+          new_tags.change_tag(format!("{}-v{}", tag_prefix, val), last_commit);
+        }
+      }
+    }
+
     Ok(())
   }
 
@@ -1087,10 +1102,10 @@ impl NewTags {
   pub fn should_commit(&self) -> bool { self.pending_commit }
 
   pub fn flag_commit(&mut self) { self.pending_commit = true; }
-  pub fn add_tag(&mut self, tag: &str) { self.tags_for_new_commit.push(tag.to_string()) }
+  pub fn add_tag(&mut self, tag: String) { self.tags_for_new_commit.push(tag) }
 
-  pub fn change_tag(&mut self, tag: &str, commit: &str) {
-    self.changed_tags.insert(tag.to_string(), commit.to_string());
+  pub fn change_tag(&mut self, tag: String, commit: &str) {
+    self.changed_tags.insert(tag, commit.to_string());
   }
 
   pub fn tags_for_new_commit(&self) -> &[String] { &self.tags_for_new_commit }

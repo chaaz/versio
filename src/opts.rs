@@ -470,8 +470,8 @@ pub fn run(mono: &Mono, all: bool, dry: bool) -> Result<()> {
 
   if new_tags.should_commit() {
     if dry {
-      println!("Dry run: no actual changes.");
-    } else if prev.repo()?.push_changes()? {
+      println!("Dry run: no actual commits.");
+    } else if prev.repo()?.make_changes(new_tags.tags_for_new_commit())? {
       if prev.has_remote() {
         println!("Changes committed and pushed.");
       } else {
@@ -484,6 +484,29 @@ pub fn run(mono: &Mono, all: bool, dry: bool) -> Result<()> {
     // TODO: still tag / push ?
     println!("No planned increments: not committing.");
   }
+
+  if prev.repo()?.forward_tags(new_tags.changed_tags())? {
+    if dry {
+      println!("Dry run: no actual tag forwarding.");
+    } else if prev.has_remote() {
+      println!("Tags forwarded and pushed.");
+    } else {
+      println!("Tags forwarded.");
+    }
+  }
+
+  if dry {
+    println!("Dry run: no actual prevtag update.");
+  } else {
+    prev.repo()?.forward_prev_tag()?;
+    if prev.has_remote() {
+      println!("Prevtag forwarded and pushed.");
+    } else {
+      println!("Prevtag forwarded.");
+    }
+  }
+
+  println!("Run complete.");
 
   Ok(())
 }
