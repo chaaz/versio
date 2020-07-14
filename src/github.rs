@@ -40,7 +40,7 @@ pub fn changes(repo: &Repo, headref: String, base: String) -> Result<Changes> {
   };
 
   while let Some(span) = queue.pop_front() {
-    let commit_list = commits_from_api(&github_info, &span)?;
+    let commit_list = commits_from_v4_api(&github_info, &span)?;
     let commit_list: Vec<_> = commit_list
       .into_iter()
       .filter_map(|commit| {
@@ -95,7 +95,7 @@ pub fn line_commits(repo: &Repo, headref: String, base: String) -> Result<Vec<Co
   Ok(pr_zero.into_commits())
 }
 
-fn commits_from_api(github_info: &GithubInfo, span: &Span) -> Result<Vec<ApiCommit>> {
+fn commits_from_v4_api(github_info: &GithubInfo, span: &Span) -> Result<Vec<ApiCommit>> {
   // TODO : respect "hasNextPage" and endCursor by using history(after:)
   // TODO : also get PR's headRepository / baseRepository to (try to) look at other repos.
 
