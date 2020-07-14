@@ -16,8 +16,6 @@ use std::ffi::OsStr;
 use std::io::{stdout, Write};
 use std::path::{Path, PathBuf};
 
-pub const PREV_TAG_NAME: &str = "versio-prev";
-
 pub struct Repo {
   repo: Repository,
   fetches: RefCell<HashMap<String, Oid>>,
@@ -75,7 +73,6 @@ impl Repo {
     self.repo.workdir().ok_or_else(|| versio_error!("Repo has no working dir"))
   }
 
-  pub fn prev(&self) -> Slice { self.slice(PREV_TAG_NAME.to_string()) }
   pub fn slice(&self, refspec: String) -> Slice { Slice { repo: self, refspec } }
   pub fn branch_name(&self) -> &str { &self.branch_name }
   pub fn remote_name(&self) -> &Option<String> { &self.remote_name }
@@ -151,9 +148,9 @@ impl Repo {
     }
   }
 
-  pub fn forward_prev_tag(&self) -> Result<()> {
-    self.update_prev_tag()?;
-    self.push_prev_tag()?;
+  pub fn forward_prev_tag(&self, tag: &str) -> Result<()> {
+    self.update_prev_tag(tag)?;
+    self.push_prev_tag(tag)?;
     Ok(())
   }
 
@@ -241,9 +238,9 @@ impl Repo {
     Ok(())
   }
 
-  fn update_prev_tag(&self) -> Result<()> {
+  fn update_prev_tag(&self, tag: &str) -> Result<()> {
     let obj = self.repo.revparse_single("HEAD")?;
-    self.repo.tag_lightweight(PREV_TAG_NAME, &obj, true)?;
+    self.repo.tag_lightweight(tag, &obj, true)?;
     Ok(())
   }
 
@@ -282,10 +279,10 @@ impl Repo {
     Ok(())
   }
 
-  fn push_prev_tag(&self) -> Result<()> {
+  fn push_prev_tag(&self, tag: &str) -> Result<()> {
     if let Some(remote_name) = &self.remote_name {
       let mut remote = self.repo.find_remote(remote_name)?;
-      let refs = &[format!("refs/tags/{}", PREV_TAG_NAME)];
+      let refs = &[format!("refs/tags/{}", tag)];
       // TODO: do we need to do something here to force-push tag refs if they already exist on the remote?
       //   (see also force-push comment in `fn push`)
 

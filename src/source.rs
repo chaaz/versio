@@ -59,9 +59,8 @@ impl Source for PrevSource {
 }
 
 impl PrevSource {
-  pub fn open(dir: &Path) -> Result<PrevSource> {
+  pub fn open(dir: &Path, spec: String) -> Result<PrevSource> {
     let repo = Repo::open(dir)?;
-    let spec = repo.prev().refspec().to_string();
     let root_dir = repo.working_dir()?.to_path_buf();
     Ok(PrevSource { repo, spec, root_dir })
   }

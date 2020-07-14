@@ -27,10 +27,11 @@ pub struct Mono {
 
 impl Mono {
   pub fn open<P: AsRef<Path>>(dir: P) -> Result<Mono> {
-    Ok(Mono {
-      current: Config::from_source(CurrentSource::open(dir.as_ref())?)?,
-      previous: Config::from_source(PrevSource::open(dir.as_ref())?)?
-    })
+    let current = Config::from_source(CurrentSource::open(dir.as_ref())?)?;
+    let prev_refspec = current.prev_tag().to_string();
+    let previous = Config::from_source(PrevSource::open(dir.as_ref(), prev_refspec)?)?;
+
+    Ok(Mono { current, previous })
   }
 
   pub fn here() -> Result<Mono> { Mono::open(".") }
@@ -152,6 +153,8 @@ impl<S: Source> Config<S> {
   pub fn has_config_file(source: S) -> Result<bool> { source.has(CONFIG_FILENAME.as_ref()) }
   pub fn source(&self) -> &S { &self.source }
 
+  pub fn prev_tag(&self) -> &str { self.file.prev_tag() }
+
   pub fn from_source(source: S) -> Result<Config<S>> {
     let file = ConfigFile::load(&source)?;
     Ok(Config { source, file })
@@ -205,8 +208,7 @@ impl<S: Source> Config<S> {
   }
 
   pub fn forward_by_id(
-    &self, id: ProjectId, val: &str, last_commit: Option<&String>, new_tags: &mut NewTags,
-    wrote_something: bool
+    &self, id: ProjectId, val: &str, last_commit: Option<&String>, new_tags: &mut NewTags, wrote_something: bool
   ) -> Result<()> {
     let project =
       self.file.projects.iter().find(|p| p.id == id).ok_or_else(|| versio_error!("No such project {}", id))?;
@@ -505,6 +507,8 @@ impl<'s, C: Source> LastCommitFinder<'s, C> {
 
 #[derive(Deserialize, Debug)]
 pub struct ConfigFile {
+  #[serde(default)]
+  options: Options,
   projects: Vec<Project>,
   #[serde(deserialize_with = "deserialize_sizes", default)]
   sizes: HashMap<String, Size>
@@ -518,7 +522,11 @@ impl ConfigFile {
     }
   }
 
-  pub fn empty() -> ConfigFile { ConfigFile { projects: Vec::new(), sizes: HashMap::new() } }
+  pub fn prev_tag(&self) -> &str { self.options.prev_tag() }
+
+  pub fn empty() -> ConfigFile {
+    ConfigFile { options: Default::default(), projects: Vec::new(), sizes: HashMap::new() }
+  }
 
   pub fn read(data: &str) -> Result<ConfigFile> {
     let file: ConfigFile = serde_yaml::from_str(data)?;
@@ -558,6 +566,19 @@ impl ConfigFile {
 
     Ok(())
   }
+}
+
+#[derive(Deserialize, Debug)]
+struct Options {
+  prev_tag: String
+}
+
+impl Default for Options {
+  fn default() -> Options { Options { prev_tag: "versio-prev".into() } }
+}
+
+impl Options {
+  pub fn prev_tag(&self) -> &str { &self.prev_tag }
 }
 
 fn legal_tag(prefix: &str) -> bool {
@@ -637,9 +658,10 @@ impl Project {
       return Ok(false);
     }
 
-    self.includes.iter().try_fold(false, |val, cov| {
-      Ok(val || Pattern::new(&self.rooted_pattern(cov))?.matches_with(path, match_opts()))
-    })
+    self
+      .includes
+      .iter()
+      .try_fold(false, |val, cov| Ok(val || Pattern::new(&self.rooted_pattern(cov))?.matches_with(path, match_opts())))
   }
 
   fn check(&self, source: &dyn Source) -> Result<()> {
@@ -1113,9 +1135,7 @@ impl NewTags {
   pub fn flag_commit(&mut self) { self.pending_commit = true; }
   pub fn add_tag(&mut self, tag: String) { self.tags_for_new_commit.push(tag) }
 
-  pub fn change_tag(&mut self, tag: String, commit: &str) {
-    self.changed_tags.insert(tag, commit.to_string());
-  }
+  pub fn change_tag(&mut self, tag: String, commit: &str) { self.changed_tags.insert(tag, commit.to_string()); }
 
   pub fn tags_for_new_commit(&self) -> &[String] { &self.tags_for_new_commit }
   pub fn changed_tags(&self) -> &HashMap<String, String> { &self.changed_tags }
@@ -1123,9 +1143,9 @@ impl NewTags {
 
 #[cfg(test)]
 mod test {
-  use super::{find_reg_data, ConfigFile, Size, Project, Location, FileLocation, Picker, JsonPicker};
-  use crate::source::NamedData;
+  use super::{find_reg_data, ConfigFile, FileLocation, JsonPicker, Location, Picker, Project, Size};
   use crate::scan::parts::Part;
+  use crate::source::NamedData;
 
   #[test]
   fn test_scan() {
@@ -1322,12 +1342,10 @@ sizes:
       excludes: Vec::new(),
       depends: Vec::new(),
       change_log: None,
-      located: Location::File(
-        FileLocation {
-          file: "package.json".into(),
-          picker: Picker::Json(JsonPicker { json: vec![Part::Map("version".into())] }),
-        }
-      ),
+      located: Location::File(FileLocation {
+        file: "package.json".into(),
+        picker: Picker::Json(JsonPicker { json: vec![Part::Map("version".into())] })
+      }),
       tag_prefix: None
     };
 
@@ -1345,12 +1363,10 @@ sizes:
       excludes: vec!["internal/**/*".into()],
       depends: Vec::new(),
       change_log: None,
-      located: Location::File(
-        FileLocation {
-          file: "package.json".into(),
-          picker: Picker::Json(JsonPicker { json: vec![Part::Map("version".into())] }),
-        }
-      ),
+      located: Location::File(FileLocation {
+        file: "package.json".into(),
+        picker: Picker::Json(JsonPicker { json: vec![Part::Map("version".into())] })
+      }),
       tag_prefix: None
     };
 
@@ -1367,12 +1383,10 @@ sizes:
       excludes: vec!["internal/**/*".into()],
       depends: Vec::new(),
       change_log: None,
-      located: Location::File(
-        FileLocation {
-          file: "package.json".into(),
-          picker: Picker::Json(JsonPicker { json: vec![Part::Map("version".into())] }),
-        }
-      ),
+      located: Location::File(FileLocation {
+        file: "package.json".into(),
+        picker: Picker::Json(JsonPicker { json: vec![Part::Map("version".into())] })
+      }),
       tag_prefix: None
     };
 

@@ -434,7 +434,7 @@ pub fn run(mono: &Mono, all: bool, dry: bool) -> Result<()> {
 
     let wrote_change_log = if dry {
       proj.change_log().is_some()
-        // TODO: && were_there_any_new_commits
+    // TODO: && were_there_any_new_commits
     } else {
       proj.write_change_log(&change_log, curt)?.is_some()
     };
@@ -505,7 +505,7 @@ pub fn run(mono: &Mono, all: bool, dry: bool) -> Result<()> {
   if dry {
     println!("Dry run: no actual prevtag update.");
   } else {
-    prev.repo()?.forward_prev_tag()?;
+    prev.repo()?.forward_prev_tag(curt_cfg.prev_tag())?;
     if prev.has_remote() {
       println!("Prevtag forwarded and pushed.");
     } else {
