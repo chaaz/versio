@@ -432,7 +432,12 @@ pub fn run(mono: &Mono, all: bool, dry: bool) -> Result<()> {
     let prev_mark = prev_cfg.get_mark(id).transpose()?;
     let prev_vers = prev_mark.as_ref().map(|m| m.value());
 
-    proj.write_change_log(&change_log, curt)?;
+    let wrote_change_log = if dry {
+      proj.change_log().is_some()
+        // TODO: && were_there_any_new_commits
+    } else {
+      proj.write_change_log(&change_log, curt)?.is_some()
+    };
 
     if let Some(prev_vers) = prev_vers {
       let target = size.apply(prev_vers)?;
@@ -449,7 +454,9 @@ pub fn run(mono: &Mono, all: bool, dry: bool) -> Result<()> {
         }
       } else {
         if !dry {
-          curt_cfg.forward_by_id(id, curt_vers, last_commit.as_ref(), &mut new_tags)?;
+          curt_cfg.forward_by_id(id, curt_vers, last_commit.as_ref(), &mut new_tags, wrote_change_log)?;
+        } else if wrote_change_log {
+          new_tags.flag_commit();
         }
         if all {
           if prev_vers == curt_vers {

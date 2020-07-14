@@ -197,19 +197,20 @@ impl<S: Source> Config<S> {
   }
 
   pub fn set_by_id(
-    &self, id: ProjectId, val: &str, last_commit: Option<&String>, new_tags: &mut NewTags
+    &self, id: ProjectId, val: &str, _last_commit: Option<&String>, new_tags: &mut NewTags
   ) -> Result<()> {
     let project =
       self.file.projects.iter().find(|p| p.id == id).ok_or_else(|| versio_error!("No such project {}", id))?;
-    project.set_value(&self.source, val, last_commit, new_tags)
+    project.set_value(&self.source, val, new_tags)
   }
 
   pub fn forward_by_id(
-    &self, id: ProjectId, val: &str, last_commit: Option<&String>, new_tags: &mut NewTags
+    &self, id: ProjectId, val: &str, last_commit: Option<&String>, new_tags: &mut NewTags,
+    wrote_something: bool
   ) -> Result<()> {
     let project =
       self.file.projects.iter().find(|p| p.id == id).ok_or_else(|| versio_error!("No such project {}", id))?;
-    project.forward_value(&self.source, val, last_commit, new_tags)
+    project.forward_value(val, last_commit, new_tags, wrote_something)
   }
 
   pub fn get_project(&self, id: ProjectId) -> Option<&Project> { self.file.projects.iter().find(|p| p.id == id) }
@@ -604,6 +605,8 @@ impl Project {
   pub fn tag_prefix(&self) -> &Option<String> { &self.tag_prefix }
 
   pub fn write_change_log(&self, cl: &ChangeLog, src: &dyn Source) -> Result<Option<String>> {
+    // TODO: only write change log if any commits are found, else return `None`
+
     if let Some(cl_path) = self.change_log().as_ref() {
       let log_path = src.root_dir().join(cl_path.deref());
       std::fs::write(&log_path, construct_change_log_html(cl)?)?;
@@ -678,27 +681,20 @@ impl Project {
     Ok(())
   }
 
-  fn set_value(
-    &self, source: &dyn Source, val: &str, _last_commit: Option<&String>, new_tags: &mut NewTags
-  ) -> Result<()> {
+  fn set_value(&self, source: &dyn Source, val: &str, new_tags: &mut NewTags) -> Result<()> {
     let mut mark = self.get_mark(source)?;
-    new_tags.flag_commit();
     mark.write_new_value(val)?;
 
-    if let Some(tag_prefix) = &self.tag_prefix {
-      if tag_prefix.is_empty() {
-        new_tags.add_tag(format!("v{}", val));
-      } else {
-        new_tags.add_tag(format!("{}-v{}", tag_prefix, val));
-      }
-    }
-
-    Ok(())
+    self.will_commit(val, new_tags)
   }
 
   fn forward_value(
-    &self, _source: &dyn Source, val: &str, last_commit: Option<&String>, new_tags: &mut NewTags
+    &self, val: &str, last_commit: Option<&String>, new_tags: &mut NewTags, wrote_something: bool
   ) -> Result<()> {
+    if wrote_something {
+      return self.will_commit(val, new_tags);
+    }
+
     if let Some(tag_prefix) = &self.tag_prefix {
       if let Some(last_commit) = last_commit {
         if tag_prefix.is_empty() {
@@ -706,6 +702,19 @@ impl Project {
         } else {
           new_tags.change_tag(format!("{}-v{}", tag_prefix, val), last_commit);
         }
+      }
+    }
+
+    Ok(())
+  }
+
+  fn will_commit(&self, val: &str, new_tags: &mut NewTags) -> Result<()> {
+    new_tags.flag_commit();
+    if let Some(tag_prefix) = &self.tag_prefix {
+      if tag_prefix.is_empty() {
+        new_tags.add_tag(format!("v{}", val));
+      } else {
+        new_tags.add_tag(format!("{}-v{}", tag_prefix, val));
       }
     }
 
@@ -1072,7 +1081,7 @@ fn construct_change_log_html(cl: &ChangeLog) -> Result<String> {
       } else {
         "(not appl) "
       };
-      output.push_str(&format!("    <li>{}commit {} ({}) : {}</li>", symbol, &c.oid()[.. 7], c.size(), c.message()));
+      output.push_str(&format!("    <li>{}commit {} ({}) : {}</li>\n", symbol, &c.oid()[.. 7], c.size(), c.message()));
     }
     output.push_str("  </ul>\n");
   }
