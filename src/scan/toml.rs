@@ -5,7 +5,7 @@ use crate::error::Result;
 use crate::scan::parts::ToPart;
 use crate::scan::parts::{IntoPartVec, Part};
 use crate::scan::Scanner;
-use crate::source::{Mark, MarkedData, NamedData};
+use crate::source::Mark;
 use serde::de::{self, DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Unexpected, Visitor};
 use toml::Spanned;
 
@@ -21,10 +21,8 @@ impl TomlScanner {
 }
 
 impl Scanner for TomlScanner {
-  fn scan(&self, data: NamedData) -> Result<MarkedData> {
-    let byte_mark = scan_toml(data.data(), self.target.clone())?;
-    Ok(data.mark(byte_mark))
-  }
+  fn build(parts: Vec<Part>) -> TomlScanner { TomlScanner { target: parts } }
+  fn find(&self, data: &str) -> Result<Mark> { scan_toml(data, self.target.clone()) }
 }
 
 fn scan_toml<P: IntoPartVec>(data: &str, loc: P) -> Result<Mark> {
@@ -134,16 +132,16 @@ impl<'de> DeserializeSeed<'de> for NthElement {
 #[cfg(test)]
 mod test {
   use super::TomlScanner;
-  use crate::{scan::Scanner, source::NamedData};
+  use crate::scan::Scanner;
 
   #[test]
   fn test_toml() {
     let doc = r#"
 version = "1.2.3""#;
 
-    let marked_data = TomlScanner::new("version").scan(NamedData::new(None, doc.to_string())).unwrap();
-    assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(12, marked_data.start());
+    let mark = TomlScanner::new("version").find(doc).unwrap();
+    assert_eq!("1.2.3", mark.value());
+    assert_eq!(12, mark.start());
   }
 
   #[test]
@@ -151,9 +149,9 @@ version = "1.2.3""#;
     let doc = r#"
 thing = [ "thing2", "1.2.3" ]"#;
 
-    let marked_data = TomlScanner::new("thing.1").scan(NamedData::new(None, doc.to_string())).unwrap();
-    assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(22, marked_data.start());
+    let mark = TomlScanner::new("thing.1").find(doc).unwrap();
+    assert_eq!("1.2.3", mark.value());
+    assert_eq!(22, mark.start());
   }
 
   #[test]
@@ -162,9 +160,9 @@ thing = [ "thing2", "1.2.3" ]"#;
 [version]
 "thing" = [ "2.4.6", { "version" = "1.2.3" } ]"#;
 
-    let marked_data = TomlScanner::new("version.thing.1.version").scan(NamedData::new(None, doc.to_string())).unwrap();
-    assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(47, marked_data.start());
+    let mark = TomlScanner::new("version.thing.1.version").find(doc).unwrap();
+    assert_eq!("1.2.3", mark.value());
+    assert_eq!(47, mark.start());
   }
 
   #[test]
@@ -173,10 +171,10 @@ thing = [ "thing2", "1.2.3" ]"#;
 [[0]]
 "the.version" = "1.2.3""#;
 
-    let marked_data =
-      TomlScanner::from_parts(&[&"0", &0, &"the.version"]).scan(NamedData::new(None, doc.to_string())).unwrap();
-    assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(24, marked_data.start());
+    let mark =
+      TomlScanner::from_parts(&[&"0", &0, &"the.version"]).find(doc).unwrap();
+    assert_eq!("1.2.3", mark.value());
+    assert_eq!(24, mark.start());
   }
 
   #[test]
@@ -184,8 +182,8 @@ thing = [ "thing2", "1.2.3" ]"#;
     let doc = r#"
 "thíng" = [ "thíng2", "1.2.3" ]"#;
 
-    let marked_data = TomlScanner::new("thíng.1").scan(NamedData::new(None, doc.to_string())).unwrap();
-    assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(26, marked_data.start());
+    let mark = TomlScanner::new("thíng.1").find(doc).unwrap();
+    assert_eq!("1.2.3", mark.value());
+    assert_eq!(26, mark.start());
   }
 }

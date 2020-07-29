@@ -9,6 +9,7 @@ use git2::{
   PushOptions, Reference, ReferenceType, Remote, RemoteCallbacks, Repository, RepositoryOpenFlags, RepositoryState,
   ResetType, Signature, Status, StatusOptions, Time
 };
+use git2::string_array::StringArray;
 use std::cell::RefCell;
 use std::cmp::min;
 use std::collections::HashMap;
@@ -73,10 +74,20 @@ impl Repo {
     self.repo.workdir().ok_or_else(|| versio_error!("Repo has no working dir"))
   }
 
+  pub fn revparse_id(&self, spec: &str) -> Result<String> { Ok(self.repo.revparse_single(spec)?.id().to_string()) }
   pub fn slice(&self, refspec: String) -> Slice { Slice { repo: self, refspec } }
   pub fn branch_name(&self) -> &str { &self.branch_name }
   pub fn remote_name(&self) -> &Option<String> { &self.remote_name }
   pub fn has_remote(&self) -> bool { self.remote_name.is_some() }
+
+  pub fn tag_names(&self, pattern: Option<&str>) -> Result<StringArray> {
+    Ok(self.repo.tag_names(pattern)?)
+  }
+
+  // pub fn utf8_tag_names<'a>(&'a self, pattern: Option<&str>) -> Result<impl Iterator<Item = &'a str> + 'a> {
+  //   let arr = self.repo.tag_names(pattern)?;
+  //   Ok(arr.into_iter().filter_map(identity))
+  // }
 
   pub fn github_info(&self) -> Result<Option<GithubInfo>> {
     let remote_name = match self.remote_name() {
@@ -152,6 +163,33 @@ impl Repo {
     self.update_prev_tag(tag)?;
     self.push_prev_tag(tag)?;
     Ok(())
+  }
+
+  pub fn walk_head_to(&self, from_spec: &str) -> Result<impl Iterator<Item = Result<String>> + '_> {
+    let mut revwalk = self.repo.revwalk()?;
+    revwalk.hide(self.repo.revparse_single(from_spec)?.id())?;
+    revwalk.push_head()?;
+
+    Ok(revwalk.map(|oid| oid.map(|oid| oid.to_string()).map_err(|e| e.into())))
+  }
+
+  pub fn revlist(&self, from_sha: &str, to_oid: Oid) -> Result<Option<(Vec<CommitData>, Time)>> {
+    let mut revwalk = self.repo.revwalk()?;
+    revwalk.hide(self.repo.revparse_single(from_sha)?.id())?;
+    revwalk.push(to_oid)?;
+
+    revwalk.try_fold::<_, _, Result<Option<(Vec<CommitData>, Time)>>>(None, |v, oid| {
+      let oid = oid?;
+      let commit = self.repo.find_commit(oid)?;
+      let ctime = commit.time();
+      if let Some((mut datas, time)) = v {
+        datas.push(CommitData::extract(&self.repo, &commit)?);
+        Ok(Some((datas, min(time, ctime))))
+      } else {
+        let datas = vec![CommitData::extract(&self.repo, &commit)?];
+        Ok(Some((datas, ctime)))
+      }
+    })
   }
 
   /// Return all commits as if `git rev-list from_sha..to_sha`, along with the earliest time in that range.
@@ -346,6 +384,7 @@ impl<'r> Slice<'r> {
   pub fn refspec(&self) -> &str { &self.refspec }
   pub fn has_blob<P: AsRef<Path>>(&self, path: P) -> Result<bool> { Ok(self.object(path).is_ok()) }
   pub fn slice(&self, refspec: String) -> Slice<'r> { Slice { repo: self.repo, refspec } }
+  pub fn repo(&self) -> &Repo { &self.repo }
 
   pub fn blob<P: AsRef<Path>>(&self, path: P) -> Result<Blob> {
     let obj = self.object(path.as_ref())?;

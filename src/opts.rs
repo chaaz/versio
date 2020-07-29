@@ -1,6 +1,6 @@
 //! The command-line options for the executable.
 
-use crate::config::{configure_plan, Mono, NewTags, ShowFormat, Size};
+use crate::config::{Mono, NewTags, ShowFormat, Size};
 use crate::error::Result;
 use clap::{crate_version, App, AppSettings, Arg, ArgGroup, ArgMatches, SubCommand};
 
@@ -294,14 +294,14 @@ fn diff(mono: &Mono) -> Result<()> {
   if !analysis.older().is_empty() {
     println!("Removed projects:");
     for mark in analysis.older() {
-      println!("  {} : {}", mark.name(), mark.mark().value());
+      println!("  {} : {}", mark.name(), mark.mark());
     }
   }
 
   if !analysis.newer().is_empty() {
     println!("New projects:");
     for mark in analysis.newer() {
-      println!("  {} : {}", mark.name(), mark.mark().value());
+      println!("  {} : {}", mark.name(), mark.mark());
     }
   }
 
@@ -316,7 +316,7 @@ fn diff(mono: &Mono) -> Result<()> {
       if let Some((o, n)) = change.value().as_ref() {
         print!(" : {} -> {}", o, n);
       } else {
-        print!(" : {}", change.new_mark().mark().value());
+        print!(" : {}", change.new_mark().mark());
       }
       println!();
     }
@@ -330,7 +330,7 @@ fn diff(mono: &Mono) -> Result<()> {
       if let Some((o, _)) = change.name().as_ref() {
         print!(" (was \"{}\")", o);
       }
-      print!(" : {}", change.new_mark().mark().value());
+      print!(" : {}", change.new_mark().mark());
       println!();
     }
   }
@@ -339,7 +339,7 @@ fn diff(mono: &Mono) -> Result<()> {
 }
 
 pub fn plan(mono: &Mono) -> Result<()> {
-  let plan = configure_plan(mono)?;
+  let plan = mono.configure_plan()?;
   let curt_cfg = mono.current_config();
 
   if plan.incrs().is_empty() {
@@ -381,7 +381,7 @@ pub fn plan(mono: &Mono) -> Result<()> {
 }
 
 pub fn log(mono: &Mono) -> Result<()> {
-  let plan = configure_plan(mono)?;
+  let plan = mono.configure_plan()?;
 
   if plan.incrs().is_empty() {
     println!("(No projects)");
@@ -411,7 +411,7 @@ pub fn run(mono: &Mono, all: bool, dry: bool) -> Result<()> {
     mono.pull()?;
   }
 
-  let plan = configure_plan(mono)?;
+  let plan = mono.configure_plan()?;
 
   if plan.incrs().is_empty() {
     println!("(No projects)");
@@ -427,10 +427,8 @@ pub fn run(mono: &Mono, all: bool, dry: bool) -> Result<()> {
   for (&id, (size, last_commit, change_log)) in plan.incrs() {
     let proj = curt_cfg.get_project(id).unwrap();
     let curt_name = proj.name();
-    let curt_mark = curt_cfg.get_mark(id).unwrap()?;
-    let curt_vers = curt_mark.value();
-    let prev_mark = prev_cfg.get_mark(id).transpose()?;
-    let prev_vers = prev_mark.as_ref().map(|m| m.value());
+    let curt_vers = curt_cfg.get_mark_value(id).unwrap()?;
+    let prev_vers = prev_cfg.get_mark_value(id).transpose()?;
 
     let wrote_change_log = if dry {
       proj.change_log().is_some()
@@ -440,10 +438,10 @@ pub fn run(mono: &Mono, all: bool, dry: bool) -> Result<()> {
     };
 
     if let Some(prev_vers) = prev_vers {
-      let target = size.apply(prev_vers)?;
-      if Size::less_than(curt_vers, &target)? {
+      let target = size.apply(&prev_vers)?;
+      if Size::less_than(&curt_vers, &target)? {
         if !dry {
-          curt_cfg.set_by_id(id, &target, last_commit.as_ref(), &mut new_tags)?;
+          curt_cfg.set_by_id(id, &target, last_commit.as_ref(), &mut new_tags, wrote_change_log)?;
         } else {
           new_tags.flag_commit();
         }
@@ -454,7 +452,7 @@ pub fn run(mono: &Mono, all: bool, dry: bool) -> Result<()> {
         }
       } else {
         if !dry {
-          curt_cfg.forward_by_id(id, curt_vers, last_commit.as_ref(), &mut new_tags, wrote_change_log)?;
+          curt_cfg.forward_by_id(id, &curt_vers, last_commit.as_ref(), &mut new_tags, wrote_change_log)?;
         } else if wrote_change_log {
           new_tags.flag_commit();
         }
@@ -468,8 +466,16 @@ pub fn run(mono: &Mono, all: bool, dry: bool) -> Result<()> {
           }
         }
       }
-    } else if all {
-      println!("  {} : no change: {} is new", curt_name, curt_vers);
+    } else {
+      if !dry {
+        curt_cfg.forward_by_id(id, &curt_vers, last_commit.as_ref(), &mut new_tags, wrote_change_log)?;
+      } else if wrote_change_log {
+        new_tags.flag_commit();
+      }
+
+      if all {
+        println!("  {} : no change: {} is new", curt_name, curt_vers);
+      }
     }
   }
 

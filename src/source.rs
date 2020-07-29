@@ -1,25 +1,29 @@
 //! Versio is a version management utility.
 
-use crate::either::{IterEither2 as E2, IterEither3 as E3};
 use crate::error::Result;
-use crate::git::{CommitData, FullPr, Repo, Slice};
-use crate::github::{changes, line_commits, Changes};
+use crate::git::{CommitData, Repo, Slice};
+use crate::github::{line_commits};
 use regex::Regex;
-use std::iter;
 use std::path::{Path, PathBuf};
 
 pub const CONFIG_FILENAME: &str = ".versio.yaml";
 
 pub trait Source {
+  type Loaded: Into<String>;
+
   fn root_dir(&self) -> &Path;
-  fn load(&self, rel_path: &Path) -> Result<Option<NamedData>>;
+  fn load(&self, rel_path: &Path) -> Result<Option<Self::Loaded>>;
   fn has(&self, rel_path: &Path) -> Result<bool>;
+  fn commit_oid(&self) -> Result<Option<String>>;
 }
 
 impl<S: Source> Source for &S {
+  type Loaded = S::Loaded;
+
   fn root_dir(&self) -> &Path { <S as Source>::root_dir(*self) }
-  fn load(&self, rel_path: &Path) -> Result<Option<NamedData>> { <S as Source>::load(*self, rel_path) }
+  fn load(&self, rel_path: &Path) -> Result<Option<S::Loaded>> { <S as Source>::load(*self, rel_path) }
   fn has(&self, rel_path: &Path) -> Result<bool> { <S as Source>::has(*self, rel_path) }
+  fn commit_oid(&self) -> Result<Option<String>> { <S as Source>::commit_oid(*self) }
 }
 
 pub struct CurrentSource {
@@ -31,85 +35,84 @@ impl CurrentSource {
 }
 
 impl Source for CurrentSource {
-  fn root_dir(&self) -> &Path { &self.root_dir }
+  type Loaded = NamedData;
 
+  fn root_dir(&self) -> &Path { &self.root_dir }
   fn has(&self, rel_path: &Path) -> Result<bool> { Ok(self.root_dir.join(rel_path).exists()) }
+  fn commit_oid(&self) -> Result<Option<String>> { Ok(None) }
 
   fn load(&self, rel_path: &Path) -> Result<Option<NamedData>> {
     let path = self.root_dir.join(rel_path);
     if Path::exists(&path) {
       let data = std::fs::read_to_string(&path)?;
-      Ok(Some(NamedData::new(Some(path), data)))
+      Ok(Some(NamedData::new(path, data)))
     } else {
       Ok(None)
     }
   }
+
 }
 
-pub struct PrevSource {
-  repo: Repo,
-  spec: String,
-  root_dir: PathBuf
-}
-
-impl Source for PrevSource {
-  fn root_dir(&self) -> &Path { &self.root_dir }
-  fn has(&self, rel_path: &Path) -> Result<bool> { self.has_path(rel_path) }
-  fn load(&self, rel_path: &Path) -> Result<Option<NamedData>> { self.load_path(rel_path).map(Some) }
-}
-
-impl PrevSource {
-  pub fn open(dir: &Path, spec: String) -> Result<PrevSource> {
-    let repo = Repo::open(dir)?;
-    let root_dir = repo.working_dir()?.to_path_buf();
-    Ok(PrevSource { repo, spec, root_dir })
-  }
-
-  pub fn open_at<P: AsRef<Path>>(dir: P, spec: String) -> Result<PrevSource> {
-    let repo = Repo::open(dir.as_ref())?;
-    let root_dir = repo.working_dir()?.to_path_buf();
-    Ok(PrevSource { repo, spec, root_dir })
-  }
-
-  pub fn slice(&self, spec: String) -> SliceSource { SliceSource::new(self.repo.slice(spec), self.root_dir.clone()) }
-
-  pub fn has_remote(&self) -> bool { self.repo.has_remote() }
-  pub fn has_path(&self, rel_path: &Path) -> Result<bool> { self.repo.slice(self.spec.clone()).has_blob(rel_path) }
-  pub fn repo(&self) -> Result<&Repo> { Ok(&self.repo) }
-  pub fn pull(&self) -> Result<()> { self.repo.pull() }
-  pub fn make_changes(&self, new_tags: &[String]) -> Result<bool> { self.repo.make_changes(new_tags) }
-
-  fn load_path<P: AsRef<Path>>(&self, rel_path: P) -> Result<NamedData> {
-    let prev = self.repo.slice(self.spec.clone());
-    let blob = prev.blob(rel_path)?;
-    let cont: &str = std::str::from_utf8(blob.content())?;
-    Ok(NamedData::new(None, cont.to_string()))
-  }
-
-  pub fn changes(&self) -> Result<Changes> {
-    let base = self.repo.slice(self.spec.clone()).refspec().to_string();
-    let head = self.repo.branch_name().to_string();
-    changes(&self.repo, head, base)
-  }
-
-  pub fn line_commits(&self) -> Result<Vec<CommitData>> {
-    let base = self.repo.slice(self.spec.clone()).refspec().to_string();
-    let head = self.repo.branch_name().to_string();
-    line_commits(&self.repo, head, base)
-  }
-
-  pub fn keyed_files<'a>(&'a self) -> Result<impl Iterator<Item = Result<(String, String)>> + 'a> {
-    let changes = self.changes()?;
-    let prs = changes.into_groups().into_iter().map(|(_, v)| v).filter(|pr| !pr.best_guess());
-
-    let mut vec = Vec::new();
-    for pr in prs {
-      vec.push(pr_keyed_files(&self.repo, pr));
-    }
-
-    Ok(vec.into_iter().flatten())
-  }
-}
+// pub struct PrevSource {
+//   repo: Repo,
+//   spec: String,
+//   root_dir: PathBuf
+// }
+// 
+// impl Source for PrevSource {
+//   type Loaded = String;
+// 
+//   fn root_dir(&self) -> &Path { &self.root_dir }
+//   fn has(&self, rel_path: &Path) -> Result<bool> { self.has_path(rel_path) }
+//   fn load(&self, rel_path: &Path) -> Result<Option<String>> { self.load_path(rel_path).map(Some) }
+// }
+// 
+// impl PrevSource {
+//   pub fn open(dir: &Path, spec: String) -> Result<PrevSource> {
+//     let repo = Repo::open(dir)?;
+//     let root_dir = repo.working_dir()?.to_path_buf();
+//     Ok(PrevSource { repo, spec, root_dir })
+//   }
+// 
+//   pub fn slice(&self, spec: String) -> SliceSource { SliceSource::at(self.repo.slice(spec), self.root_dir.clone()) }
+// 
+//   pub fn has_remote(&self) -> bool { self.repo.has_remote() }
+//   pub fn has_path(&self, rel_path: &Path) -> Result<bool> { self.repo.slice(self.spec.clone()).has_blob(rel_path) }
+//   pub fn repo(&self) -> Result<&Repo> { Ok(&self.repo) }
+//   pub fn pull(&self) -> Result<()> { self.repo.pull() }
+//   pub fn make_changes(&self, new_tags: &[String]) -> Result<bool> { self.repo.make_changes(new_tags) }
+// 
+//   fn load_path<P: AsRef<Path>>(&self, rel_path: P) -> Result<String> {
+//     let prev = self.repo.slice(self.spec.clone());
+//     let blob = prev.blob(rel_path)?;
+//     let cont: &str = std::str::from_utf8(blob.content())?;
+//     Ok(cont.to_string())
+//   }
+// 
+//   pub fn changes(&self) -> Result<Changes> {
+//     let base = self.repo.slice(self.spec.clone()).refspec().to_string();
+//     let head = self.repo.branch_name().to_string();
+//     changes(&self.repo, head, base)
+//   }
+// 
+//   pub fn line_commits(&self) -> Result<Vec<CommitData>> {
+//     let base = self.repo.slice(self.spec.clone()).refspec().to_string();
+//     let head = self.repo.branch_name().to_string();
+//     line_commits(&self.repo, head, base)
+//   }
+// 
+//   pub fn keyed_files<'a>(&'a self) -> Result<impl Iterator<Item = Result<(String, String)>> + 'a> {
+//     let changes = self.changes()?;
+//     let prs = changes.into_groups().into_iter().map(|(_, v)| v).filter(|pr| !pr.best_guess());
+// 
+//     let mut vec = Vec::new();
+//     for pr in prs {
+//       vec.push(pr_keyed_files(&self.repo, pr));
+//     }
+// 
+//     Ok(vec.into_iter().flatten())
+//   }
+// }
 
 pub struct SliceSource<'r> {
   slice: Slice<'r>,
@@ -117,83 +120,89 @@ pub struct SliceSource<'r> {
 }
 
 impl<'r> Source for SliceSource<'r> {
+  type Loaded = String;
   fn root_dir(&self) -> &Path { &self.root_dir }
   fn has(&self, rel_path: &Path) -> Result<bool> { self.has_path(rel_path) }
-  fn load(&self, rel_path: &Path) -> Result<Option<NamedData>> { self.load_path(rel_path).map(Some) }
+  fn load(&self, rel_path: &Path) -> Result<Option<String>> { self.load_path(rel_path).map(Some) }
+  fn commit_oid(&self) -> Result<Option<String>> { Ok(Some(self.slice.repo().revparse_id(self.slice.refspec())?)) }
 }
 
 impl<'r> SliceSource<'r> {
-  pub fn new(slice: Slice<'r>, root_dir: PathBuf) -> SliceSource { SliceSource { slice, root_dir } }
-
-  pub fn has_path(&self, rel_path: &Path) -> Result<bool> { self.slice.has_blob(rel_path) }
-
-  pub fn slice(&self, spec: String) -> SliceSource<'r> {
-    SliceSource::new(self.slice.slice(spec), self.root_dir.clone())
+  pub fn new(slice: Slice<'r>) -> Result<SliceSource> { 
+    let root_dir = slice.repo().working_dir()?;
+    Ok(SliceSource::at(slice, root_dir.to_path_buf()))
   }
 
-  fn load_path<P: AsRef<Path>>(&self, rel_path: P) -> Result<NamedData> {
+  pub fn at(slice: Slice<'r>, root_dir: PathBuf) -> SliceSource { SliceSource { slice, root_dir } }
+
+  pub fn slice(&self, spec: String) -> SliceSource<'r> {
+    SliceSource::at(self.slice.slice(spec), self.root_dir.clone())
+  }
+
+  pub fn has_remote(&self) -> bool { self.repo().has_remote() }
+  pub fn has_path(&self, rel_path: &Path) -> Result<bool> { self.slice.has_blob(rel_path) }
+  pub fn repo(&self) -> &Repo { &self.slice.repo() }
+  pub fn pull(&self) -> Result<()> { self.repo().pull() }
+  pub fn make_changes(&self, new_tags: &[String]) -> Result<bool> { self.repo().make_changes(new_tags) }
+
+  fn load_path<P: AsRef<Path>>(&self, rel_path: P) -> Result<String> {
     let blob = self.slice.blob(rel_path)?;
     let cont: &str = std::str::from_utf8(blob.content())?;
-    Ok(NamedData::new(None, cont.to_string()))
+    Ok(cont.to_string())
+  }
+
+  pub fn line_commits(&self) -> Result<Vec<CommitData>> {
+    let base = self.slice.refspec().to_string();
+    let head = self.repo().branch_name().to_string();
+    line_commits(&self.repo(), head, base)
   }
 }
 
 pub struct NamedData {
-  writeable_path: Option<PathBuf>,
+  writeable_path: PathBuf,
   data: String
 }
 
+impl From<NamedData> for String {
+  fn from(d: NamedData) -> String { d.data }
+}
+
 impl NamedData {
-  pub fn new(writeable_path: Option<PathBuf>, data: String) -> NamedData { NamedData { writeable_path, data } }
-  pub fn writeable_path(&self) -> &Option<PathBuf> { &self.writeable_path }
+  pub fn new(writeable_path: PathBuf, data: String) -> NamedData { NamedData { writeable_path, data } }
+  pub fn writeable_path(&self) -> &Path { &self.writeable_path }
   pub fn data(&self) -> &str { &self.data }
   pub fn mark(self, mark: Mark) -> MarkedData { MarkedData::new(self.writeable_path, self.data, mark) }
 }
 
 pub struct MarkedData {
-  writeable_path: Option<PathBuf>,
+  writeable_path: PathBuf,
   data: String,
   mark: Mark
 }
 
 impl MarkedData {
-  pub fn new(writeable_path: Option<PathBuf>, data: String, mark: Mark) -> MarkedData {
+  pub fn new(writeable_path: PathBuf, data: String, mark: Mark) -> MarkedData {
     MarkedData { writeable_path, data, mark }
   }
 
-  pub fn write_new_value(&mut self, new_val: &str) -> Result<()> {
-    // Fail before setting internals.
-    if self.writeable_path.is_none() {
-      return versio_err!("Can't write value: no writeable path");
-    }
+  pub fn value(&self) -> &str { self.mark.value() }
+  pub fn start(&self) -> usize { self.mark.start() }
 
+  pub fn write_new_value(&mut self, new_val: &str) -> Result<()> {
     self.set_value(new_val)?;
     self.write()?;
     Ok(())
   }
 
   fn set_value(&mut self, new_val: &str) -> Result<()> {
-    let st = self.mark.start();
-    let ed = st + self.mark.value().len();
+    let st = self.start();
+    let ed = st + self.value().len();
     self.data.replace_range(st .. ed, &new_val);
     self.mark.set_value(new_val.to_string());
     Ok(())
   }
 
-  fn write(&self) -> Result<()> {
-    self
-      .writeable_path
-      .as_ref()
-      .ok_or_else(|| versio_error!("Can't write file: none exists."))
-      .and_then(|writeable_path| Ok(std::fs::write(writeable_path, &self.data)?))?;
-
-    Ok(())
-  }
-
-  pub fn value(&self) -> &str { self.mark.value() }
-  pub fn start(&self) -> usize { self.mark.start() }
-  pub fn data(&self) -> &str { &self.data }
-  pub fn writeable_path(&self) -> &Option<PathBuf> { &self.writeable_path }
+  fn write(&self) -> Result<()> { Ok(std::fs::write(&self.writeable_path, &self.data)?) }
 }
 
 #[derive(Debug)]
@@ -215,6 +224,7 @@ impl Mark {
   pub fn value(&self) -> &str { &self.value }
   pub fn set_value(&mut self, new_val: String) { self.value = new_val; }
   pub fn start(&self) -> usize { self.byte_start }
+  pub fn into_value(self) -> String { self.value }
 }
 
 #[derive(Debug)]
@@ -231,38 +241,5 @@ impl CharMark {
   pub fn into_byte_mark(self, data: &str) -> Result<Mark> {
     let start = data.char_indices().nth(self.char_start).unwrap().0;
     Mark::make(self.value, start)
-  }
-}
-
-fn pr_keyed_files<'a>(repo: &'a Repo, pr: FullPr) -> impl Iterator<Item = Result<(String, String)>> + 'a {
-  let head_oid = match pr.head_oid() {
-    Some(oid) => *oid,
-    None => return E3::C(iter::empty())
-  };
-
-  let iter = repo.commits_between(pr.base_oid(), head_oid).map(move |cmts| {
-    cmts
-      .filter_map(move |cmt| match cmt {
-        Ok(cmt) => {
-          if pr.has_exclude(&cmt.id()) {
-            None
-          } else {
-            match cmt.files() {
-              Ok(files) => {
-                let kind = cmt.kind();
-                Some(E2::A(files.map(move |f| Ok((kind.clone(), f)))))
-              }
-              Err(e) => Some(E2::B(iter::once(Err(e))))
-            }
-          }
-        }
-        Err(e) => Some(E2::B(iter::once(Err(e))))
-      })
-      .flatten()
-  });
-
-  match iter {
-    Ok(iter) => E3::A(iter),
-    Err(e) => E3::B(iter::once(Err(e)))
   }
 }

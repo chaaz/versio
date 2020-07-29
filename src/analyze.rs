@@ -1,4 +1,3 @@
-use crate::source::MarkedData;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -20,13 +19,13 @@ pub fn analyze(olds: Vec<AnnotatedMark>, news: Vec<AnnotatedMark>) -> Analysis {
 pub struct AnnotatedMark {
   id: u32,
   name: String,
-  mark: MarkedData
+  mark: String
 }
 
 impl AnnotatedMark {
-  pub fn new(id: u32, name: String, mark: MarkedData) -> AnnotatedMark { AnnotatedMark { id, name, mark } }
+  pub fn new(id: u32, name: String, mark: String) -> AnnotatedMark { AnnotatedMark { id, name, mark } }
   pub fn name(&self) -> &str { &self.name }
-  pub fn mark(&self) -> &MarkedData { &self.mark }
+  pub fn mark(&self) -> &str { &self.mark }
 }
 
 pub struct Analysis {
@@ -51,7 +50,7 @@ pub struct Change {
 impl Change {
   pub fn calc(old_mark: AnnotatedMark, new_mark: AnnotatedMark) -> Change {
     let name_change = old_mark.name() != new_mark.name();
-    let value_change = old_mark.mark.value() != new_mark.mark().value();
+    let value_change = old_mark.mark() != new_mark.mark();
 
     Change { old_mark, new_mark, name_change, value_change }
   }
@@ -69,7 +68,7 @@ impl Change {
 
   pub fn value(&self) -> Option<(&str, &str)> {
     if self.value_change {
-      Some((self.old_mark.mark.value(), self.new_mark.mark.value()))
+      Some((&self.old_mark.mark, &self.new_mark.mark))
     } else {
       None
     }

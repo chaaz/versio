@@ -61,13 +61,13 @@ manage multiple projects in the same repo.
 ## Git Integration
 
 In a `git` repository, `versio` is even more useful. You can assign
-"covers" to your projects, and "sizes" to your repo:
+"includes" to your projects, and "sizes" to your repo:
 
 ```yaml
 projects:
   - name: codebase
     id: 1
-    covers: ["codebase/**/*"]
+    includes: ["codebase/**/*"]
     located:
       file: "codebase/package.json"
       json: "version"
@@ -84,7 +84,7 @@ Now, Versio can scan your commits to determine how it should increment
 each project version.
 
 A project is said to _cover_ a git commit if that commit has a file
-change matching any glob pattern of the project's "covers" key. The
+change matching any glob pattern of the project's "includes" key. The
 _size_ of a commit is determined by the type of its [conventional
 commit](https://www.conventionalcommits.org/en/v1.0.0/) message, as it
 maps to the "sizes" property in the Versio config.
@@ -143,7 +143,7 @@ The `run` command will:
    `versio-prev` tag
 1. find the size for each commit
 1. increment each project version by the maximum size of commits
-   it covers
+   it includes
 1. commit those version increments to git
 1. re-assign the `versio-prev` tag to that latest commit
 1. push both the commit and the tag to the remote
@@ -155,7 +155,7 @@ doesn't have any remotes added.
 
 > TODO: the description here is unclear, and not entirely accurate.
 
-Plans are built with respect to **previous** projects and covers. That
+Plans are built with respect to **previous** projects and includes. That
 is, Versio will read the `.versio.yaml` file as it existed in the past
 (at the `versio-prev` tag) to determine which projects need to be
 incremented, and what version they need to be incremented to. New

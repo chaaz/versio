@@ -1,5 +1,7 @@
 # Go Projects
 
+> TODO: rework this whole document
+
 Go projects don't have a manifest file. Instead, versions are tracked
 via published tags in the repo, which have the form
 `v<major>.<minor>.<patch>` e.g. `v2.4.15`. Furthermore, many Go projects

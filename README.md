@@ -1,10 +1,14 @@
 # Versio
 
-Versio (pronounced _vir_-zee-oh) is a simple command-line version
-management tool, which reads and writes versions of your projects for
-you. It also can scan your conventional commits to calculate the next
-best version, build release notes (a.k.a. changelog), and create GitHub
-Releases.
+Versio (pronounced _vir_-zee-oh) is a simple tool to manage the
+progression of a project. It intelligently reads and writes project
+versions, updates version numbers based on conventional commits,
+generates changelogs, and publishes the project to a variety of
+distribution targets.
+
+Versio is especially intelligent when dealing with monorepos, allowing
+not only individual control of each project within the repo, but also
+managing dependencies and references among them.
 
 ## Quick Start
 
@@ -24,52 +28,77 @@ up and running quickly with Versio, once you have it installed.
 
 ## Background
 
-Most software projects have some sort of manifest. Node projects have a
-"package.json" file, Rust has "Cargo.toml", Java projects have their
-Maven "pom.xml" and so forth. Within each manifest file is a
-value&mdash;usually something in "_&lt;major>.&lt;minor>.&lt;patch>_"
-format&mdash;that indicates the current version of the project. (Go
-projects don't have a manifested version _per se_, but use Git tags
-instead; see below.) The value itself can be somewhat arbitrary, except
-that larger numbers usually indicate later versions. Standards like
-[semver](https://semver.org/) apply more meaning to the numbers,
-correlating kinds of version number increments to the scope of changes.
+<!---
+A developer of a project&mdash;after making some changes to a
+project&mdash;might "release" her work: she will update the version
+number, write a short log explaining her changes, and then publish the
+new software to make it widely available. However, this
+code-then-release process quickly becomes difficult to maintain.
 
-Naïvely, developers may be expected to update the manifest as they
-commit changes to the codebase, to reflect how the software version is
-evolving with their changes. However, this doesn't work well in
-practice: a version number change usually corresponds to a set of
-development changes _in toto_, and not to a specific contribution. Thus,
-developers might not be able to intelligently decide when a version
-number should be bumped. If multiple developers provide conflicting
-version increments, it can be a headache to resolve those conflicts
-automatically.
+In projects of even modest complexity, a software release usually
+corresponds to a set of development changes _in toto_, and not to a
+specific contribution from a single person. In larger communities,
+individual contributors might not even decide when a release should
+occur. If multiple developers provide conflicting version increments, it
+can be a headache to resolve. And it can be inefficient to halt all
+contributions while a release is being built.
+-->
 
-Versio can view and edit version numbers with simple commands, allowing
-those values to be kept up-to-date by tooling during the release
-process, instead of by individual contributors during development. It
-can keep track of multiple projects in a single repository (a so-called
-[monorepo](https://en.wikipedia.org/wiki/Monorepo)), and track separate
-version numbers and interdependencies for each. If developers use
-[conventional commits](https://www.conventionalcommits.org/), Versio can
-intelligently aggregate commit information to choose the best new
-version of each project during a release.
+There have been many tools and strategies surrounding the  *release
+process* in software: the series of steps by which a set of changes to a
+software product is described, assigned a unique version number, and
+then made available to a wider audience. Versio is one such tool: it can
+use information found in [conventional
+commits](https://www.conventionalcommits.org/) to update version
+numbers, generate a changelog, and publish the software to standard
+distribution targets. It is especially adept at handling multiple
+projects in a single repository (a so-called
+[monorepo](https://en.wikipedia.org/wiki/Monorepo)), tracking separate
+version numbers and interdependencies for each.
+
+Software projects keep their version number somewhere using a manifest
+file or tagging scheme. Node.js projects (that use `npm` to manage) have
+a "version" property in their "package.json" file, Rust (`Cargo`) uses
+"Cargo.toml", Java (`Maven`) has "pom.xml", Python (`pip`) has
+"setup.py", Ruby (`gem`) has gemspec files and so forth; Go projects do
+something similar, but use VCS tags instead of a manifest file. To use
+Versio, you have to create a config file that lists the location of each
+project in your repo, along with the location of the project's version
+number.
+
+> TODO: future versions of Versio will be able to automatically detect
+> existing versions
+
+Here's a very simple example project that covers the entirety of
+the repository.
+
+```
+- name: project
+  id: 1
+  includes: ["**/*"]
+  located:
+    file: "package.json"
+    json: "version"
+```
 
 ## How It Works
 
-- Versio reads from a `.versio.yaml` file at the root of your
-  repository, and reads the version number of each project referenced
+- Versio reads a config file (default: `.versio.yaml`) in your
+  repository, and finds the version number of each project referenced
   there.
-- It also reads older versions of the same `.versio.yaml` file, starting
-  at a `versio-prev` tag from git history, and also reads historic
-  version numbers of your projects.
-- Based on the old version, new version, and the contents of
-  conventional commits, Versio can update a project version number.
-- Versio will commit/push the updated manifest files, and push forward
-  the `versio-prev` tag.
-- Versio can create or update per-project version tags.
+- It also reads previous versions of the same config file and version
+  numbers, starting at a specific tag (default: `versio-prev`) in your
+  change control history.
+- Based on the old versions, new version, and the contents of
+  intervening conventional commits, Versio will update your projects'
+  version numbers.
+- Versio will commit and push the updated manifest files, and push
+  forward the `versio-prev` tag.
+- Versio can also create or update per-project version tags.
 - Versio can generate or update a changelog based on the pull requests
   and commits that have been added since the last release.
+- Finally, Versio can publish each project to its most appropriate
+  distribution targets.
 
 ## PR Scanning
 
@@ -98,22 +127,33 @@ PR branches from GitHub until after they've been part of a release.
 > TODO: After using a PR as part of release, Versio can delete its
 > associated branch, since it won't need to be used anymore.
 
-## Go Style Projects
+## Go-style Projects
 
-Go projects don't have a manifest file, but use Git tags in the style of
-`v2.4.15` to track version numbers. Furthermore, many Go projects keep a
-separate directory for each major release after v1.
+Go projects don't have a manifest file, but use Git (or other VCS) tags
+in the form `v1.2.3` to track version numbers. Furthermore, many Go
+projects keep a separate directory for each major release after v1.
+Versio supports both of these idioms.
 
-To accommodate these departures from the norm, you can use a "tags"
-style manifest for a project:
+### Version Tags
+
+You can use Git or other VCS tags to record the version of a project
+instead of writing it in a manifest file. To do so, simply use `tags` as
+your `located` for the project:
 
 ```yaml
+tag_prefix: "projname"
 located:
-  at: projectName
   tags:
-    all: {}
+    default: "0.0.0"
 ```
 
+The `tag_prefix` property causes Versio to write out a new
+"projname-v*x.y.z*" tag for the project when the version number is
+changed. It is optional for most projects, but required for projects
+that use `located: tags`. The default value is used when no existing
+"projname-v*x.y.z*" tags currently exist.
+
+<!---
 > Warning! This style of project requires the `tag_prefix` property to
 > be present, which creates/updates git tags like
 > `<<tag_prefix>>-v1.2.3` for the project. Since only one project in the
@@ -121,25 +161,98 @@ located:
 > Go-standard prefix-less tags like `v1.2.3`), this makes it difficult
 > to properly deploy monorepos that contain more than one Go-style
 > project.
+-->
 
-This allows for standard go-style subdirectories on any branch inside of
-the `projectName` folder. You can use `at: .` if your project exists at
-the top-level of your repository.
+> If the tag prefix is *empty* (`tag_prefix: ""`), then tags for the
+> project take a non-prefixed form "v*a.b.c*", which is conducive to
+> most Go tools: `got get` and `go mod` especially search for version
+> tags in that form. If you do use a prefix, you'll need to reference
+> your project explicitly by its prefixed tag for those tools: e.g. `go
+> get server.io/path/to/proj@projname-v1.2.3`, or you'll probably just
+> end up with the latest commit.
+>
+> The problem is compounded in a monorepo with two or more Go projects:
+> only one of those projects can have an empty prefix, because prefixes
+> must be unique. Also, tags in most VCS apply to an entire repo, and
+> not just a single project. Be very careful referencing your projects
+> with Go tools in this situation: it's almost always best to reference
+> all your projects with explicit tags.
 
-There are more options that let you have a finer control over the
-directory layout and branching. See [Go Projects](./docs/gostyle.md) for more
-details.
+There are other options available to fine-tune control of version tags:
+see [Go Projects](./docs/gostyle.md) for more info.
+
+### Subdirectories
+
+It's common in Go projects to keep the major versions 0 and 1 code in a
+top-level directory, but to put later versions inside their own
+sub-directories, such as `v2`, `v3`, etc.
+
+You can do this in Versio by providing a `subs` property:
+
+```
+root: `my_proj_dir`
+subs: {}
+```
+
+`root` is a useful property that specifies a relative base directory for
+the `changelog`, `located.file` and `includes`/`excludes` of a project.
+It is optional on most projects, but required on any project that has
+`subs`.
+
+By default, `subs` creates a "subproject" for each directory it detects
+in a name like "v*N*". The root directory for the sub is extended by
+that directory, but other properties are (more or less) copied over
+unaltered. Subprojects are prohibited from having version numbers that
+that don't match up with their directory name.
+
+There are other options available to fine-tune control of subprojects:
+see [Go Projects](./docs/gostyle.md) for more info.
 
 ## Running
 
 Check out the [Using Versio](docs/usage.md) page for details on running
 Versio, including all command-line options and the format of the
-`.versio.yaml` config file. The [Publishing](./docs/publishing.md)
-document shows specifically how Versio can publish your software. And
-the [Go Projects](./docs/gostyle.md) doc talks about how to use Versio
-for the unique versioning approach of "Go"-style projects.
+`.versio.yaml` config file. [Use Cases](./docs/use_cases.md) lists
+specific use cases that might meet a need in your project. The
+[Publishing](./docs/publishing.md) document shows specifically how
+Versio can publish your software. And the [Go
+Projects](./docs/gostyle.md) doc talks about how to use Versio for the
+unique versioning approach of "Go"-style projects.
 
 ## Troubleshooting
+
+Generally, there are three ways that Versio can fail:
+
+1. It will fail to run entirely, exiting with some kind of error.
+1. It will incorrectly calculate the new version for one or more
+   projects.
+1. It will incorrectly write files, or commit, tag, or push the
+   repository.
+
+### Errors
+
+> TODO
+
+### Bad Calculations
+
+> TODO
+
+Use `versio show` and `versio show --prev` to see the current/previous
+version numbers.
+
+Use `versio plan --verbose` to get a listing of all PRs, files,
+dependencies, locks, etc. that go into calculating version numbers.
+
+### Bad Operations
+
+> TODO
+
+Use `versio run --show-all --verbose` to show all the reasoning used to
+figure out the correct filesystem / VCS operations to take. You might
+want to use `--verbose` in your CI for a while to record and debug that
+reasoning.
+
+`--dry-run` will prevent such actions from actually being taken.
 
 ### Tracking
 

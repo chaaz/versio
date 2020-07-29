@@ -5,7 +5,7 @@ use crate::error::Result;
 use crate::scan::parts::ToPart;
 use crate::scan::parts::{IntoPartVec, Part};
 use crate::scan::Scanner;
-use crate::source::{Mark, MarkedData, NamedData};
+use crate::source::Mark;
 use serde::de::{self, DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Unexpected, Visitor};
 use std::sync::{Arc, Mutex};
 
@@ -23,10 +23,8 @@ impl JsonScanner {
 }
 
 impl Scanner for JsonScanner {
-  fn scan(&self, data: NamedData) -> Result<MarkedData> {
-    let byte_mark = scan_json(&data.data(), self.target.clone())?;
-    Ok(data.mark(byte_mark))
-  }
+  fn build(parts: Vec<Part>) -> JsonScanner { JsonScanner { target: parts } }
+  fn find(&self, data: &str) -> Result<Mark> { scan_json(data, self.target.clone()) }
 }
 
 fn scan_json<P: IntoPartVec>(data: &str, loc: P) -> Result<Mark> {
@@ -198,7 +196,7 @@ impl<'a> std::io::Read for MeteredReader<'a> {
 #[cfg(test)]
 mod test {
   use super::JsonScanner;
-  use crate::{scan::Scanner, source::NamedData};
+  use crate::scan::Scanner;
 
   #[test]
   fn test_json() {
@@ -207,9 +205,9 @@ mod test {
   "version": "1.2.3"
 }"#;
 
-    let marked_data = JsonScanner::new("version").scan(NamedData::new(None, doc.to_string())).unwrap();
-    assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(17, marked_data.start());
+    let mark = JsonScanner::new("version").find(doc).unwrap();
+    assert_eq!("1.2.3", mark.value());
+    assert_eq!(17, mark.start());
   }
 
   #[test]
@@ -223,9 +221,9 @@ mod test {
   ]
 ]"#;
 
-    let marked_data = JsonScanner::new("1.1").scan(NamedData::new(None, doc.to_string())).unwrap();
-    assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(37, marked_data.start());
+    let mark = JsonScanner::new("1.1").find(doc).unwrap();
+    assert_eq!("1.2.3", mark.value());
+    assert_eq!(37, mark.start());
   }
 
   #[test]
@@ -240,9 +238,9 @@ mod test {
   }
 }"#;
 
-    let marked_data = JsonScanner::new("version.thing.1.version").scan(NamedData::new(None, doc.to_string())).unwrap();
-    assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(68, marked_data.start());
+    let mark = JsonScanner::new("version.thing.1.version").find(doc).unwrap();
+    assert_eq!("1.2.3", mark.value());
+    assert_eq!(68, mark.start());
   }
 
   #[test]
@@ -256,11 +254,9 @@ mod test {
   }
 }"#;
 
-    let marked_data = JsonScanner::from_parts(&[&"outer", &"0", &0, &"the.version"])
-      .scan(NamedData::new(None, doc.to_string()))
-      .unwrap();
-    assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(51, marked_data.start());
+    let mark = JsonScanner::from_parts(&[&"outer", &"0", &0, &"the.version"]).find(doc).unwrap();
+    assert_eq!("1.2.3", mark.value());
+    assert_eq!(51, mark.start());
   }
 
   #[test]
@@ -274,8 +270,8 @@ mod test {
   ]
 ]"#;
 
-    let marked_data = JsonScanner::new("1.1").scan(NamedData::new(None, doc.to_string())).unwrap();
-    assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(39, marked_data.start());
+    let mark = JsonScanner::new("1.1").find(doc).unwrap();
+    assert_eq!("1.2.3", mark.value());
+    assert_eq!(39, mark.start());
   }
 }

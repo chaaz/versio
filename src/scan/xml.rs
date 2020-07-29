@@ -7,7 +7,7 @@ use crate::error::Result;
 use crate::scan::parts::ToPart;
 use crate::scan::parts::{is_match_str, IntoPartVec, Part};
 use crate::scan::Scanner;
-use crate::source::{Mark, MarkedData, NamedData};
+use crate::source::Mark;
 use xmlparser::{ElementEnd, Token, Tokenizer};
 
 pub struct XmlScanner {
@@ -22,10 +22,8 @@ impl XmlScanner {
 }
 
 impl Scanner for XmlScanner {
-  fn scan(&self, data: NamedData) -> Result<MarkedData> {
-    let byte_mark = scan_xml(data.data(), self.target.clone())?;
-    Ok(data.mark(byte_mark))
-  }
+  fn build(parts: Vec<Part>) -> XmlScanner { XmlScanner { target: parts } }
+  fn find(&self, data: &str) -> Result<Mark> { scan_xml(data, self.target.clone()) }
 }
 
 fn scan_xml<P: IntoPartVec>(data: &str, loc: P) -> Result<Mark> {
@@ -80,16 +78,16 @@ fn is_ending(end: &ElementEnd) -> bool {
 #[cfg(test)]
 mod test {
   use super::XmlScanner;
-  use crate::{scan::Scanner, source::NamedData};
+  use crate::scan::Scanner;
 
   #[test]
   fn test_xml() {
     let doc = r#"
 <version>1.2.3</version>"#;
 
-    let marked_data = XmlScanner::new("version").scan(NamedData::new(None, doc.to_string())).unwrap();
-    assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(10, marked_data.start());
+    let mark = XmlScanner::new("version").find(doc).unwrap();
+    assert_eq!("1.2.3", mark.value());
+    assert_eq!(10, mark.start());
   }
 
   #[test]
@@ -101,9 +99,9 @@ mod test {
   </thing>
 </version>"#;
 
-    let marked_data = XmlScanner::new("version.thing.version").scan(NamedData::new(None, doc.to_string())).unwrap();
-    assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(34, marked_data.start());
+    let mark = XmlScanner::new("version.thing.version").find(doc).unwrap();
+    assert_eq!("1.2.3", mark.value());
+    assert_eq!(34, mark.start());
   }
 
   #[test]
@@ -113,10 +111,9 @@ mod test {
   <the.version>1.2.3</version>
 </_0>"#;
 
-    let marked_data =
-      XmlScanner::from_parts(&[&"_0", &"the.version"]).scan(NamedData::new(None, doc.to_string())).unwrap();
-    assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(21, marked_data.start());
+    let mark = XmlScanner::from_parts(&[&"_0", &"the.version"]).find(doc).unwrap();
+    assert_eq!("1.2.3", mark.value());
+    assert_eq!(21, mark.start());
   }
 
   #[test]
@@ -124,8 +121,8 @@ mod test {
     let doc = r#"
 <naïve><versíøn>1.2.3</naïve></versíøn>"#;
 
-    let marked_data = XmlScanner::new("naïve.versíøn").scan(NamedData::new(None, doc.to_string())).unwrap();
-    assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(20, marked_data.start());
+    let mark = XmlScanner::new("naïve.versíøn").find(doc).unwrap();
+    assert_eq!("1.2.3", mark.value());
+    assert_eq!(20, mark.start());
   }
 }

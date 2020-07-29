@@ -5,7 +5,7 @@ use crate::error::Result;
 use crate::scan::parts::ToPart;
 use crate::scan::parts::{IntoPartVec, Part};
 use crate::scan::Scanner;
-use crate::source::{CharMark, MarkedData, NamedData};
+use crate::source::{CharMark, Mark};
 use yaml_rust::parser::{Event, MarkedEventReceiver, Parser};
 use yaml_rust::scanner::{Marker, TScalarStyle};
 
@@ -21,10 +21,10 @@ impl YamlScanner {
 }
 
 impl Scanner for YamlScanner {
-  fn scan(&self, data: NamedData) -> Result<MarkedData> {
-    let char_mark = scan_yaml(&data.data(), self.target.clone())?;
-    let byte_mark = char_mark.into_byte_mark(data.data())?;
-    Ok(data.mark(byte_mark))
+  fn build(parts: Vec<Part>) -> YamlScanner { YamlScanner { target: parts } }
+  fn find(&self, data: &str) -> Result<Mark> {
+    let char_mark = scan_yaml(data, self.target.clone())?;
+    char_mark.into_byte_mark(data)
   }
 }
 
@@ -202,7 +202,7 @@ enum Expect {
 #[cfg(test)]
 mod test {
   use super::{scan_yaml, YamlScanner};
-  use crate::{scan::Scanner, source::NamedData};
+  use crate::scan::Scanner;
 
   #[test]
   fn test_yaml() {
@@ -241,11 +241,11 @@ thing:
     let doc = r#"
 name: "Bób"
 thing:
-  - version: 1.2.3"#;
+  - versîøn: 1.2.3"#;
 
-    let marked_data = YamlScanner::new("thing.0.version").scan(NamedData::new(None, doc.to_string())).unwrap();
-    assert_eq!("1.2.3", marked_data.value());
-    assert_eq!(34, marked_data.start());
+    let mark = YamlScanner::new("thing.0.versîøn").find(doc).unwrap();
+    assert_eq!("1.2.3", mark.value());
+    assert_eq!(36, mark.start());
   }
 
   #[test]
@@ -254,9 +254,9 @@ thing:
 package:
   - version: "0.0.6""#;
 
-    let marked_data = YamlScanner::new("package.0.version").scan(NamedData::new(None, doc.to_string())).unwrap();
-    assert_eq!("0.0.6", marked_data.value());
-    assert_eq!(24, marked_data.start());
+    let mark = YamlScanner::new("package.0.version").find(doc).unwrap();
+    assert_eq!("0.0.6", mark.value());
+    assert_eq!(24, mark.start());
   }
 
   #[test]
@@ -266,9 +266,8 @@ package:
   0: { the.version: "0.0.6" }"#;
 
     // "package.0.the.version" doesn't work here.
-    let marked_data =
-      YamlScanner::from_parts(&[&"package", &"0", &"the.version"]).scan(NamedData::new(None, doc.to_string())).unwrap();
-    assert_eq!("0.0.6", marked_data.value());
-    assert_eq!(31, marked_data.start());
+    let mark = YamlScanner::from_parts(&[&"package", &"0", &"the.version"]).find(doc).unwrap();
+    assert_eq!("0.0.6", mark.value());
+    assert_eq!(31, mark.start());
   }
 }
