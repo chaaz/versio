@@ -3,11 +3,11 @@
 //! TODO: versions in CDATA, attributes
 
 use crate::error::Result;
+use crate::mark::Mark;
 #[cfg(test)]
 use crate::scan::parts::ToPart;
 use crate::scan::parts::{is_match_str, IntoPartVec, Part};
 use crate::scan::Scanner;
-use crate::mark::Mark;
 use xmlparser::{ElementEnd, Token, Tokenizer};
 
 pub struct XmlScanner {

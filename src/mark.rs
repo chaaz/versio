@@ -1,4 +1,3 @@
-
 //! Management of reading and writing marks to files.
 
 use crate::error::Result;
@@ -65,15 +64,11 @@ struct ScanningPicker<T: Scanner> {
 }
 
 impl<T: Scanner> Clone for ScanningPicker<T> {
-  fn clone(&self) -> ScanningPicker<T> {
-    ScanningPicker { parts: self.parts.clone(), _scan: PhantomData }
-  }
+  fn clone(&self) -> ScanningPicker<T> { ScanningPicker { parts: self.parts.clone(), _scan: PhantomData } }
 }
 
 impl<T: Scanner> fmt::Debug for ScanningPicker<T> {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "ScanningPicker {{ {:?} }}", self.parts)
-  }
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "ScanningPicker {{ {:?} }}", self.parts) }
 }
 
 impl<T: Scanner> ScanningPicker<T> {

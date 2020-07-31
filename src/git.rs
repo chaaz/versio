@@ -4,12 +4,12 @@ use crate::either::IterEither2 as E2;
 use crate::error::Result;
 use chrono::{DateTime, FixedOffset};
 use git2::build::CheckoutBuilder;
+use git2::string_array::StringArray;
 use git2::{
   AnnotatedCommit, AutotagOption, Blob, Commit, Cred, Diff, DiffOptions, FetchOptions, Index, Object, ObjectType, Oid,
   PushOptions, Reference, ReferenceType, Remote, RemoteCallbacks, Repository, RepositoryOpenFlags, RepositoryState,
   ResetType, Signature, Status, StatusOptions, Time
 };
-use git2::string_array::StringArray;
 use std::cell::RefCell;
 use std::cmp::min;
 use std::collections::HashMap;
@@ -80,9 +80,7 @@ impl Repo {
   pub fn remote_name(&self) -> &Option<String> { &self.remote_name }
   pub fn has_remote(&self) -> bool { self.remote_name.is_some() }
 
-  pub fn tag_names(&self, pattern: Option<&str>) -> Result<StringArray> {
-    Ok(self.repo.tag_names(pattern)?)
-  }
+  pub fn tag_names(&self, pattern: Option<&str>) -> Result<StringArray> { Ok(self.repo.tag_names(pattern)?) }
 
   // pub fn utf8_tag_names<'a>(&'a self, pattern: Option<&str>) -> Result<impl Iterator<Item = &'a str> + 'a> {
   //   let arr = self.repo.tag_names(pattern)?;

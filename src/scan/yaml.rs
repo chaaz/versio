@@ -1,11 +1,11 @@
 //! Utilities to find a mark in a YAML file.
 
 use crate::error::Result;
+use crate::mark::{CharMark, Mark};
 #[cfg(test)]
 use crate::scan::parts::ToPart;
 use crate::scan::parts::{IntoPartVec, Part};
 use crate::scan::Scanner;
-use crate::mark::{CharMark, Mark};
 use yaml_rust::parser::{Event, MarkedEventReceiver, Parser};
 use yaml_rust::scanner::{Marker, TScalarStyle};
 

@@ -1,11 +1,11 @@
 //! Utilities to find a mark in a JSON file.
 
 use crate::error::Result;
+use crate::mark::Mark;
 #[cfg(test)]
 use crate::scan::parts::ToPart;
 use crate::scan::parts::{IntoPartVec, Part};
 use crate::scan::Scanner;
-use crate::mark::Mark;
 use serde::de::{self, DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Unexpected, Visitor};
 use std::sync::{Arc, Mutex};
 

@@ -1,11 +1,11 @@
 //! Utilities to find a mark in a TOML file.
 
 use crate::error::Result;
+use crate::mark::Mark;
 #[cfg(test)]
 use crate::scan::parts::ToPart;
 use crate::scan::parts::{IntoPartVec, Part};
 use crate::scan::Scanner;
-use crate::mark::Mark;
 use serde::de::{self, DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Unexpected, Visitor};
 use toml::Spanned;
 
@@ -171,8 +171,7 @@ thing = [ "thing2", "1.2.3" ]"#;
 [[0]]
 "the.version" = "1.2.3""#;
 
-    let mark =
-      TomlScanner::from_parts(&[&"0", &0, &"the.version"]).find(doc).unwrap();
+    let mark = TomlScanner::from_parts(&[&"0", &0, &"the.version"]).find(doc).unwrap();
     assert_eq!("1.2.3", mark.value());
     assert_eq!(24, mark.start());
   }

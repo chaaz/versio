@@ -8,9 +8,9 @@ pub use self::toml::TomlScanner;
 pub use self::xml::XmlScanner;
 use crate::error::Result;
 use crate::mark::{Mark, MarkedData, NamedData};
+use crate::scan::parts::Part;
 pub use json::JsonScanner;
 pub use yaml::YamlScanner;
-use crate::scan::parts::Part;
 
 pub trait Scanner {
   fn build(parts: Vec<Part>) -> Self;
