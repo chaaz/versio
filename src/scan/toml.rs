@@ -5,7 +5,7 @@ use crate::error::Result;
 use crate::scan::parts::ToPart;
 use crate::scan::parts::{IntoPartVec, Part};
 use crate::scan::Scanner;
-use crate::source::Mark;
+use crate::mark::Mark;
 use serde::de::{self, DeserializeSeed, Deserializer, IgnoredAny, MapAccess, SeqAccess, Unexpected, Visitor};
 use toml::Spanned;
 

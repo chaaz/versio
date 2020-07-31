@@ -7,7 +7,7 @@ use crate::error::Result;
 use crate::scan::parts::ToPart;
 use crate::scan::parts::{is_match_str, IntoPartVec, Part};
 use crate::scan::Scanner;
-use crate::source::Mark;
+use crate::mark::Mark;
 use xmlparser::{ElementEnd, Token, Tokenizer};
 
 pub struct XmlScanner {

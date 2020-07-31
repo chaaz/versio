@@ -74,7 +74,7 @@ impl Repo {
     self.repo.workdir().ok_or_else(|| versio_error!("Repo has no working dir"))
   }
 
-  pub fn revparse_id(&self, spec: &str) -> Result<String> { Ok(self.repo.revparse_single(spec)?.id().to_string()) }
+  pub fn revparse_oid(&self, spec: &str) -> Result<String> { Ok(self.repo.revparse_single(spec)?.id().to_string()) }
   pub fn slice(&self, refspec: String) -> Slice { Slice { repo: self, refspec } }
   pub fn branch_name(&self) -> &str { &self.branch_name }
   pub fn remote_name(&self) -> &Option<String> { &self.remote_name }
@@ -144,7 +144,7 @@ impl Repo {
       self.push(new_tags)?;
       Ok(true)
     } else {
-      // TODO: push the tag regardless
+      // TODO: push the tags regardless
       Ok(false)
     }
   }

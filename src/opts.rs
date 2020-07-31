@@ -559,3 +559,17 @@ fn check(mono: &Mono) -> Result<()> {
 
 fn unknown_cmd(c: &str) -> Result<()> { versio_err!("Unknown command: \"{}\" (try \"help\").", c) }
 fn empty_cmd() -> Result<()> { versio_err!("No command (try \"help\").") }
+
+// from project
+
+  fn show<S: StateRead>(&self, state: &S, name_width: usize, format: &ShowFormat) -> Result<()> {
+    let mark = self.get_mark_value(state)?;
+    if format.version_only {
+      println!("{}", mark);
+    } else if format.wide {
+      println!("{:>4}. {:width$} : {}", self.id, self.name, mark, width = name_width);
+    } else {
+      println!("{:width$} : {}", self.name, mark, width = name_width);
+    }
+    Ok(())
+  }
