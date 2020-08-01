@@ -4,9 +4,10 @@ use crate::config::ProjectId;
 use crate::error::Result;
 use crate::git::{Repo, Slice};
 use crate::mark::{NamedData, Picker};
-use std::collections::HashMap;
-use std::convert::identity;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::fs::OpenOptions;
+use std::io::Write;
 
 pub trait StateRead {
   /// Find the commit hash it's reading from; returns `None` if it is located at the current state.
@@ -30,13 +31,16 @@ impl StateRead for CurrentState {
 }
 
 impl CurrentState {
+  pub fn new(root: PathBuf, tags: OldTags) -> CurrentState { CurrentState { root, tags } }
+
   pub fn open<P: AsRef<Path>>(dir: P, tags: OldTags) -> Result<CurrentState> {
     Ok(CurrentState { root: Repo::root_dir(dir)?, tags })
   }
 
   pub fn slice<'r>(&self, spec: String, repo: &'r Repo) -> Result<PrevState<'r>> {
     let commit_oid = repo.revparse_oid(&spec)?;
-    Ok(PrevState::new(repo.slice(spec), commit_oid, self.tags.slice_earlier(&commit_oid)?))
+    let old_tags = self.tags.slice_earlier(&commit_oid)?;
+    Ok(PrevState::new(repo.slice(spec), commit_oid, old_tags))
   }
 }
 
@@ -63,7 +67,8 @@ impl<'r> PrevState<'r> {
 
   pub fn slice(&self, spec: String) -> Result<PrevState<'r>> {
     let commit_oid = self.slice.repo().revparse_oid(self.slice.refspec())?;
-    Ok(PrevState::new(self.slice.slice(spec), commit_oid, self.tags.slice_earlier(&commit_oid)?))
+    let old_tags = self.tags.slice_earlier(&commit_oid)?;
+    Ok(PrevState::new(self.slice.slice(spec), commit_oid, old_tags))
   }
 
   fn has(&self, path: &Path) -> Result<bool> { self.slice.has_blob(path) }
@@ -93,40 +98,67 @@ impl OldTags {
 
   fn latest(&self, prefix: &str) -> Option<&String> { self.by_prefix.get(prefix).and_then(|p| p.first()) }
 
-  /// Get the latest string that doesn't come after the given boundry oid
-  fn not_after(&self, prefix: &str, boundry: &str) -> Option<&String> {
-    self.not_after.get(boundry).and_then(|m| m.get(prefix)).map(|i| &self.by_prefix[prefix][*i])
-  }
+  // /// Get the latest string that doesn't come after the given boundry oid
+  // fn not_after(&self, prefix: &str, boundry: &str) -> Option<&String> {
+  //   self.not_after.get(boundry).and_then(|m| m.get(prefix)).map(|i| &self.by_prefix[prefix][*i])
+  // }
 
   /// Construct a tags index for an earlier commit; a `latest` call on the returned index will match the
   /// `not_after(new_oid)` on this index.
-  pub fn slice_earlier(&self, new_oid: &str) -> Result<OldTags> { unimplemented!() }
+  pub fn slice_earlier(&self, new_oid: &str) -> Result<OldTags> {
+    let mut by_prefix = HashMap::new();
+    let mut not_after = HashMap::new();
+
+    for (pref, afts) in &self.not_after {
+      let ind: usize = *afts.get(new_oid).ok_or_else(|| versio_error!("Bad new_oid {}", new_oid))?;
+      let list = self.by_prefix.get(pref).ok_or_else(|| versio_error!("Illegal prefix {} oid for {}", pref, new_oid))?;
+      let list = list[ind ..].to_vec();
+      by_prefix.insert(pref.clone(), list);
+
+      let new_afts =
+        afts.iter().filter_map(|(oid, i)| if i >= &ind { Some((oid.clone(), i - ind)) } else { None }).collect();
+      not_after.insert(pref.clone(), new_afts);
+    }
+
+    Ok(OldTags::new(by_prefix, not_after))
+  }
 }
 
 pub struct StateWrite {
   writes: Vec<FileWrite>,
+  proj_writes: HashSet<ProjectId>,
   tag_head: Vec<String>,
   tag_commit: HashMap<String, String>,
   tag_head_or_last: Vec<(String, ProjectId)>
 }
 
+impl Default for StateWrite {
+  fn default() -> StateWrite { StateWrite::new() }
+}
+
 impl StateWrite {
   pub fn new() -> StateWrite {
-    StateWrite { writes: Vec::new(), tag_head: Vec::new(), tag_commit: HashMap::new(), tag_head_or_last: Vec::new() }
+    StateWrite {
+      writes: Vec::new(), tag_head: Vec::new(), tag_commit: HashMap::new(), tag_head_or_last: Vec::new(),
+      proj_writes: HashSet::new()
+    }
   }
 
-  pub fn write_file<C: ToString>(&mut self, file: PathBuf, content: C) -> Result<()> {
+  pub fn write_file<C: ToString>(&mut self, file: PathBuf, content: C, proj_id: ProjectId) -> Result<()> {
     self.writes.push(FileWrite::Write { path: file, val: content.to_string() });
+    self.proj_writes.insert(proj_id);
     Ok(())
   }
 
-  pub fn append_file<C: ToString>(&mut self, file: PathBuf, content: C) -> Result<()> {
+  pub fn append_file<C: ToString>(&mut self, file: PathBuf, content: C, proj_id: ProjectId) -> Result<()> {
     self.writes.push(FileWrite::Append { path: file, val: content.to_string() });
+    self.proj_writes.insert(proj_id);
     Ok(())
   }
 
-  pub fn update_mark<C: ToString>(&mut self, pick: PickPath, content: C) -> Result<()> {
+  pub fn update_mark<C: ToString>(&mut self, pick: PickPath, content: C, proj_id: ProjectId) -> Result<()> {
     self.writes.push(FileWrite::Update { pick, val: content.to_string() });
+    self.proj_writes.insert(proj_id);
     Ok(())
   }
 
@@ -145,7 +177,7 @@ impl StateWrite {
     Ok(())
   }
 
-  pub fn commit(&mut self, repo: &Repo) -> Result<()> {
+  pub fn commit(&mut self, repo: &Repo, last_commits: &HashMap<ProjectId, String>) -> Result<()> {
     for write in &self.writes {
       write.write()?;
     }
@@ -153,37 +185,33 @@ impl StateWrite {
     self.writes.clear();
 
     if did_write {
-      self.perform_commit(repo)?;
+      repo.commit()?;
     }
 
     for tag in &self.tag_head {
-      self.update_tag_head(tag)?;
+      repo.update_tag_head(tag)?;
     }
     self.tag_head.clear();
 
     for (tag, proj_id) in &self.tag_head_or_last {
-      if self.has_written(*proj_id) {
-        self.update_tag_head(tag)?;
+      if self.proj_writes.contains(&proj_id) {
+        repo.update_tag_head(tag)?;
+      } else if let Some(oid) = last_commits.get(proj_id) {
+        repo.update_tag(tag, oid)?;
       } else {
-        self.update_tag(self.latest_commit(*proj_id)?, tag)?;
+        println!("Latest commit for project {} unknown: tagging head.", proj_id);
+        repo.update_tag_head(tag)?;
       }
     }
     self.tag_head_or_last.clear();
 
     for (tag, oid) in &self.tag_commit {
-      self.update_tag(oid, tag)?;
+      repo.update_tag(tag, oid)?;
     }
     self.tag_commit.clear();
 
     Ok(())
   }
-
-  fn perform_commit(&self, repo: &Repo) -> Result<bool> { repo.make_changes(self.new_tags()) }
-  fn update_tag_head(&self, tags: &str) -> Result<()> { unimplemented!() }
-  fn update_tag(&self, oid: &str, tag: &str) -> Result<()> { unimplemented!() }
-  fn new_tags(&self) -> &[String] { unimplemented!() }
-  fn has_written(&self, proj_id: ProjectId) -> bool { unimplemented!() }
-  fn latest_commit(&self, proj_id: ProjectId) -> Result<&str> { unimplemented!() }
 }
 
 enum FileWrite {
@@ -195,8 +223,11 @@ enum FileWrite {
 impl FileWrite {
   pub fn write(&self) -> Result<()> {
     match self {
-      FileWrite::Write { path, val } => unimplemented!(),
-      FileWrite::Append { path, val } => unimplemented!(),
+      FileWrite::Write { path, val } => Ok(std::fs::write(path, &val)?),
+      FileWrite::Append { path, val } => {
+        let mut file = OpenOptions::new().append(true).open(path)?;
+        Ok(file.write_all(val.as_bytes())?)
+      }
       FileWrite::Update { pick, val } => pick.write_value(val)
     }
   }
@@ -214,7 +245,7 @@ impl PickPath {
     let data = std::fs::read_to_string(&self.file)?;
     let data = NamedData::new(self.file.clone(), data);
 
-    let mark = self.picker.scan(data)?;
+    let mut mark = self.picker.scan(data)?;
     mark.write_new_value(val)?;
     Ok(())
   }
@@ -223,51 +254,4 @@ impl PickPath {
     let data = std::fs::read_to_string(&self.file)?;
     self.picker.find(&data).map(|m| m.into_value())
   }
-}
-
-fn find_old_tags<'s, I: Iterator<Item = &'s str>>(prefixes: I, prev_tag: &str, repo: &Repo) -> Result<OldTags> {
-  let mut by_prefix_id = HashMap::new(); // Map<prefix, Map<oid, Vec<tag>>>
-
-  // for tag_prefix in self.file.projects().map(|p| p.tag_prefix()).filter_map(identity)
-
-  for tag_prefix in prefixes {
-    let fnmatch = if tag_prefix.is_empty() {
-      // TODO: this fnmatch pattern doesn't seem right
-      "v[[digit]]*.[[digit]]*.[[digit]]*"
-    } else {
-      // tag_prefix must be alphanum + '-', so no escaping necessary
-      // TODO: this fnmatch pattern doesn't seem right
-      &format!("{}-v[[digit]]*.[[digit]]*.[[digit]]*", tag_prefix)
-    };
-    for tag in repo.tag_names(Some(fnmatch))?.iter().filter_map(identity) {
-      let hash = repo.revparse_oid(&format!("{}^{{}}", tag))?;
-      let by_id = by_prefix_id.entry(tag_prefix.to_string()).or_insert(HashMap::new());
-
-      // TODO: if adding to non-empty list, sort by tag timestamp (make these annotated and use
-      // `Tag.tagger().when()` ?), latest first
-      by_id.entry(hash).or_insert(Vec::new()).push(tag.to_string());
-    }
-  }
-
-  let mut by_prefix = HashMap::new();
-  let mut not_after = HashMap::new();
-  let mut not_after_walk = HashMap::new();
-  for commit_oid in repo.walk_head_to(prev_tag)? {
-    let commit_oid = commit_oid?;
-    for (prefix, by_id) in by_prefix_id.into_iter() {
-      let not_after_walk = not_after_walk.entry(prefix.clone()).or_insert(Vec::new());
-      not_after_walk.push(commit_oid.clone());
-      if let Some(tags) = by_id.remove(&commit_oid) {
-        let old_tags = by_prefix.entry(prefix.clone()).or_insert(Vec::new());
-        let best_ind = old_tags.len();
-        old_tags.extend_from_slice(&tags);
-        let not_after_by_oid = not_after.entry(prefix).or_insert(HashMap::new());
-        for later_commit_oid in not_after_walk.drain(..) {
-          not_after_by_oid.insert(later_commit_oid, best_ind);
-        }
-      }
-    }
-  }
-
-  Ok(OldTags::new(by_prefix, not_after))
 }

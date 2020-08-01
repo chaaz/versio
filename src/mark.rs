@@ -57,7 +57,7 @@ impl Picker {
 }
 
 #[derive(Deserialize)]
-struct ScanningPicker<T: Scanner> {
+pub struct ScanningPicker<T: Scanner> {
   #[serde(deserialize_with = "deserialize_parts")]
   parts: Vec<Part>,
   _scan: PhantomData<T>

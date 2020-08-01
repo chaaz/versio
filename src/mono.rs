@@ -1,15 +1,18 @@
+//! A monorepo can read and alter the current state of all projects.
+
 use crate::analyze::{analyze, Analysis};
 use crate::config::{Config, ConfigFile, ProjectId, Size};
 use crate::either::{IterEither2 as E2, IterEither3 as E3};
 use crate::error::Result;
 use crate::git::{CommitData, FullPr, Repo, Slice};
 use crate::github::{changes, line_commits, Changes};
-use crate::state::{CurrentState, StateRead, StateWrite};
+use crate::state::{CurrentState, StateRead, StateWrite, OldTags};
 use chrono::{DateTime, FixedOffset};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::iter;
 use std::path::Path;
+use std::convert::identity;
 
 pub struct Mono {
   current: Config<CurrentState>,
@@ -23,7 +26,15 @@ impl Mono {
 
   pub fn open<P: AsRef<Path>>(dir: P) -> Result<Mono> {
     let repo = Repo::open(dir.as_ref())?;
-    let current = Config::from_state(CurrentState::open(dir.as_ref(), old_tags)?)?;
+    let root = repo.working_dir()?;
+
+    // A little dance to construct a state and config.
+    let file = ConfigFile::from_dir(root)?;
+    let tag_prefixes = file.projects().iter().filter_map(|p| p.tag_prefix().as_ref().map(|s| s.as_str()));
+    let old_tags = find_old_tags(tag_prefixes, file.prev_tag(), &repo)?;
+    let state = CurrentState::new(root.to_path_buf(), old_tags);
+    let current = Config::new(state, file);
+
     let last_commits = find_last_commits(&current, &repo)?;
     let next = StateWrite::new();
 
@@ -37,17 +48,17 @@ impl Mono {
   // pub fn pull(&self) -> Result<()> { self.repo().pull() }
   // pub fn is_configured(&self) -> Result<bool> { Config::has_config_file(self.current_source()) }
 
-  pub fn set_by_id(&self, id: ProjectId, val: &str) -> Result<()> {
+  pub fn set_by_id(&mut self, id: ProjectId, val: &str) -> Result<()> {
     let proj = self.current.get_project(id).ok_or_else(|| versio_error!("No such project {}", id))?;
     proj.set_value(&mut self.next, val)
   }
 
-  pub fn forward_by_id(&self, id: ProjectId, val: &str) -> Result<()> {
+  pub fn forward_by_id(&mut self, id: ProjectId, val: &str) -> Result<()> {
     let proj = self.current.get_project(id).ok_or_else(|| versio_error!("No such project {}", id))?;
     proj.forward_tag(&mut self.next, val)
   }
 
-  pub fn set_by_name(&self, name: &str, val: &str) -> Result<()> {
+  pub fn set_by_name(&mut self, name: &str, val: &str) -> Result<()> {
     let id = self.current.find_unique(name)?;
     self.set_by_id(id, val)
   }
@@ -471,4 +482,49 @@ impl<'s, C: StateRead> LastCommitBuilder<'s, C> {
     self.prev = (prev, file);
     Ok(())
   }
+}
+
+fn find_old_tags<'s, I: Iterator<Item = &'s str>>(prefixes: I, prev_tag: &str, repo: &Repo) -> Result<OldTags> {
+  let mut by_prefix_id = HashMap::new(); // Map<prefix, Map<oid, Vec<tag>>>
+
+  for tag_prefix in prefixes {
+    let fnmatch = if tag_prefix.is_empty() {
+      // TODO: this fnmatch pattern doesn't seem right
+      "v[[digit]]*.[[digit]]*.[[digit]]*".to_string()
+    } else {
+      // tag_prefix must be alphanum + '-', so no escaping necessary
+      // TODO: this fnmatch pattern doesn't seem right
+      format!("{}-v[[digit]]*.[[digit]]*.[[digit]]*", tag_prefix)
+    };
+    for tag in repo.tag_names(Some(fnmatch.as_str()))?.iter().filter_map(identity) {
+      let hash = repo.revparse_oid(&format!("{}^{{}}", tag))?;
+      let by_id = by_prefix_id.entry(tag_prefix.to_string()).or_insert_with(HashMap::new);
+
+      // TODO: if adding to non-empty list, sort by tag timestamp (make these annotated and use
+      // `Tag.tagger().when()` ?), latest first
+      by_id.entry(hash).or_insert_with(Vec::new).push(tag.to_string());
+    }
+  }
+
+  let mut by_prefix = HashMap::new();
+  let mut not_after = HashMap::new();
+  let mut not_after_walk = HashMap::new();
+  for commit_oid in repo.walk_head_to(prev_tag)? {
+    let commit_oid = commit_oid?;
+    for (prefix, by_id) in &mut by_prefix_id {
+      let not_after_walk = not_after_walk.entry(prefix.clone()).or_insert_with(Vec::new);
+      not_after_walk.push(commit_oid.clone());
+      if let Some(tags) = by_id.remove(&commit_oid) {
+        let old_tags = by_prefix.entry(prefix.clone()).or_insert_with(Vec::new);
+        let best_ind = old_tags.len();
+        old_tags.extend_from_slice(&tags);
+        let not_after_by_oid = not_after.entry(prefix.clone()).or_insert_with(HashMap::new);
+        for later_commit_oid in not_after_walk.drain(..) {
+          not_after_by_oid.insert(later_commit_oid, best_ind);
+        }
+      }
+    }
+  }
+
+  Ok(OldTags::new(by_prefix, not_after))
 }

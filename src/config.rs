@@ -42,9 +42,11 @@ impl<'r> Config<PrevState<'r>> {
 }
 
 impl<S: StateRead> Config<S> {
+  pub fn new (state: S, file: ConfigFile) -> Config<S> { Config { state, file } }
+
   pub fn from_state(state: S) -> Result<Config<S>> {
     let file = ConfigFile::from_state(&state)?;
-    Ok(Config { state, file })
+    Ok(Config::new(state, file))
   }
 
   pub fn file(&self) -> &ConfigFile { &self.file }
@@ -81,6 +83,11 @@ impl ConfigFile {
   }
 
   pub fn from_slice(slice: &Slice) -> Result<ConfigFile> { ConfigFile::read(&PrevState::read(slice, CONFIG_FILENAME)?) }
+
+  pub fn from_dir<P: AsRef<Path>>(p: P) -> Result<ConfigFile> { 
+    let root = Repo::root_dir(p.as_ref())?;
+    ConfigFile::read(&std::fs::read_to_string(root.join(CONFIG_FILENAME))?)
+  }
 
   pub fn empty() -> ConfigFile {
     ConfigFile { options: Default::default(), projects: Vec::new(), sizes: HashMap::new() }
@@ -226,7 +233,7 @@ impl Project {
       .try_fold(false, |val, cov| Ok(val || Pattern::new(&self.rooted_pattern(cov))?.matches_with(path, match_opts())))
   }
 
-  fn check<S: StateRead>(&self, state: &S) -> Result<()> {
+  pub fn check<S: StateRead>(&self, state: &S) -> Result<()> {
     // Check that we can find the given mark.
     self.get_value(state)?;
 
@@ -257,7 +264,7 @@ impl Project {
   }
 
   pub fn set_value(&self, write: &mut StateWrite, val: &str) -> Result<()> {
-    self.located.write_value(write, &self.root, val)?;
+    self.located.write_value(write, &self.root, val, self.id)?;
     self.forward_tag(write, val)
   }
 
@@ -286,10 +293,10 @@ enum Location {
 }
 
 impl Location {
-  pub fn write_value(&self, write: &mut StateWrite, root: &Option<String>, val: &str) -> Result<()> {
+  pub fn write_value(&self, write: &mut StateWrite, root: &Option<String>, val: &str, id: ProjectId) -> Result<()> {
     match self {
-      Location::File(l) => l.write_value(write, root, val),
-      Location::Tag(l) => Ok(())
+      Location::File(l) => l.write_value(write, root, val, id),
+      Location::Tag(_) => Ok(())
     }
   }
 
@@ -349,9 +356,9 @@ struct FileLocation {
 }
 
 impl FileLocation {
-  pub fn write_value(&self, write: &mut StateWrite, root: &Option<String>, val: &str) -> Result<()> {
+  pub fn write_value(&self, write: &mut StateWrite, root: &Option<String>, val: &str, id: ProjectId) -> Result<()> {
     let file = self.rooted(root);
-    write.update_mark(PickPath::new(file, self.picker.clone()), val.to_string())
+    write.update_mark(PickPath::new(file, self.picker.clone()), val.to_string(), id)
   }
 
   pub fn read_value<S: StateRead>(&self, read: &S, root: &Option<String>) -> Result<String> {
