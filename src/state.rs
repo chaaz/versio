@@ -5,9 +5,10 @@ use crate::error::Result;
 use crate::git::{Repo, Slice};
 use crate::mark::{NamedData, Picker};
 use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::path::{Path, PathBuf};
+use log::warn;
 
 pub trait StateRead {
   /// Find the commit hash it's reading from; returns `None` if it is located at the current state.
@@ -16,6 +17,13 @@ pub trait StateRead {
   fn has_file(&self, path: &Path) -> Result<bool>;
   fn read_file(&self, path: &Path) -> Result<String>;
   fn latest_tag(&self, prefix: &str) -> Option<&String>;
+}
+
+impl<S: StateRead> StateRead for &S {
+  fn commit_oid(&self) -> Option<String> { <S as StateRead>::commit_oid(*self) }
+  fn has_file(&self, path: &Path) -> Result<bool> { <S as StateRead>::has_file(*self, path) }
+  fn read_file(&self, path: &Path) -> Result<String> { <S as StateRead>::read_file(*self, path) }
+  fn latest_tag(&self, prefix: &str) -> Option<&String> { <S as StateRead>::latest_tag(*self, prefix) }
 }
 
 pub struct CurrentState {
@@ -32,10 +40,6 @@ impl StateRead for CurrentState {
 
 impl CurrentState {
   pub fn new(root: PathBuf, tags: OldTags) -> CurrentState { CurrentState { root, tags } }
-
-  pub fn open<P: AsRef<Path>>(dir: P, tags: OldTags) -> Result<CurrentState> {
-    Ok(CurrentState { root: Repo::root_dir(dir)?, tags })
-  }
 
   pub fn slice<'r>(&self, spec: String, repo: &'r Repo) -> Result<PrevState<'r>> {
     let commit_oid = repo.revparse_oid(&spec)?;
@@ -78,12 +82,6 @@ impl<'r> PrevState<'r> {
     let cont: &str = std::str::from_utf8(blob.content())?;
     Ok(cont.to_string())
   }
-
-  // pub fn line_commits(&self) -> Result<Vec<CommitData>> {
-  //   let base = self.slice.refspec().to_string();
-  //   let head = self.repo().branch_name().to_string();
-  //   line_commits(&self.repo(), head, base)
-  // }
 }
 
 pub struct OldTags {
@@ -111,7 +109,8 @@ impl OldTags {
 
     for (pref, afts) in &self.not_after {
       let ind: usize = *afts.get(new_oid).ok_or_else(|| versio_error!("Bad new_oid {}", new_oid))?;
-      let list = self.by_prefix.get(pref).ok_or_else(|| versio_error!("Illegal prefix {} oid for {}", pref, new_oid))?;
+      let list =
+        self.by_prefix.get(pref).ok_or_else(|| versio_error!("Illegal prefix {} oid for {}", pref, new_oid))?;
       let list = list[ind ..].to_vec();
       by_prefix.insert(pref.clone(), list);
 
@@ -139,7 +138,10 @@ impl Default for StateWrite {
 impl StateWrite {
   pub fn new() -> StateWrite {
     StateWrite {
-      writes: Vec::new(), tag_head: Vec::new(), tag_commit: HashMap::new(), tag_head_or_last: Vec::new(),
+      writes: Vec::new(),
+      tag_head: Vec::new(),
+      tag_commit: HashMap::new(),
+      tag_head_or_last: Vec::new(),
       proj_writes: HashSet::new()
     }
   }
@@ -199,7 +201,7 @@ impl StateWrite {
       } else if let Some(oid) = last_commits.get(proj_id) {
         repo.update_tag(tag, oid)?;
       } else {
-        println!("Latest commit for project {} unknown: tagging head.", proj_id);
+        warn!("Latest commit for project {} unknown: tagging head.", proj_id);
         repo.update_tag_head(tag)?;
       }
     }

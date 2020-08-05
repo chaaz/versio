@@ -1,7 +1,7 @@
 //! Interactions with github API v4.
 
 use crate::error::Result;
-use crate::git::{CommitData, FullPr, GithubInfo, Repo, Span};
+use crate::git::{CommitInfoBuf, FullPr, GithubInfo, Repo, Span};
 use chrono::{DateTime, FixedOffset, TimeZone, Utc};
 use git2::Time;
 use github_gql::{client::Github, IntoGithubRequest};
@@ -34,9 +34,9 @@ pub fn changes(repo: &Repo, headref: String, base: String) -> Result<Changes> {
   queue.push_back(pr_zero.span().ok_or_else(|| versio_error!("Unable to get oid for seed ref \"{}\".", headref))?);
   all_prs.insert(pr_zero.number(), pr_zero);
 
-  let github_info = match repo.github_info()? {
-    Some(github_info) => github_info,
-    None => return Ok(Changes { groups: all_prs, commits: all_commits })
+  let github_info = match repo.github_info() {
+    Ok(github_info) => github_info,
+    Err(_) => return Ok(Changes { groups: all_prs, commits: all_commits })
   };
 
   while let Some(span) = queue.pop_front() {
@@ -65,7 +65,7 @@ pub fn changes(repo: &Repo, headref: String, base: String) -> Result<Changes> {
           let full_pr = all_prs.get_mut(&number).unwrap();
 
           if full_pr.best_guess() {
-            full_pr.add_commit(CommitData::guess(oid.clone()));
+            full_pr.add_commit(CommitInfoBuf::guess(oid.clone()));
           } else if !full_pr.contains(&oid) {
             retain = false;
           }
@@ -89,7 +89,7 @@ pub fn changes(repo: &Repo, headref: String, base: String) -> Result<Changes> {
   Ok(Changes { commits: all_commits, groups: all_prs })
 }
 
-pub fn line_commits(repo: &Repo, headref: String, base: String) -> Result<Vec<CommitData>> {
+pub fn line_commits(repo: &Repo, headref: String, base: String) -> Result<Vec<CommitInfoBuf>> {
   let offset = FixedOffset::west(0);
   let pr_zero = FullPr::lookup(repo, headref, base, 0, offset.timestamp(Utc::now().timestamp(), 0))?;
   Ok(pr_zero.into_commits())

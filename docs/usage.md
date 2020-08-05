@@ -32,6 +32,8 @@ Versio has handlers for JSON, YAML, and TOML files, as well as plain
 files which contain only a version number, or any file which can be
 scanned for a version number via a regular expression.
 
+### Getting
+
 With the config file in place, you can now _show_ versions of all your
 projects:
 
@@ -39,6 +41,8 @@ projects:
 $ versio show
 codebase : 1.0.1
 ```
+
+### Setting
 
 You can also _set_ a version to a new value:
 
@@ -57,6 +61,10 @@ Which would modify your `codebase/package.json` file:
 
 This is a pretty simple example, but you can imagine how useful it is to
 manage multiple projects in the same repo.
+
+> TODO: describe how `set` has a default VCS runlevel of `none`, and can
+> be bumped to `--vcs-level=max` if you have a `located: tags:` that
+> needs to update local/remote tags. See [VCS Levels](./vcs_levels.md).
 
 ## Git Integration
 

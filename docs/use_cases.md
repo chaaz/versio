@@ -157,6 +157,9 @@ $ versio scan
 
 > TODO: talk about release branches
 
+> TODO: talk about timing : can't merge to release branch while `versio
+> run` is executing
+
 `versio plan` (maybe), `versio run`
 
 ## CD Deploy

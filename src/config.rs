@@ -3,17 +3,17 @@
 use crate::analyze::AnnotatedMark;
 use crate::error::Result;
 use crate::git::{Repo, Slice};
-use crate::mark::Picker;
+use crate::mark::{FilePicker, LinePicker, Picker, ScanningPicker};
 use crate::mono::ChangeLog;
+use crate::scan::parts::{deserialize_parts, Part};
 use crate::state::{CurrentState, PickPath, PrevState, StateRead, StateWrite};
 use glob::{glob_with, MatchOptions, Pattern};
-use serde::de::{self, Deserializer, MapAccess, Visitor};
+use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, Unexpected, Visitor};
 use serde::Deserialize;
 use std::borrow::Cow;
 use std::cmp::{Ord, Ordering};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
 pub const CONFIG_FILENAME: &str = ".versio.yaml";
@@ -42,7 +42,7 @@ impl<'r> Config<PrevState<'r>> {
 }
 
 impl<S: StateRead> Config<S> {
-  pub fn new (state: S, file: ConfigFile) -> Config<S> { Config { state, file } }
+  pub fn new(state: S, file: ConfigFile) -> Config<S> { Config { state, file } }
 
   pub fn from_state(state: S) -> Result<Config<S>> {
     let file = ConfigFile::from_state(&state)?;
@@ -53,6 +53,7 @@ impl<S: StateRead> Config<S> {
   pub fn state_read(&self) -> &S { &self.state }
   pub fn projects(&self) -> &[Project] { &self.file.projects() }
   pub fn get_project(&self, id: ProjectId) -> Option<&Project> { self.file.get_project(id) }
+  pub fn is_configured(&self) -> Result<bool> { self.state.has_file(CONFIG_FILENAME.as_ref()) }
 
   pub fn find_unique(&self, name: &str) -> Result<ProjectId> {
     let mut iter = self.file.projects.iter().filter(|p| p.name.contains(name)).map(|p| p.id);
@@ -84,9 +85,8 @@ impl ConfigFile {
 
   pub fn from_slice(slice: &Slice) -> Result<ConfigFile> { ConfigFile::read(&PrevState::read(slice, CONFIG_FILENAME)?) }
 
-  pub fn from_dir<P: AsRef<Path>>(p: P) -> Result<ConfigFile> { 
-    let root = Repo::root_dir(p.as_ref())?;
-    ConfigFile::read(&std::fs::read_to_string(root.join(CONFIG_FILENAME))?)
+  pub fn from_dir<P: AsRef<Path>>(p: P) -> Result<ConfigFile> {
+    ConfigFile::read(&std::fs::read_to_string(p.as_ref().join(CONFIG_FILENAME))?)
   }
 
   pub fn empty() -> ConfigFile {
@@ -169,19 +169,20 @@ pub struct Project {
   #[serde(default)]
   depends: Vec<ProjectId>,
   change_log: Option<String>,
+  #[serde(deserialize_with = "deserialize_located")]
   located: Location,
   tag_prefix: Option<String>
 }
 
 impl Project {
+  pub fn id(&self) -> ProjectId { self.id }
+  pub fn name(&self) -> &str { &self.name }
+  pub fn root(&self) -> &Option<String> { &self.root }
+  pub fn depends(&self) -> &[ProjectId] { &self.depends }
+
   fn annotate<S: StateRead>(&self, state: &S) -> Result<AnnotatedMark> {
     Ok(AnnotatedMark::new(self.id, self.name.clone(), self.get_value(state)?))
   }
-
-  pub fn root(&self) -> &Option<String> { &self.root }
-  pub fn name(&self) -> &str { &self.name }
-  pub fn id(&self) -> ProjectId { self.id }
-  pub fn depends(&self) -> &[ProjectId] { &self.depends }
 
   pub fn change_log(&self) -> Option<Cow<str>> {
     self.change_log.as_ref().map(|change_log| {
@@ -195,14 +196,19 @@ impl Project {
 
   pub fn tag_prefix(&self) -> &Option<String> { &self.tag_prefix }
 
-  pub fn write_change_log<S: StateRead>(&self, cl: &ChangeLog, root: &Path) -> Result<Option<String>> {
-    // TODO: only write change log if any commits are found, else return `None`
+  pub fn write_change_log(&self, write: &mut StateWrite, cl: &ChangeLog) -> Result<Option<PathBuf>> {
+    if cl.is_empty() {
+      return Ok(None);
+    }
 
     if let Some(cl_path) = self.change_log().as_ref() {
-      // let log_path = root.join(cl_path.deref());
-      let log_path = root.join(cl_path.deref());
-      std::fs::write(&log_path, construct_change_log_html(cl)?)?;
-      Ok(Some(cl_path.to_string()))
+      let log_path = if let Some(root) = self.root() {
+        Path::new(root).join(cl_path.as_ref())
+      } else {
+        Path::new(cl_path.as_ref()).to_path_buf()
+      };
+      write.write_file(log_path.clone(), construct_change_log_html(cl)?, self.id())?;
+      Ok(Some(log_path))
     } else {
       Ok(None)
     }
@@ -259,7 +265,7 @@ impl Project {
     Ok(())
   }
 
-  pub fn get_value<S: StateRead>(&self, read: &S) -> Result<String> {
+  pub fn get_value<S: StateRead + ?Sized>(&self, read: &S) -> Result<String> {
     self.located.read_value(read, &self.root, self.tag_prefix())
   }
 
@@ -300,7 +306,9 @@ impl Location {
     }
   }
 
-  pub fn read_value<S: StateRead>(&self, read: &S, root: &Option<String>, pref: &Option<String>) -> Result<String> {
+  pub fn read_value<S: StateRead + ?Sized>(
+    &self, read: &S, root: &Option<String>, pref: &Option<String>
+  ) -> Result<String> {
     match self {
       Location::File(l) => l.read_value(read, root),
       Location::Tag(l) => l.read_value(read, pref)
@@ -322,7 +330,7 @@ struct TagLocation {
 }
 
 impl TagLocation {
-  fn read_value<S: StateRead>(&self, read: &S, prefix: &Option<String>) -> Result<String> {
+  fn read_value<S: StateRead + ?Sized>(&self, read: &S, prefix: &Option<String>) -> Result<String> {
     // TODO: restructure types to make it impossible to have a tags project w/out a tag_prefix
     let prefix = prefix.as_ref().ok_or_else(|| versio_error!("No tag prefix for tag location."))?;
 
@@ -361,7 +369,7 @@ impl FileLocation {
     write.update_mark(PickPath::new(file, self.picker.clone()), val.to_string(), id)
   }
 
-  pub fn read_value<S: StateRead>(&self, read: &S, root: &Option<String>) -> Result<String> {
+  pub fn read_value<S: StateRead + ?Sized>(&self, read: &S, root: &Option<String>) -> Result<String> {
     let file = self.rooted(root);
     let data: String = read.read_file(&file)?;
     self.picker.find(&data).map(|m| m.into_value())
@@ -475,14 +483,87 @@ impl Ord for Size {
   }
 }
 
-// pub struct ShowFormat {
-//   pub wide: bool,
-//   pub version_only: bool
-// }
-//
-// impl ShowFormat {
-//   pub fn new(wide: bool, version_only: bool) -> ShowFormat { ShowFormat { wide, version_only } }
-// }
+fn deserialize_located<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<Location, D::Error> {
+  struct VecPartSeed;
+
+  impl<'de> DeserializeSeed<'de> for VecPartSeed {
+    type Value = Vec<Part>;
+    fn deserialize<D>(self, deslr: D) -> std::result::Result<Self::Value, D::Error>
+    where
+      D: Deserializer<'de>
+    {
+      deserialize_parts(deslr)
+    }
+  }
+
+  struct LocatorVisitor;
+
+  impl<'de> Visitor<'de> for LocatorVisitor {
+    type Value = Location;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result { formatter.write_str("a version location") }
+
+    fn visit_map<V>(self, mut map: V) -> std::result::Result<Self::Value, V::Error>
+    where
+      V: MapAccess<'de>
+    {
+      let mut file: Option<String> = None;
+      let mut pattern: Option<String> = None;
+      let mut parts: Option<Vec<Part>> = None;
+      let mut tags: Option<TagSpec> = None;
+      let mut code: Option<String> = None;
+
+      while let Some(key) = map.next_key::<String>()? {
+        match key.as_str() {
+          "file" => {
+            file = Some(map.next_value()?);
+          }
+          "tags" => {
+            tags = Some(map.next_value()?);
+          }
+          "json" | "yaml" | "toml" | "xml" => {
+            code = Some(key);
+            parts = Some(map.next_value_seed(VecPartSeed)?);
+          }
+          "pattern" => {
+            pattern = Some(map.next_value()?);
+          }
+          other => return Err(de::Error::invalid_value(Unexpected::Str(other), &"a location key"))
+        }
+      }
+
+      if let Some(file) = file {
+        if tags.is_some() {
+          Err(de::Error::custom("cant have both 'file' and 'tags' for location"))
+        } else if pattern.is_none() && parts.is_none() {
+          Ok(Location::File(FileLocation { file, picker: Picker::File(FilePicker {}) }))
+        } else if let Some(pattern) = pattern {
+          if parts.is_some() {
+            Err(de::Error::custom("can't have both 'pattern' and parts field"))
+          } else {
+            Ok(Location::File(FileLocation { file, picker: Picker::Line(LinePicker::new(pattern)) }))
+          }
+        } else {
+          let parts = parts.unwrap();
+          let loc = match code.unwrap().as_str() {
+            "json" => Location::File(FileLocation { file, picker: Picker::Json(ScanningPicker::new(parts)) }),
+            "yaml" => Location::File(FileLocation { file, picker: Picker::Yaml(ScanningPicker::new(parts)) }),
+            "toml" => Location::File(FileLocation { file, picker: Picker::Toml(ScanningPicker::new(parts)) }),
+            "xml" => Location::File(FileLocation { file, picker: Picker::Xml(ScanningPicker::new(parts)) }),
+            other => return Err(de::Error::custom(format!("unrecognized part {}", other)))
+          };
+          Ok(loc)
+        }
+      } else if let Some(tags) = tags {
+        Ok(Location::Tag(TagLocation { tags }))
+      } else {
+        Err(de::Error::custom("must have 'file' or 'tags' for location"))
+      }
+    }
+  }
+
+  desr.deserialize_map(LocatorVisitor)
+}
 
 fn deserialize_sizes<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<HashMap<String, Size>, D::Error> {
   struct MapVisitor;
@@ -584,34 +665,27 @@ fn construct_change_log_html(cl: &ChangeLog) -> Result<String> {
   Ok(output)
 }
 
-// pub struct NewTags {
-//   pending_commit: bool,
-//   tags_for_new_commit: Vec<String>,
-//   changed_tags: HashMap<String, String>
-// }
-//
-// impl Default for NewTags {
-//   fn default() -> NewTags { NewTags::new() }
-// }
-//
-// impl NewTags {
-//   pub fn new() -> NewTags {
-//     NewTags { tags_for_new_commit: Vec::new(), changed_tags: HashMap::new(), pending_commit: false }
-//   }
-//
-//   pub fn should_commit(&self) -> bool { self.pending_commit }
-//   pub fn tags_for_new_commit(&self) -> &[String] { &self.tags_for_new_commit }
-//   pub fn changed_tags(&self) -> &HashMap<String, String> { &self.changed_tags }
-//   pub fn flag_commit(&mut self) { self.pending_commit = true; }
-//   pub fn add_tag(&mut self, tag: String) { self.tags_for_new_commit.push(tag) }
-//   pub fn change_tag(&mut self, tag: String, commit: &str) { self.changed_tags.insert(tag, commit.to_string()); }
-// }
-
 #[cfg(test)]
 mod test {
   use super::{ConfigFile, FileLocation, LinePicker, Location, Picker, Project, ScanningPicker, Size};
   use crate::scan::parts::Part;
   use std::marker::PhantomData;
+
+  #[test]
+  fn test_both_file_and_tags() {
+    // TODO: more tests like this
+    let data = r#"
+projects:
+  - name: everything
+    id: 1
+    includes: ["**/*"]
+    located:
+      tags:
+        default: "1.0.0"
+      file: "toplevel.json""#;
+
+    assert!(ConfigFile::read(data).is_err())
+  }
 
   #[test]
   fn test_scan() {

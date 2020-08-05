@@ -72,6 +72,7 @@ impl<T: Scanner> fmt::Debug for ScanningPicker<T> {
 }
 
 impl<T: Scanner> ScanningPicker<T> {
+  pub fn new(parts: Vec<Part>) -> ScanningPicker<T> { ScanningPicker { parts, _scan: PhantomData } }
   pub fn find(&self, data: &str) -> Result<Mark> { T::build(self.parts.clone()).find(data) }
   pub fn scan(&self, data: NamedData) -> Result<MarkedData> { T::build(self.parts.clone()).scan(data) }
 }
@@ -82,6 +83,7 @@ pub struct LinePicker {
 }
 
 impl LinePicker {
+  pub fn new(pattern: String) -> LinePicker { LinePicker { pattern } }
   pub fn find(&self, data: &str) -> Result<Mark> { LinePicker::find_reg_data(data, &self.pattern) }
   pub fn scan(&self, data: NamedData) -> Result<MarkedData> { LinePicker::scan_reg_data(data, &self.pattern) }
 

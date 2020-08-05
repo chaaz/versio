@@ -7,18 +7,21 @@ edition = "2018"
 [dependencies]
 chrono = "0.4"
 clap = "2.33"
+env_logger = "0.7"
+error_chain = "0.12"
 git2 = "0.12"
 # until the next version with updated deps is published
 github-gql-rs = { version = "0.0.1", path = "../github-rs/github-gql-rs" }
 glob = "0.3"
 hyper = "0.12.27"
-yaml-rust = "0.4"
+log = "0.4"
+regex = "1.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.8"
 toml = "0.5"
-regex = "1.3"
 xmlparser = "0.13"
+yaml-rust = "0.4"
 
 [lib]
 name = "versio"

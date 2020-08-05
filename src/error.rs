@@ -73,6 +73,10 @@ impl From<xmlparser::Error> for Error {
   fn from(err: xmlparser::Error) -> Error { Error { description: format!("xmlparser error {:?}", err) } }
 }
 
+impl From<log::SetLoggerError> for Error {
+  fn from(err: log::SetLoggerError) -> Error { Error { description: format!("log init error {:?}", err) } }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[cfg(test)]

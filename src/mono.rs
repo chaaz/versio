@@ -1,18 +1,19 @@
 //! A monorepo can read and alter the current state of all projects.
 
 use crate::analyze::{analyze, Analysis};
-use crate::config::{Config, ConfigFile, ProjectId, Size};
+use crate::config::{Config, ConfigFile, Project, ProjectId, Size};
 use crate::either::{IterEither2 as E2, IterEither3 as E3};
 use crate::error::Result;
-use crate::git::{CommitData, FullPr, Repo, Slice};
+use crate::git::{CommitInfoBuf, FullPr, Repo, Slice};
 use crate::github::{changes, line_commits, Changes};
-use crate::state::{CurrentState, StateRead, StateWrite, OldTags};
+use crate::state::{CurrentState, OldTags, StateRead, StateWrite};
+use crate::vcs::VcsLevel;
 use chrono::{DateTime, FixedOffset};
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::iter;
-use std::path::Path;
 use std::convert::identity;
+use std::iter;
+use std::path::{Path, PathBuf};
 
 pub struct Mono {
   current: Config<CurrentState>,
@@ -22,10 +23,10 @@ pub struct Mono {
 }
 
 impl Mono {
-  pub fn here() -> Result<Mono> { Mono::open(".") }
+  pub fn here(vcs: VcsLevel) -> Result<Mono> { Mono::open(".", vcs) }
 
-  pub fn open<P: AsRef<Path>>(dir: P) -> Result<Mono> {
-    let repo = Repo::open(dir.as_ref())?;
+  pub fn open<P: AsRef<Path>>(dir: P, vcs: VcsLevel) -> Result<Mono> {
+    let repo = Repo::open(dir.as_ref(), vcs)?;
     let root = repo.working_dir()?;
 
     // A little dance to construct a state and config.
@@ -35,37 +36,30 @@ impl Mono {
     let state = CurrentState::new(root.to_path_buf(), old_tags);
     let current = Config::new(state, file);
 
+    // TODO: last_commits can be expensive to create: only create them when we build a plan and/or commit?
+    //  - we commit often: perhaps only use a real last_commits when we're commiting a plan?
+    //  - could `last_commits` be created as part of generating the plan?
     let last_commits = find_last_commits(&current, &repo)?;
     let next = StateWrite::new();
 
     Ok(Mono { current, next, last_commits, repo })
   }
 
-  // pub fn current_source(&self) -> &CurrentSource { self.current.source() }
-  // pub fn current_config(&self) -> &Config<CurrentSource> { &self.current }
-  // pub fn old_tags(&self) -> &OldTags { &self.old_tags }
-  // pub fn repo(&self) -> &Repo { &self.repo }
-  // pub fn pull(&self) -> Result<()> { self.repo().pull() }
-  // pub fn is_configured(&self) -> Result<bool> { Config::has_config_file(self.current_source()) }
+  pub fn commit(&mut self) -> Result<()> { self.next.commit(&self.repo, &self.last_commits) }
+  pub fn projects(&self) -> &[Project] { self.current.projects() }
 
-  pub fn set_by_id(&mut self, id: ProjectId, val: &str) -> Result<()> {
-    let proj = self.current.get_project(id).ok_or_else(|| versio_error!("No such project {}", id))?;
-    proj.set_value(&mut self.next, val)
+  pub fn get_project(&self, id: ProjectId) -> Result<&Project> {
+    self.current.get_project(id).ok_or_else(|| versio_error!("No such project {}", id))
   }
 
-  pub fn forward_by_id(&mut self, id: ProjectId, val: &str) -> Result<()> {
-    let proj = self.current.get_project(id).ok_or_else(|| versio_error!("No such project {}", id))?;
-    proj.forward_tag(&mut self.next, val)
-  }
-
-  pub fn set_by_name(&mut self, name: &str, val: &str) -> Result<()> {
+  pub fn get_named_project(&self, name: &str) -> Result<&Project> {
     let id = self.current.find_unique(name)?;
-    self.set_by_id(id, val)
+    self.get_project(id)
   }
 
   pub fn changes(&self) -> Result<Changes> {
     let base = self.current.prev_tag().to_string();
-    let head = self.repo.branch_name().to_string();
+    let head = self.repo.branch_name()?.to_string();
     changes(&self.repo, head, base)
   }
 
@@ -90,46 +84,48 @@ impl Mono {
     Ok(analyze(prev_annotate, curt_annotate))
   }
 
-  // TODO: HERE: rejigger for Mono instead of Config
+  pub fn writer(&mut self) -> &mut StateWrite { &mut self.next }
+  pub fn reader(&self) -> &dyn StateRead { self.current.state_read() }
 
-  // pub fn check(&self) -> Result<()> {
-  //   for project in &self.file.projects {
-  //     project.check(&self.source)?;
-  //   }
-  //   Ok(())
-  // }
+  pub fn set_by_id(&mut self, id: ProjectId, val: &str) -> Result<()> {
+    self.do_project(id, move |p, n| p.set_value(n, val))
+  }
 
-  // pub fn get_mark_value(&self, id: ProjectId) -> Option<Result<String>> {
-  //   self.get_project(id).map(|p| p.get_mark_value(&self.source))
-  // }
+  pub fn set_by_name(&mut self, name: &str, val: &str) -> Result<()> {
+    let id = self.current.find_unique(name)?;
+    self.set_by_id(id, val)
+  }
 
-  // pub fn show(&self, format: ShowFormat) -> Result<()> {
-  //   let name_width = self.file.projects.iter().map(|p| p.name.len()).max().unwrap_or(0);
+  pub fn forward_by_id(&mut self, id: ProjectId, val: &str) -> Result<()> {
+    self.do_project(id, move |p, n| p.forward_tag(n, val))
+  }
 
-  //   for project in &self.file.projects {
-  //     project.show(&self.source, name_width, &format)?;
-  //   }
-  //   Ok(())
-  // }
+  pub fn write_change_log(&mut self, id: ProjectId, change_log: &ChangeLog) -> Result<Option<PathBuf>> {
+    self.do_project(id, move |p, n| p.write_change_log(n, change_log))
+  }
 
-  // pub fn show_id(&self, id: ProjectId, format: ShowFormat) -> Result<()> {
-  //   let project = self.get_project(id).ok_or_else(|| versio_error!("No such project {}", id))?;
-  //   project.show(&self.source, 0, &format)
-  // }
+  fn do_project<F, T>(&mut self, id: ProjectId, f: F) -> Result<T>
+  where
+    F: FnOnce(&Project, &mut StateWrite) -> Result<T>
+  {
+    let proj = self.current.get_project(id).ok_or_else(|| versio_error!("No such project {}", id))?;
+    f(proj, &mut self.next)
+  }
 
-  // pub fn show_names(&self, name: &str, format: ShowFormat) -> Result<()> {
-  //   let filter = |p: &&Project| p.name.contains(name);
-  //   let name_width = self.file.projects.iter().filter(filter).map(|p| p.name.len()).max().unwrap_or(0);
+  pub fn check(&self) -> Result<()> {
+    if !self.current.is_configured()? {
+      return versio_err!("Project is not configured.");
+    }
 
-  //   for project in self.file.projects.iter().filter(filter) {
-  //     project.show(&self.source, name_width, &format)?;
-  //   }
-  //   Ok(())
-  // }
+    for project in self.current.projects() {
+      project.check(self.current.state_read())?;
+    }
+    Ok(())
+  }
 
-  pub fn configure_plan(&self) -> Result<Plan> {
+  pub fn build_plan(&self) -> Result<Plan> {
     let prev_spec = self.current.prev_tag().to_string();
-    let head = self.repo.branch_name().to_string();
+    let head = self.repo.branch_name()?.to_string();
 
     let mut plan = PlanBuilder::create(self.repo.slice(prev_spec.clone()), self.current.file())?;
 
@@ -147,8 +143,6 @@ impl Mono {
       plan.finish_pr()?;
     }
 
-    plan.handle_last_commits(&self.last_commits)?;
-
     // Some projects might depend on other projects.
     plan.handle_deps()?;
 
@@ -162,7 +156,7 @@ impl Mono {
 /// Find the last covering commit ID, if any, for each current project.
 fn find_last_commits(current: &Config<CurrentState>, repo: &Repo) -> Result<HashMap<ProjectId, String>> {
   let prev_spec = current.prev_tag().to_string();
-  let head = repo.branch_name().to_string();
+  let head = repo.branch_name()?.to_string();
 
   let mut last_commits = LastCommitBuilder::create(repo.slice(prev_spec.clone()), &current)?;
 
@@ -213,12 +207,12 @@ fn pr_keyed_files<'a>(repo: &'a Repo, pr: FullPr) -> impl Iterator<Item = Result
 }
 
 pub struct Plan {
-  incrs: HashMap<ProjectId, (Size, Option<String>, ChangeLog)>, // proj ID, incr size, last_commit, change log
-  ineffective: Vec<LoggedPr>                                    // PRs that didn't apply to any project
+  incrs: HashMap<ProjectId, (Size, ChangeLog)>, // proj ID, incr size, change log
+  ineffective: Vec<LoggedPr>                    // PRs that didn't apply to any project
 }
 
 impl Plan {
-  pub fn incrs(&self) -> &HashMap<ProjectId, (Size, Option<String>, ChangeLog)> { &self.incrs }
+  pub fn incrs(&self) -> &HashMap<ProjectId, (Size, ChangeLog)> { &self.incrs }
   pub fn ineffective(&self) -> &[LoggedPr] { &self.ineffective }
 }
 
@@ -230,6 +224,7 @@ impl ChangeLog {
   pub fn empty() -> ChangeLog { ChangeLog { entries: Vec::new() } }
   pub fn entries(&self) -> &[(LoggedPr, Size)] { &self.entries }
   pub fn add_entry(&mut self, pr: LoggedPr, size: Size) { self.entries.push((pr, size)); }
+  pub fn is_empty(&self) -> bool { self.entries.is_empty() }
 }
 
 pub struct LoggedPr {
@@ -276,11 +271,11 @@ impl LoggedCommit {
 struct PlanBuilder<'s> {
   on_pr_sizes: HashMap<ProjectId, LoggedPr>,
   on_ineffective: Option<LoggedPr>,
-  on_commit: Option<CommitData>,
+  on_commit: Option<CommitInfoBuf>,
   prev: (Slice<'s>, ConfigFile),
   current: &'s ConfigFile,
-  incrs: HashMap<ProjectId, (Size, Option<String>, ChangeLog)>, // proj ID, incr size, last_commit, change log
-  ineffective: Vec<LoggedPr>                                    // PRs that didn't apply to any project
+  incrs: HashMap<ProjectId, (Size, ChangeLog)>, // proj ID, incr size, change log
+  ineffective: Vec<LoggedPr>                    // PRs that didn't apply to any project
 }
 
 impl<'s> PlanBuilder<'s> {
@@ -307,7 +302,7 @@ impl<'s> PlanBuilder<'s> {
   pub fn finish_pr(&mut self) -> Result<()> {
     let mut found = false;
     for (proj_id, logged_pr) in self.on_pr_sizes.drain() {
-      let (size, _, change_log) = self.incrs.entry(proj_id).or_insert((Size::None, None, ChangeLog::empty()));
+      let (size, change_log) = self.incrs.entry(proj_id).or_insert((Size::None, ChangeLog::empty()));
       let pr_size = logged_pr.commits.iter().filter(|c| c.applies).map(|c| c.size).max();
       if let Some(pr_size) = pr_size {
         found = true;
@@ -324,7 +319,7 @@ impl<'s> PlanBuilder<'s> {
     Ok(())
   }
 
-  pub fn start_commit(&mut self, commit: CommitData) -> Result<()> {
+  pub fn start_commit(&mut self, commit: CommitInfoBuf) -> Result<()> {
     let id = commit.id().to_string();
     let kind = commit.kind().to_string();
     let summary = commit.summary().to_string();
@@ -380,14 +375,14 @@ impl<'s> PlanBuilder<'s> {
     }
 
     while let Some((id, size)) = queue.pop_front() {
-      let val = &mut self.incrs.entry(id).or_insert((Size::None, None, ChangeLog::empty())).0;
+      let val = &mut self.incrs.entry(id).or_insert((Size::None, ChangeLog::empty())).0;
       *val = max(*val, size);
 
       let depds: Option<HashSet<ProjectId>> = dependents.get(&id).cloned();
       if let Some(depds) = depds {
         for depd in depds {
           dependents.get_mut(&id).unwrap().remove(&depd);
-          let val = &mut self.incrs.entry(depd).or_insert((Size::None, None, ChangeLog::empty())).0;
+          let val = &mut self.incrs.entry(depd).or_insert((Size::None, ChangeLog::empty())).0;
           *val = max(*val, size);
 
           if dependents.values().all(|ds| !ds.contains(&depd)) {
@@ -418,15 +413,6 @@ impl<'s> PlanBuilder<'s> {
     Ok(())
   }
 
-  pub fn handle_last_commits(&mut self, lasts: &HashMap<ProjectId, String>) -> Result<()> {
-    for (proj_id, found_commit) in lasts {
-      if let Some((_, last_commit, _)) = self.incrs.get_mut(proj_id) {
-        *last_commit = Some(found_commit.clone());
-      }
-    }
-    Ok(())
-  }
-
   pub fn build(self) -> Plan { Plan { incrs: self.incrs, ineffective: self.ineffective } }
 
   fn slice_to(&mut self, id: String) -> Result<()> {
@@ -451,7 +437,7 @@ impl<'s, C: StateRead> LastCommitBuilder<'s, C> {
     Ok(builder)
   }
 
-  pub fn start_line_commit(&mut self, commit: &CommitData) -> Result<()> {
+  pub fn start_line_commit(&mut self, commit: &CommitInfoBuf) -> Result<()> {
     let id = commit.id().to_string();
     self.on_line_commit = Some(id.clone());
     self.slice_to(id)?;
@@ -509,7 +495,7 @@ fn find_old_tags<'s, I: Iterator<Item = &'s str>>(prefixes: I, prev_tag: &str, r
   let mut by_prefix = HashMap::new();
   let mut not_after = HashMap::new();
   let mut not_after_walk = HashMap::new();
-  for commit_oid in repo.walk_head_to(prev_tag)? {
+  for commit_oid in repo.commits_to_head(prev_tag)?.map(|c| c.map(|c| c.id())) {
     let commit_oid = commit_oid?;
     for (prefix, by_id) in &mut by_prefix_id {
       let not_after_walk = not_after_walk.entry(prefix.clone()).or_insert_with(Vec::new);

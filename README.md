@@ -153,6 +153,15 @@ changed. It is optional for most projects, but required for projects
 that use `located: tags`. The default value is used when no existing
 "projname-v*x.y.z*" tags currently exist.
 
+> If a project uses `located: tags:`, you may want to use the
+> `--vcs-level=max` option while running the `versio set` command on
+> that project. This command normally runs at the `none` VCS level,
+> because it is used just to update a value in a file. However, if there
+> is no file to update, you may want to instead update the VCS tags on
+> the local machine and/or the remote, which requires a higher VCS
+> level. See [VCS Levels](./docs/vcs_levels.md) and [Usage:
+> Set](./docs/usage.md#setting) for more info.
+
 <!---
 > Warning! This style of project requires the `tag_prefix` property to
 > be present, which creates/updates git tags like
@@ -171,7 +180,7 @@ that use `located: tags`. The default value is used when no existing
 > get server.io/path/to/proj@projname-v1.2.3`, or you'll probably just
 > end up with the latest commit.
 >
-> The problem is compounded in a monorepo with two or more Go projects:
+> This problem is compounded in a monorepo with two or more Go projects:
 > only one of those projects can have an empty prefix, because prefixes
 > must be unique. Also, tags in most VCS apply to an entire repo, and
 > not just a single project. Be very careful referencing your projects

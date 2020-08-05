@@ -1,7 +1,9 @@
 //! The command-line options for the executable.
 
-use crate::config::{Mono, NewTags, ShowFormat, Size};
 use crate::error::Result;
+use crate::mono::Mono;
+use crate::output::{Output, ProjLine};
+use crate::vcs::{VcsLevel, VcsRange};
 use clap::{crate_version, App, AppSettings, Arg, ArgGroup, ArgMatches, SubCommand};
 
 pub fn execute() -> Result<()> {
@@ -10,6 +12,38 @@ pub fn execute() -> Result<()> {
     .author("Charlie Ozinga, charlie@cloud-elements.com")
     .version(concat!(crate_version!(), " (", env!("GIT_SHORT_HASH"), " ", env!("DATE_DASH"), ")"))
     .about("Manage version numbers")
+    .arg(
+      Arg::with_name("vcslevel")
+        .short("l")
+        .long("vcs-level")
+        .takes_value(true)
+        .value_name("level")
+        .possible_values(&["auto", "max", "none", "local", "remote", "smart"])
+        .display_order(1)
+        .help("The VCS level")
+    )
+    .arg(
+      Arg::with_name("vcslevelmin")
+        .short("m")
+        .long("vcs-level-min")
+        .takes_value(true)
+        .value_name("min")
+        .possible_values(&["none", "local", "remote", "smart"])
+        .requires("vcslevelmax")
+        .display_order(1)
+        .help("The minimum VCS level")
+    )
+    .arg(
+      Arg::with_name("vcslevelmax")
+        .short("x")
+        .long("vcs-level-max")
+        .takes_value(true)
+        .value_name("max")
+        .possible_values(&["none", "local", "remote", "smart"])
+        .display_order(1)
+        .help("The maximum VCS level")
+    )
+    .group(ArgGroup::with_name("level").args(&["vcslevel", "vcslevelmin"]).required(false))
     .subcommand(
       SubCommand::with_name("check")
         .setting(AppSettings::UnifiedHelpMessage)
@@ -204,372 +238,294 @@ pub fn execute() -> Result<()> {
 }
 
 fn parse_matches(m: ArgMatches) -> Result<()> {
-  let mono = Mono::here()?;
+  println!("parsing matches");
+  let pref_vcs = parse_vcs(&m)?;
 
   match m.subcommand() {
-    ("check", _) => check(&mono),
-    ("show", Some(m)) => {
-      if m.is_present("nofetch") {
-        // TODO
-      }
-      let fmt = ShowFormat::new(m.is_present("wide"), false);
-      if m.is_present("prev") {
-        mono.previous_config().show(fmt)
-      } else {
-        mono.current_config().show(fmt)
-      }
-    }
-    ("get", Some(m)) => {
-      if m.is_present("nofetch") {
-        // TODO
-      }
-      let fmt = ShowFormat::new(m.is_present("wide"), m.is_present("versiononly"));
-      if m.is_present("prev") {
-        if m.is_present("id") {
-          mono.previous_config().show_id(m.value_of("id").unwrap().parse()?, fmt)
-        } else {
-          mono.previous_config().show_names(m.value_of("name").unwrap(), fmt)
-        }
-      } else if m.is_present("id") {
-        mono.current_config().show_id(m.value_of("id").unwrap().parse()?, fmt)
-      } else {
-        mono.current_config().show_names(m.value_of("name").unwrap(), fmt)
-      }
-    }
-    ("diff", Some(m)) => {
-      if m.is_present("nofetch") {
-        // TODO
-      }
-      diff(&mono)
-    }
-    ("set", Some(m)) => {
-      if m.is_present("id") {
-        mono.set_by_id(m.value_of("id").unwrap().parse()?, m.value_of("value").unwrap(), &mut NewTags::new())
-      } else {
-        mono.set_by_name(m.value_of("name").unwrap(), m.value_of("value").unwrap(), &mut NewTags::new())
-      }
-    }
-    ("files", Some(m)) => {
-      if m.is_present("nofetch") {
-        // TODO
-      }
-      for result in mono.keyed_files()? {
-        let (key, path) = result?;
-        println!("{} : {}", key, path);
-      }
-      Ok(())
-    }
-    ("plan", Some(m)) => {
-      if m.is_present("nofetch") {
-        // TODO
-      }
-      plan(&mono)
-    }
-    ("run", Some(m)) => {
-      if m.is_present("nofetch") {
-        // TODO
-      }
-      run(&mono, m.is_present("all"), m.is_present("dry"))
-    }
-    ("log", Some(m)) => {
-      if m.is_present("nofetch") {
-        // TODO
-      }
-      log(&mono)
-    }
-    ("changes", Some(m)) => {
-      if m.is_present("nofetch") {
-        // TODO
-      }
-      changes(&mono)
-    }
-    ("", _) => empty_cmd(),
-    (c, _) => unknown_cmd(c)
+    ("check", _) => check(pref_vcs)?,
+    ("get", Some(m)) => get(
+      pref_vcs,
+      m.is_present("wide"),
+      m.is_present("versiononly"),
+      m.is_present("prev"),
+      m.value_of("id"),
+      m.value_of("name")
+    )?,
+    ("show", Some(m)) => show(pref_vcs, m.is_present("wide"))?,
+    ("set", Some(m)) => set(pref_vcs, m.value_of("id"), m.value_of("name"), m.value_of("value").unwrap())?,
+    ("diff", Some(_)) => diff(pref_vcs)?,
+    ("files", Some(_)) => files(pref_vcs)?,
+    ("log", Some(_)) => log(pref_vcs)?,
+    ("changes", Some(_)) => changes(pref_vcs)?,
+    ("plan", Some(_)) => plan(pref_vcs)?,
+    ("run", Some(m)) => run(pref_vcs, m.is_present("all"), m.is_present("dry"))?,
+    ("", _) => empty_cmd()?,
+    (c, _) => unknown_cmd(c)?
   }
+
+  Ok(())
 }
 
-fn diff(mono: &Mono) -> Result<()> {
+fn check(pref_vcs: Option<VcsRange>) -> Result<()> {
+  let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Local, VcsLevel::None, VcsLevel::Smart)?;
+  let output = Output::new();
+  let mut output = output.check();
+
+  mono.check()?;
+  output.write_done()?;
+
+  output.commit()
+}
+
+fn get(
+  pref_vcs: Option<VcsRange>, wide: bool, versonly: bool, _prev: bool, id: Option<&str>, name: Option<&str>
+) -> Result<()> {
+  let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Local, VcsLevel::None, VcsLevel::Smart)?;
+  let output = Output::new();
+  let mut output = output.projects(wide, versonly);
+
+  // TODO: prev
+
+  let reader = mono.reader();
+  if let Some(id) = id {
+    let id = id.parse()?;
+    output.write_project(ProjLine::from(mono.get_project(id)?, reader)?)?;
+  } else {
+    output.write_project(ProjLine::from(mono.get_named_project(name.unwrap())?, reader)?)?;
+  }
+
+  output.commit()
+}
+
+fn show(pref_vcs: Option<VcsRange>, wide: bool) -> Result<()> {
+  let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Local, VcsLevel::None, VcsLevel::Smart)?;
+  let output = Output::new();
+  let mut output = output.projects(wide, false);
+
+  let reader = mono.reader();
+  output.write_projects(mono.projects().iter().map(|p| ProjLine::from(p, reader)))?;
+  output.commit()
+}
+
+fn set(pref_vcs: Option<VcsRange>, id: Option<&str>, name: Option<&str>, value: &str) -> Result<()> {
+  let mut mono = build(pref_vcs, VcsLevel::None, VcsLevel::None, VcsLevel::None, VcsLevel::Smart)?;
+
+  if let Some(id) = id {
+    mono.set_by_id(id.parse()?, value)?;
+  } else {
+    mono.set_by_name(name.unwrap(), value)?;
+  }
+
+  mono.commit()
+}
+
+fn diff(pref_vcs: Option<VcsRange>) -> Result<()> {
+  let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Local, VcsLevel::Local, VcsLevel::Smart)?;
+  let output = Output::new();
+  let mut output = output.diff();
+
   let analysis = mono.diff()?;
 
-  if !analysis.older().is_empty() {
-    println!("Removed projects:");
-    for mark in analysis.older() {
-      println!("  {} : {}", mark.name(), mark.mark());
-    }
-  }
-
-  if !analysis.newer().is_empty() {
-    println!("New projects:");
-    for mark in analysis.newer() {
-      println!("  {} : {}", mark.name(), mark.mark());
-    }
-  }
-
-  if analysis.changes().iter().any(|c| c.value().is_some()) {
-    println!("Changed versions:");
-    for change in analysis.changes().iter().filter(|c| c.value().is_some()) {
-      print!("  {}", change.new_mark().name());
-
-      if let Some((o, _)) = change.name().as_ref() {
-        print!(" (was \"{}\")", o);
-      }
-      if let Some((o, n)) = change.value().as_ref() {
-        print!(" : {} -> {}", o, n);
-      } else {
-        print!(" : {}", change.new_mark().mark());
-      }
-      println!();
-    }
-  }
-
-  if analysis.changes().iter().any(|c| c.value().is_none()) {
-    println!("Unchanged versions:");
-    for change in analysis.changes().iter().filter(|c| c.value().is_none()) {
-      print!("  {}", change.new_mark().name());
-
-      if let Some((o, _)) = change.name().as_ref() {
-        print!(" (was \"{}\")", o);
-      }
-      print!(" : {}", change.new_mark().mark());
-      println!();
-    }
-  }
-
-  Ok(())
+  output.write_analysis(analysis)?;
+  output.commit()
 }
 
-pub fn plan(mono: &Mono) -> Result<()> {
-  let plan = mono.configure_plan()?;
-  let curt_cfg = mono.current_config();
+fn files(pref_vcs: Option<VcsRange>) -> Result<()> {
+  let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
+  let output = Output::new();
+  let mut output = output.files();
+
+  output.write_files(mono.keyed_files()?)?;
+  output.commit()
+}
+
+pub fn log(pref_vcs: Option<VcsRange>) -> Result<()> {
+  let mut mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
+  let output = Output::new();
+  let mut output = output.log();
+
+  let plan = mono.build_plan()?;
 
   if plan.incrs().is_empty() {
-    println!("(No projects)");
-  } else {
-    for (id, (size, _, change_log)) in plan.incrs() {
-      let curt_proj = curt_cfg.get_project(*id).unwrap();
-      println!("{} : {}", curt_proj.name(), size);
-      for dep in curt_proj.depends() {
-        let size = plan.incrs().get(dep).unwrap().0;
-        let dep_proj = curt_cfg.get_project(*dep).unwrap();
-        println!("  Depends on {} : {}", dep_proj.name(), size);
-      }
-      for (pr, size) in change_log.entries() {
-        if !pr.commits().iter().any(|c| c.included()) {
-          continue;
-        }
-        if pr.number() == 0 {
-          // "PR zero" is the top-level set of commits.
-          println!("  Other commits : {}", size);
-        } else {
-          println!("  PR {} : {}", pr.number(), size);
-        }
-        for c /* (oid, msg, size, appl, dup) */ in pr.commits().iter().filter(|c| c.included()) {
-          let symbol = if c.duplicate() {
-            "."
-          } else if c.applies() {
-            "*"
-          } else {
-            " "
-          };
-          println!("    {} commit {} ({}) : {}", symbol, &c.oid()[.. 7], c.size(), c.message());
-        }
-      }
+    output.write_empty()?;
+    return output.commit();
+  }
+
+  for (&id, (.., change_log)) in plan.incrs() {
+    if let Some(wrote) = mono.write_change_log(id, change_log)? {
+      output.write_logged(wrote)?;
     }
   }
 
-  Ok(())
+  mono.commit()?;
+  output.commit()
 }
 
-pub fn log(mono: &Mono) -> Result<()> {
-  let plan = mono.configure_plan()?;
+fn changes(pref_vcs: Option<VcsRange>) -> Result<()> {
+  let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
+  let output = Output::new();
+  let mut output = output.changes();
+
+  output.write_changes(mono.changes()?)?;
+  output.commit()
+}
+
+pub fn plan(pref_vcs: Option<VcsRange>) -> Result<()> {
+  let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
+  let output = Output::new();
+  let mut output = output.plan();
+
+  output.write_plan(mono.build_plan()?)?;
+  output.commit(&mono)
+}
+
+pub fn run(pref_vcs: Option<VcsRange>, _all: bool, _dry: bool) -> Result<()> {
+  let mut mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
+  let output = Output::new();
+  let mut output = output.run();
+
+  let plan = mono.build_plan()?;
 
   if plan.incrs().is_empty() {
-    println!("(No projects)");
-    return Ok(());
+    output.write_empty()?;
+    return output.commit();
   }
 
-  let curt_cfg = mono.current_config();
-  let curt = mono.current_source();
+  for (&id, (_size, change_log)) in plan.incrs() {
+    // let proj = mono.get_project(id)?;
+    // let _name = proj.name();
 
-  println!("Executing plan:");
-  for (id, (.., change_log)) in plan.incrs() {
-    let proj = curt_cfg.get_project(*id).unwrap();
+    // let curt_vers = curt_cfg.get_mark_value(id).unwrap()?;
+    // let prev_vers = prev_cfg.get_mark_value(id).transpose()?;
 
-    if let Some(wrote) = proj.write_change_log(&change_log, curt)? {
-      println!("Wrote {}", wrote);
+    if let Some(wrote) = mono.write_change_log(id, change_log)? {
+      output.write_logged(wrote)?;
     }
-  }
-  Ok(())
-}
 
-pub fn run(mono: &Mono, all: bool, dry: bool) -> Result<()> {
-  if !dry {
-    // TODO: mono.set_merge(true)?;
+    // if let Some(prev_vers) = prev_vers {
+    //   let target = size.apply(&prev_vers)?;
+    //   if Size::less_than(&curt_vers, &target)? {
+    //     if !dry {
+    //       curt_cfg.set_by_id(id, &target, last_commit.as_ref(), &mut new_tags, wrote_change_log)?;
+    //     } else {
+    //       new_tags.flag_commit();
+    //     }
+    //     if prev_vers == curt_vers {
+    //       println!("  {} : {} -> {}", curt_name, prev_vers, &target);
+    //     } else {
+    //       println!("  {} : {} -> {} instead of {}", curt_name, prev_vers, &target, curt_vers);
+    //     }
+    //   } else {
+    //     if !dry {
+    //       curt_cfg.forward_by_id(id, &curt_vers, last_commit.as_ref(), &mut new_tags, wrote_change_log)?;
+    //     } else if wrote_change_log {
+    //       new_tags.flag_commit();
+    //     }
+    //     if all {
+    //       if prev_vers == curt_vers {
+    //         println!("  {} : no change to {}", curt_name, curt_vers);
+    //       } else if curt_vers == target {
+    //         println!("  {} : no change: already {} -> {}", curt_name, prev_vers, &target);
+    //       } else {
+    //         println!("  {} : no change: {} -> {} exceeds {}", curt_name, prev_vers, curt_vers, &target);
+    //       }
+    //     }
+    //   }
+    // } else {
+    //   if !dry {
+    //     curt_cfg.forward_by_id(id, &curt_vers, last_commit.as_ref(), &mut new_tags, wrote_change_log)?;
+    //   } else if wrote_change_log {
+    //     new_tags.flag_commit();
+    //   }
 
-    // We're going to commit and push changes soon; let's make sure that we are up-to-date. But don't create a
-    // merge commit: fail immediately if we can't pull with a fast-forward.
-    mono.pull()?;
-  }
-
-  let plan = mono.configure_plan()?;
-
-  if plan.incrs().is_empty() {
-    println!("(No projects)");
-    return Ok(());
-  }
-
-  let curt_cfg = mono.current_config();
-  let prev_cfg = mono.previous_config();
-  let curt = mono.current_source();
-
-  println!("Executing plan:");
-  let mut new_tags = NewTags::new();
-  for (&id, (size, last_commit, change_log)) in plan.incrs() {
-    let proj = curt_cfg.get_project(id).unwrap();
-    let curt_name = proj.name();
-    let curt_vers = curt_cfg.get_mark_value(id).unwrap()?;
-    let prev_vers = prev_cfg.get_mark_value(id).transpose()?;
-
-    let wrote_change_log = if dry {
-      proj.change_log().is_some()
-    // TODO: && were_there_any_new_commits
-    } else {
-      proj.write_change_log(&change_log, curt)?.is_some()
-    };
-
-    if let Some(prev_vers) = prev_vers {
-      let target = size.apply(&prev_vers)?;
-      if Size::less_than(&curt_vers, &target)? {
-        if !dry {
-          curt_cfg.set_by_id(id, &target, last_commit.as_ref(), &mut new_tags, wrote_change_log)?;
-        } else {
-          new_tags.flag_commit();
-        }
-        if prev_vers == curt_vers {
-          println!("  {} : {} -> {}", curt_name, prev_vers, &target);
-        } else {
-          println!("  {} : {} -> {} instead of {}", curt_name, prev_vers, &target, curt_vers);
-        }
-      } else {
-        if !dry {
-          curt_cfg.forward_by_id(id, &curt_vers, last_commit.as_ref(), &mut new_tags, wrote_change_log)?;
-        } else if wrote_change_log {
-          new_tags.flag_commit();
-        }
-        if all {
-          if prev_vers == curt_vers {
-            println!("  {} : no change to {}", curt_name, curt_vers);
-          } else if curt_vers == target {
-            println!("  {} : no change: already {} -> {}", curt_name, prev_vers, &target);
-          } else {
-            println!("  {} : no change: {} -> {} exceeds {}", curt_name, prev_vers, curt_vers, &target);
-          }
-        }
-      }
-    } else {
-      if !dry {
-        curt_cfg.forward_by_id(id, &curt_vers, last_commit.as_ref(), &mut new_tags, wrote_change_log)?;
-      } else if wrote_change_log {
-        new_tags.flag_commit();
-      }
-
-      if all {
-        println!("  {} : no change: {} is new", curt_name, curt_vers);
-      }
-    }
+    //   if all {
+    //     println!("  {} : no change: {} is new", curt_name, curt_vers);
+    //   }
+    // }
   }
 
-  let prev = mono.previous_source();
-
-  if new_tags.should_commit() {
-    if dry {
-      println!("Dry run: no actual commits.");
-    } else if prev.repo()?.make_changes(new_tags.tags_for_new_commit())? {
-      if prev.has_remote() {
-        println!("Changes committed and pushed.");
-      } else {
-        println!("Changes committed.");
-      }
-    } else {
-      return versio_err!("No file changes found somehow.");
-    }
-  } else {
-    // TODO: still tag / push ?
-    println!("No planned increments: not committing.");
+  if !_dry {
+    // TODO: suppress command-level commit
   }
 
-  if prev.repo()?.forward_tags(new_tags.changed_tags())? {
-    if dry {
-      println!("Dry run: no actual tag forwarding.");
-    } else if prev.has_remote() {
-      println!("Tags forwarded and pushed.");
-    } else {
-      println!("Tags forwarded.");
-    }
-  }
+  // if new_tags.should_commit() {
+  //   if dry {
+  //     println!("Dry run: no actual commits.");
+  //   } else if prev.repo()?.make_changes(new_tags.tags_for_new_commit())? {
+  //     if prev.has_remote() {
+  //       println!("Changes committed and pushed.");
+  //     } else {
+  //       println!("Changes committed.");
+  //     }
+  //   } else {
+  //     return versio_err!("No file changes found somehow.");
+  //   }
+  // } else {
+  //   // TODO: still tag / push ?
+  //   println!("No planned increments: not committing.");
+  // }
 
-  if dry {
-    println!("Dry run: no actual prevtag update.");
-  } else {
-    prev.repo()?.forward_prev_tag(curt_cfg.prev_tag())?;
-    if prev.has_remote() {
-      println!("Prevtag forwarded and pushed.");
-    } else {
-      println!("Prevtag forwarded.");
-    }
-  }
+  // if prev.repo()?.forward_tags(new_tags.changed_tags())? {
+  //   if dry {
+  //     println!("Dry run: no actual tag forwarding.");
+  //   } else if prev.has_remote() {
+  //     println!("Tags forwarded and pushed.");
+  //   } else {
+  //     println!("Tags forwarded.");
+  //   }
+  // }
 
-  println!("Run complete.");
+  // if dry {
+  //   println!("Dry run: no actual prevtag update.");
+  // } else {
+  //   prev.repo()?.forward_prev_tag(curt_cfg.prev_tag())?;
+  //   if prev.has_remote() {
+  //     println!("Prevtag forwarded and pushed.");
+  //   } else {
+  //     println!("Prevtag forwarded.");
+  //   }
+  // }
 
-  Ok(())
-}
+  output.write_done()?;
 
-fn changes(mono: &Mono) -> Result<()> {
-  let prev = mono.previous_source();
-  let changes = prev.changes()?;
-
-  println!("\ngroups:");
-  for g in changes.groups().values() {
-    let head_oid = g.head_oid().as_ref().map(|o| o.to_string()).unwrap_or_else(|| "<not found>".to_string());
-    println!("  {}: {} ({} -> {})", g.number(), g.head_ref(), g.base_oid(), head_oid);
-    println!("    commits:");
-    for cmt in g.commits() {
-      println!("      {}", cmt.id());
-    }
-    println!("    excludes:");
-    for cmt in g.excludes() {
-      println!("      {}", cmt);
-    }
-  }
-
-  println!("\ncommits:");
-  for oid in changes.commits() {
-    println!("  {}", oid);
-  }
-
-  Ok(())
-}
-
-fn check(mono: &Mono) -> Result<()> {
-  if !mono.is_configured()? {
-    return versio_err!("No versio config file found.");
-  }
-  mono.current_config().check()
+  mono.commit()?;
+  output.commit()
 }
 
 fn unknown_cmd(c: &str) -> Result<()> { versio_err!("Unknown command: \"{}\" (try \"help\").", c) }
 fn empty_cmd() -> Result<()> { versio_err!("No command (try \"help\").") }
 
-// from project
-
-  fn show<S: StateRead>(&self, state: &S, name_width: usize, format: &ShowFormat) -> Result<()> {
-    let mark = self.get_mark_value(state)?;
-    if format.version_only {
-      println!("{}", mark);
-    } else if format.wide {
-      println!("{:>4}. {:width$} : {}", self.id, self.name, mark, width = name_width);
-    } else {
-      println!("{:width$} : {}", self.name, mark, width = name_width);
+fn parse_vcs(m: &ArgMatches) -> Result<Option<VcsRange>> {
+  if let Some(vcs_level) = m.value_of("vcslevel") {
+    match vcs_level {
+      "auto" => Ok(None),
+      "max" => Ok(Some(VcsRange::full())),
+      other => {
+        let other: VcsLevel = other.parse()?;
+        Ok(Some(VcsRange::exact(other)))
+      }
     }
-    Ok(())
+  } else if let Some(vcs_min) = m.value_of("vcslevelmin") {
+    let vcs_max = m.value_of("vcslevelmax").unwrap();
+    Ok(Some(VcsRange::new(vcs_min.parse()?, vcs_max.parse()?)))
+  } else {
+    Ok(None)
   }
+}
+
+fn build(
+  user_pref_vcs: Option<VcsRange>, my_pref_lo: VcsLevel, my_pref_hi: VcsLevel, my_reqd_lo: VcsLevel,
+  my_reqd_hi: VcsLevel
+) -> Result<Mono> {
+  let vcs = combine_vcs(user_pref_vcs, my_pref_lo, my_pref_hi, my_reqd_lo, my_reqd_hi)?;
+  Mono::here(vcs.max())
+}
+
+fn combine_vcs(
+  user_pref_vcs: Option<VcsRange>, my_pref_lo: VcsLevel, my_pref_hi: VcsLevel, my_reqd_lo: VcsLevel,
+  my_reqd_hi: VcsLevel
+) -> Result<VcsRange> {
+  let pref_vcs = user_pref_vcs.unwrap_or_else(move || VcsRange::new(my_pref_lo, my_pref_hi));
+  let reqd_vcs = VcsRange::new(my_reqd_lo, my_reqd_hi);
+  VcsRange::negotiate_and_combine(&pref_vcs, &reqd_vcs)
+}
