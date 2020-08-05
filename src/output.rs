@@ -2,7 +2,7 @@
 
 use crate::analyze::Analysis;
 use crate::config::{Project, ProjectId};
-use crate::error::Result;
+use crate::errors::Result;
 use crate::github::Changes;
 use crate::mono::{Mono, Plan};
 use crate::state::StateRead;

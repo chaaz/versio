@@ -1,7 +1,7 @@
 //! The mechanisms used to read and write state, both current and historical.
 
 use crate::config::ProjectId;
-use crate::error::Result;
+use crate::errors::Result;
 use crate::git::{Repo, Slice};
 use crate::mark::{NamedData, Picker};
 use std::collections::{HashMap, HashSet};
@@ -108,9 +108,9 @@ impl OldTags {
     let mut not_after = HashMap::new();
 
     for (pref, afts) in &self.not_after {
-      let ind: usize = *afts.get(new_oid).ok_or_else(|| versio_error!("Bad new_oid {}", new_oid))?;
+      let ind: usize = *afts.get(new_oid).ok_or_else(|| bad!("Bad new_oid {}", new_oid))?;
       let list =
-        self.by_prefix.get(pref).ok_or_else(|| versio_error!("Illegal prefix {} oid for {}", pref, new_oid))?;
+        self.by_prefix.get(pref).ok_or_else(|| bad!("Illegal prefix {} oid for {}", pref, new_oid))?;
       let list = list[ind ..].to_vec();
       by_prefix.insert(pref.clone(), list);
 

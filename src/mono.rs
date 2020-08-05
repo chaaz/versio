@@ -3,7 +3,7 @@
 use crate::analyze::{analyze, Analysis};
 use crate::config::{Config, ConfigFile, Project, ProjectId, Size};
 use crate::either::{IterEither2 as E2, IterEither3 as E3};
-use crate::error::Result;
+use crate::errors::Result;
 use crate::git::{CommitInfoBuf, FullPr, Repo, Slice};
 use crate::github::{changes, line_commits, Changes};
 use crate::state::{CurrentState, OldTags, StateRead, StateWrite};
@@ -49,7 +49,7 @@ impl Mono {
   pub fn projects(&self) -> &[Project] { self.current.projects() }
 
   pub fn get_project(&self, id: ProjectId) -> Result<&Project> {
-    self.current.get_project(id).ok_or_else(|| versio_error!("No such project {}", id))
+    self.current.get_project(id).ok_or_else(|| bad!("No such project {}", id))
   }
 
   pub fn get_named_project(&self, name: &str) -> Result<&Project> {
@@ -108,13 +108,13 @@ impl Mono {
   where
     F: FnOnce(&Project, &mut StateWrite) -> Result<T>
   {
-    let proj = self.current.get_project(id).ok_or_else(|| versio_error!("No such project {}", id))?;
+    let proj = self.current.get_project(id).ok_or_else(|| bad!("No such project {}", id))?;
     f(proj, &mut self.next)
   }
 
   pub fn check(&self) -> Result<()> {
     if !self.current.is_configured()? {
-      return versio_err!("Project is not configured.");
+      bail!("Project is not configured.");
     }
 
     for project in self.current.projects() {
@@ -339,7 +339,7 @@ impl<'s> PlanBuilder<'s> {
   pub fn finish_commit(&mut self) -> Result<()> { Ok(()) }
 
   pub fn start_file(&mut self, path: &str) -> Result<()> {
-    let commit = self.on_commit.as_ref().ok_or_else(|| versio_error!("Not on a commit"))?;
+    let commit = self.on_commit.as_ref().ok_or_else(|| bad!("Not on a commit"))?;
     let commit_id = commit.id();
 
     for prev_project in self.prev.1.projects() {
@@ -447,7 +447,7 @@ impl<'s, C: StateRead> LastCommitBuilder<'s, C> {
   pub fn finish_line_commit(&mut self) -> Result<()> { Ok(()) }
 
   pub fn start_line_file(&mut self, path: &str) -> Result<()> {
-    let commit_id = self.on_line_commit.as_ref().ok_or_else(|| versio_error!("Not on a line commit"))?;
+    let commit_id = self.on_line_commit.as_ref().ok_or_else(|| bad!("Not on a line commit"))?;
 
     for prev_project in self.prev.1.projects() {
       let proj_id = prev_project.id();

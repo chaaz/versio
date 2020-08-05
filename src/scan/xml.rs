@@ -2,7 +2,7 @@
 //!
 //! TODO: versions in CDATA, attributes
 
-use crate::error::Result;
+use crate::errors::Result;
 use crate::mark::Mark;
 #[cfg(test)]
 use crate::scan::parts::ToPart;
@@ -31,7 +31,7 @@ fn scan_xml<P: IntoPartVec>(data: &str, loc: P) -> Result<Mark> {
   parts.reverse();
 
   if parts.is_empty() {
-    return versio_err!("No parts found for XML spec");
+    bail!("No parts found for XML spec");
   }
 
   let mut extra_depth = 0;
@@ -53,7 +53,7 @@ fn scan_xml<P: IntoPartVec>(data: &str, loc: P) -> Result<Mark> {
         if extra_depth > 0 {
           extra_depth -= 1;
         } else {
-          return versio_err!("Couldn't find version in XML: still expecting {:?}", parts);
+          bail!("Couldn't find version in XML: still expecting {:?}", parts);
         }
       }
       Token::Text { text } => {
@@ -65,7 +65,7 @@ fn scan_xml<P: IntoPartVec>(data: &str, loc: P) -> Result<Mark> {
     }
   }
 
-  versio_err!("Couldn't find version at end of XML: still expecting {:?}", parts)
+  bail!("Couldn't find version at end of XML: still expecting {:?}", parts)
 }
 
 fn is_ending(end: &ElementEnd) -> bool {

@@ -1,6 +1,6 @@
 //! Interactions with github API v4.
 
-use crate::error::Result;
+use crate::errors::Result;
 use crate::git::{CommitInfoBuf, FullPr, GithubInfo, Repo, Span};
 use chrono::{DateTime, FixedOffset, TimeZone, Utc};
 use git2::Time;
@@ -31,7 +31,7 @@ pub fn changes(repo: &Repo, headref: String, base: String) -> Result<Changes> {
   let mut queue = VecDeque::new();
   let offset = FixedOffset::west(0);
   let pr_zero = FullPr::lookup(repo, headref.clone(), base, 0, offset.timestamp(Utc::now().timestamp(), 0))?;
-  queue.push_back(pr_zero.span().ok_or_else(|| versio_error!("Unable to get oid for seed ref \"{}\".", headref))?);
+  queue.push_back(pr_zero.span().ok_or_else(|| bad!("Unable to get oid for seed ref \"{}\".", headref))?);
   all_prs.insert(pr_zero.number(), pr_zero);
 
   let github_info = match repo.github_info() {
@@ -153,7 +153,7 @@ fragment commitResult on Commit {
   let query = QueryVars::new(query.to_string(), variables);
   let (_headers, _status, resp) = github.run::<ChangesResponse, _>(&query)?;
 
-  let changes = resp.ok_or_else(|| versio_error!("Couldn't find commits."))?;
+  let changes = resp.ok_or_else(|| bad!("Couldn't find commits."))?;
   let changes = changes.data.repository.commit.history.nodes;
   let mut changes: HashMap<String, ApiCommit> = changes.into_iter().map(|c| (c.oid().to_string(), c)).collect();
 
@@ -303,7 +303,7 @@ impl IntoGithubRequest for QueryVars {
       .method("POST")
       .uri("https://api.github.com/graphql")
       .body(q.into())
-      .chain_err(|| "Unable to for URL to make the request")?;
+      .chain_err(|| "Unable for URL to make the request")?;
 
     let token = String::from("token ") + token;
     {

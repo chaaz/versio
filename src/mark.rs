@@ -1,6 +1,6 @@
 //! Management of reading and writing marks to files.
 
-use crate::error::Result;
+use crate::errors::Result;
 use crate::scan::parts::{deserialize_parts, Part};
 use crate::scan::{JsonScanner, Scanner, TomlScanner, XmlScanner, YamlScanner};
 use regex::Regex;
@@ -89,8 +89,8 @@ impl LinePicker {
 
   fn find_reg_data(data: &str, pattern: &str) -> Result<Mark> {
     let pattern = Regex::new(pattern)?;
-    let found = pattern.captures(data).ok_or_else(|| versio_error!("No match for {}", pattern))?;
-    let item = found.get(1).ok_or_else(|| versio_error!("No capture group in {}.", pattern))?;
+    let found = pattern.captures(data).ok_or_else(|| bad!("No match for {}", pattern))?;
+    let item = found.get(1).ok_or_else(|| bad!("No capture group in {}.", pattern))?;
     let value = item.as_str().to_string();
     let index = item.start();
     Ok(Mark::make(value, index)?)
@@ -174,7 +174,7 @@ impl Mark {
   pub fn make(value: String, byte_start: usize) -> Result<Mark> {
     let regex = Regex::new(r"\A\d+\.\d+\.\d+\z")?;
     if !regex.is_match(&value) {
-      return versio_err!("Value \"{}\" is not a version.", value);
+      bail!("Value \"{}\" is not a version.", value);
     }
 
     Ok(Mark { value, byte_start })

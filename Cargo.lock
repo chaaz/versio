@@ -1311,6 +1311,7 @@ dependencies = [
  "chrono",
  "clap",
  "env_logger",
+ "error-chain",
  "git2",
  "github-gql-rs",
  "glob",

@@ -6,7 +6,7 @@ mod yaml;
 
 pub use self::toml::TomlScanner;
 pub use self::xml::XmlScanner;
-use crate::error::Result;
+use crate::errors::Result;
 use crate::mark::{Mark, MarkedData, NamedData};
 use crate::scan::parts::Part;
 pub use json::JsonScanner;

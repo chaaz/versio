@@ -1,6 +1,6 @@
 //! Simple management of the current VCS level that we're running at.
 
-use crate::error::Result;
+use crate::errors::Result;
 use crate::git::Repo;
 use std::cmp::{max, min};
 use std::str::FromStr;
@@ -29,24 +29,24 @@ impl VcsRange {
 
   pub fn negotiate_and_combine(pref: &VcsRange, reqd: &VcsRange) -> Result<VcsRange> {
     if pref.is_empty() {
-      return versio_err!("Preferred VCS {:?} is empty.", pref);
+      bail!("Preferred VCS {:?} is empty.", pref);
     } else if reqd.is_empty() {
-      return versio_err!("Required VCS {:?} is empty.", reqd);
+      bail!("Required VCS {:?} is empty.", reqd);
     }
 
     let i1 = pref.intersect(reqd);
     if i1.is_empty() {
       if pref.min() > reqd.max() {
-        return versio_err!("Preferred VCS {:?} grtr than required {:?}.", pref, reqd);
+        bail!("Preferred VCS {:?} grtr than required {:?}.", pref, reqd);
       } else {
-        return versio_err!("Preferred VCS {:?} less than required {:?}.", pref, reqd);
+        bail!("Preferred VCS {:?} less than required {:?}.", pref, reqd);
       }
     }
 
     let negd = VcsRange::negotiate()?;
     let i2 = i1.intersect(&negd);
     if i2.is_empty() {
-      return versio_err!("Couldn't negotiate {:?} with preferred {:?} required {:?}", negd, pref, reqd);
+      bail!("Couldn't negotiate {:?} with preferred {:?} required {:?}", negd, pref, reqd);
     }
 
     debug!("combining pref {:?}, reqd {:?}, negd {:?} = {:?}", pref, reqd, negd, i2.max());
@@ -64,7 +64,7 @@ pub enum VcsLevel {
 }
 
 impl FromStr for VcsLevel {
-  type Err = crate::error::Error;
+  type Err = crate::errors::Error;
 
   fn from_str(v: &str) -> Result<VcsLevel> {
     match v {
@@ -72,7 +72,7 @@ impl FromStr for VcsLevel {
       "local" => Ok(VcsLevel::Local),
       "remote" => Ok(VcsLevel::Remote),
       "smart" => Ok(VcsLevel::Smart),
-      other => versio_err!("Illegal vcs level \"{}\".", other)
+      other => err!("Illegal vcs level \"{}\".", other)
     }
   }
 }

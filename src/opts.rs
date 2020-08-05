@@ -1,6 +1,6 @@
 //! The command-line options for the executable.
 
-use crate::error::Result;
+use crate::errors::Result;
 use crate::mono::Mono;
 use crate::output::{Output, ProjLine};
 use crate::vcs::{VcsLevel, VcsRange};
@@ -492,8 +492,8 @@ pub fn run(pref_vcs: Option<VcsRange>, _all: bool, _dry: bool) -> Result<()> {
   output.commit()
 }
 
-fn unknown_cmd(c: &str) -> Result<()> { versio_err!("Unknown command: \"{}\" (try \"help\").", c) }
-fn empty_cmd() -> Result<()> { versio_err!("No command (try \"help\").") }
+fn unknown_cmd(c: &str) -> Result<()> { err!("Unknown command: \"{}\" (try \"help\").", c) }
+fn empty_cmd() -> Result<()> { err!("No command (try \"help\").") }
 
 fn parse_vcs(m: &ArgMatches) -> Result<Option<VcsRange>> {
   if let Some(vcs_level) = m.value_of("vcslevel") {

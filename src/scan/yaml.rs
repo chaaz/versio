@@ -1,6 +1,6 @@
 //! Utilities to find a mark in a YAML file.
 
-use crate::error::Result;
+use crate::errors::Result;
 use crate::mark::{CharMark, Mark};
 #[cfg(test)]
 use crate::scan::parts::ToPart;

@@ -1,7 +1,7 @@
 //! The configuration and top-level commands for Versio.
 
 use crate::analyze::AnnotatedMark;
-use crate::error::Result;
+use crate::errors::{Result, ResultExt};
 use crate::git::{Repo, Slice};
 use crate::mark::{FilePicker, LinePicker, Picker, ScanningPicker};
 use crate::mono::ChangeLog;
@@ -57,9 +57,9 @@ impl<S: StateRead> Config<S> {
 
   pub fn find_unique(&self, name: &str) -> Result<ProjectId> {
     let mut iter = self.file.projects.iter().filter(|p| p.name.contains(name)).map(|p| p.id);
-    let id = iter.next().ok_or_else(|| versio_error!("No project named {}", name))?;
+    let id = iter.next().ok_or_else(|| bad!("No project named {}", name))?;
     if iter.next().is_some() {
-      return versio_err!("Multiple projects with name {}", name);
+      bail!("Multiple projects with name {}", name);
     }
     Ok(id)
   }
@@ -86,7 +86,9 @@ impl ConfigFile {
   pub fn from_slice(slice: &Slice) -> Result<ConfigFile> { ConfigFile::read(&PrevState::read(slice, CONFIG_FILENAME)?) }
 
   pub fn from_dir<P: AsRef<Path>>(p: P) -> Result<ConfigFile> {
-    ConfigFile::read(&std::fs::read_to_string(p.as_ref().join(CONFIG_FILENAME))?)
+    let path = p.as_ref();
+    let file = path.join(CONFIG_FILENAME);
+    ConfigFile::read(&std::fs::read_to_string(&file).chain_err(|| format!("No {}", file.to_string_lossy()))?)
   }
 
   pub fn empty() -> ConfigFile {
@@ -112,21 +114,21 @@ impl ConfigFile {
 
     for p in &self.projects {
       if ids.contains(&p.id) {
-        return versio_err!("id {} is duplicated", p.id);
+        bail!("id {} is duplicated", p.id);
       }
       ids.insert(p.id);
 
       if names.contains(&p.name) {
-        return versio_err!("name {} is duplicated", p.name);
+        bail!("name {} is duplicated", p.name);
       }
       names.insert(p.name.clone());
 
       if let Some(pref) = &p.tag_prefix {
         if prefs.contains(pref) {
-          return versio_err!("tag_prefix {} is duplicated", pref);
+          bail!("tag_prefix {} is duplicated", pref);
         }
         if !legal_tag(pref) {
-          return versio_err!("illegal tag_prefix \"{}\"", pref);
+          bail!("illegal tag_prefix \"{}\"", pref);
         }
         prefs.insert(pref.clone());
       }
@@ -220,7 +222,7 @@ impl Project {
       return Ok(Size::Major);
     }
     parent_sizes.get(kind).copied().map(Ok).unwrap_or_else(|| {
-      parent_sizes.get("*").copied().map(Ok).unwrap_or_else(|| versio_err!("Unknown kind \"{}\".", kind))
+      parent_sizes.get("*").copied().map(Ok).unwrap_or_else(|| err!("Unknown kind \"{}\".", kind))
     })
   }
 
@@ -249,7 +251,7 @@ impl Project {
     for cov in &self.includes {
       let pattern = self.rooted_pattern(cov);
       if !glob_with(&pattern, match_opts())?.any(|_| true) {
-        return versio_err!("No files in proj. {} covered by \"{}\".", self.id, pattern);
+        return err!("No files in proj. {} covered by \"{}\".", self.id, pattern);
       }
     }
 
@@ -259,7 +261,7 @@ impl Project {
   /// Ensure that we don't have excludes without includes.
   fn check_excludes(&self) -> Result<()> {
     if !self.excludes.is_empty() && self.includes.is_empty() {
-      return versio_err!("Proj {} has excludes, but no includes.", self.id);
+      return err!("Proj {} has excludes, but no includes.", self.id);
     }
 
     Ok(())
@@ -332,10 +334,10 @@ struct TagLocation {
 impl TagLocation {
   fn read_value<S: StateRead + ?Sized>(&self, read: &S, prefix: &Option<String>) -> Result<String> {
     // TODO: restructure types to make it impossible to have a tags project w/out a tag_prefix
-    let prefix = prefix.as_ref().ok_or_else(|| versio_error!("No tag prefix for tag location."))?;
+    let prefix = prefix.as_ref().ok_or_else(|| bad!("No tag prefix for tag location."))?;
 
     // TODO: use TagSpec default instead of Err
-    Ok(read.latest_tag(prefix).ok_or_else(|| versio_error!("No tag found for {}", prefix))?.clone())
+    Ok(read.latest_tag(prefix).ok_or_else(|| bad!("No tag found for {}", prefix))?.clone())
   }
 }
 
@@ -403,14 +405,14 @@ impl Size {
       "patch" => Ok(Size::Patch),
       "none" => Ok(Size::None),
       "fail" => Ok(Size::Fail),
-      other => versio_err!("Unknown size: {}", other)
+      other => err!("Unknown size: {}", other)
     }
   }
 
   fn parts(v: &str) -> Result<[u32; 3]> {
     let parts: Vec<_> = v.split('.').map(|p| p.parse()).collect::<std::result::Result<_, _>>()?;
     if parts.len() != 3 {
-      return versio_err!("Not a 3-part version: {}", v);
+      return err!("Not a 3-part version: {}", v);
     }
     Ok([parts[0], parts[1], parts[2]])
   }
@@ -430,7 +432,7 @@ impl Size {
       Size::Minor => format!("{}.{}.{}", parts[0], parts[1] + 1, 0),
       Size::Patch => format!("{}.{}.{}", parts[0], parts[1], parts[2] + 1),
       Size::None => format!("{}.{}.{}", parts[0], parts[1], parts[2]),
-      Size::Fail => return versio_err!("'fail' size encountered.")
+      Size::Fail => bail!("'fail' size encountered.")
     };
 
     Ok(newv)

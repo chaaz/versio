@@ -1,6 +1,6 @@
 //! Utilities to find a mark in a JSON file.
 
-use crate::error::Result;
+use crate::errors::Result;
 use crate::mark::Mark;
 #[cfg(test)]
 use crate::scan::parts::ToPart;
@@ -164,9 +164,9 @@ impl Trace {
     }
   }
 
-  pub fn find_start(&self) -> crate::error::Result<usize> {
+  pub fn find_start(&self) -> Result<usize> {
     Ok(
-      self.bytes.iter().position(|b| *b == b'"').ok_or_else(|| versio_error!("No quote found in value"))?
+      self.bytes.iter().position(|b| *b == b'"').ok_or_else(|| bad!("No quote found in value"))?
         + self.leader
         + 1
     )

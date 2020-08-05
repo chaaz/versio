@@ -1,6 +1,6 @@
 //! Versio is a version management utility.
 
-use versio::error::Result;
+use versio::errors::Result;
 
 fn main() {
   if let Err(e) = run() {
@@ -8,15 +8,15 @@ fn main() {
     let stderr = &mut std::io::stderr();
     let errmsg = "Error writing to stderr";
 
-    writeln!(stderr, "error: {}", e).expect(errmsg);
+    writeln!(stderr, "Error: {}", e).expect(errmsg);
 
     for e in e.iter().skip(1) {
-      writeln!(stderr, "caused by: {}", e).expect(errmsg);
+      writeln!(stderr, "  Caused by: {}", e).expect(errmsg);
     }
 
     // Try running with `RUST_BACKTRACE=1` for a backtrace
     if let Some(backtrace) = e.backtrace() {
-      writeln!(stderr, "backtrace: {:?}", backtrace).expect(errmsg);
+      writeln!(stderr, "Backtrace:\n{:?}", backtrace).expect(errmsg);
     }
 
     std::process::exit(1);

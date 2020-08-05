@@ -8,7 +8,7 @@ edition = "2018"
 chrono = "0.4"
 clap = "2.33"
 env_logger = "0.7"
-error_chain = "0.12"
+error-chain = "0.12"
 git2 = "0.12"
 # until the next version with updated deps is published
 github-gql-rs = { version = "0.0.1", path = "../github-rs/github-gql-rs" }

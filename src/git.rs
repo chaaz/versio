@@ -1,7 +1,7 @@
 //! Interactions with git.
 
 use crate::either::IterEither2 as E2;
-use crate::error::Result;
+use crate::errors::Result;
 use crate::vcs::VcsLevel;
 use chrono::{DateTime, FixedOffset};
 use git2::build::CheckoutBuilder;
@@ -92,7 +92,7 @@ impl Repo {
 
     let remote_name = find_remote_name(&repo, &branch_name)?;
     let fetches = RefCell::new(HashMap::new());
-    let root = repo.workdir().ok_or_else(|| versio_error!("Repo has no working dir."))?.to_path_buf();
+    let root = repo.workdir().ok_or_else(|| bad!("Repo has no working dir."))?.to_path_buf();
 
     Ok(Repo { vcs: GitVcsLevel::from(vcs, root, repo, branch_name, remote_name, fetches) })
   }
@@ -103,7 +103,7 @@ impl Repo {
     match &self.vcs {
       GitVcsLevel::None { root } => Ok(root),
       GitVcsLevel::Local { repo, .. } | GitVcsLevel::Remote { repo, .. } | GitVcsLevel::Smart { repo, .. } => {
-        repo.workdir().ok_or_else(|| versio_error!("Repo has no working dir"))
+        repo.workdir().ok_or_else(|| bad!("Repo has no working dir"))
       }
     }
   }
@@ -178,7 +178,7 @@ impl Repo {
     let state = self.repo()?.state();
     if state != RepositoryState::Clean {
       // Don't bother if we're in the middle of a merge, rebase, etc.
-      return versio_err!("Can't pull: repository {:?} isn't clean.", state);
+      bail!("Can't pull: repository {:?} isn't clean.", state);
     }
 
     let mut remote = repo.find_remote(remote_name)?;
@@ -211,7 +211,7 @@ impl Repo {
     status_opts.include_untracked(true);
     status_opts.exclude_submodules(false);
     if repo.statuses(Some(&mut status_opts))?.iter().any(|s| s.status() != Status::CURRENT) {
-      return versio_err!("Can't complete fetch: repository isn't current.");
+      bail!("Can't complete fetch: repository isn't current.");
     }
 
     Ok(fetch_commit)
@@ -240,7 +240,7 @@ impl Repo {
     let mut found = false;
     for s in repo.statuses(Some(&mut status_opts))?.iter().filter(|s| s.status().is_wt_modified()) {
       found = true;
-      let path = s.path().ok_or_else(|| versio_error!("Bad path"))?;
+      let path = s.path().ok_or_else(|| bad!("Bad path"))?;
       index.add_path(path.as_ref())?;
     }
 
@@ -268,7 +268,7 @@ impl Repo {
   fn find_last_commit(&self) -> Result<Commit> {
     let repo = self.repo()?;
     let obj = repo.head()?.resolve()?.peel(ObjectType::Commit)?;
-    obj.into_commit().map_err(|o| versio_error!("Not a commit, somehow: {}", o.id()))
+    obj.into_commit().map_err(|o| bad!("Not a commit, somehow: {}", o.id()))
   }
 
   pub fn update_tag_head(&self, tag: &str) -> Result<()> {
@@ -398,7 +398,7 @@ impl Repo {
 
   fn repo(&self) -> Result<&Repository> {
     match &self.vcs {
-      GitVcsLevel::None { .. } => versio_err!("No repo at `none` level."),
+      GitVcsLevel::None { .. } => err!("No repo at `none` level."),
       GitVcsLevel::Local { repo, .. } | GitVcsLevel::Remote { repo, .. } | GitVcsLevel::Smart { repo, .. } => {
         Ok(repo)
       }
@@ -407,7 +407,7 @@ impl Repo {
 
   pub fn branch_name(&self) -> Result<&String> {
     match &self.vcs {
-      GitVcsLevel::None { .. } => versio_err!("No branch name at `none` level."),
+      GitVcsLevel::None { .. } => err!("No branch name at `none` level."),
       GitVcsLevel::Local { branch_name, .. } | GitVcsLevel::Remote { branch_name, .. }
           | GitVcsLevel::Smart { branch_name, .. } => {
         Ok(branch_name)
@@ -417,14 +417,14 @@ impl Repo {
 
   fn remote_name(&self) -> Result<&String> {
     match &self.vcs {
-      GitVcsLevel::None { .. } | GitVcsLevel::Local { .. } => versio_err!("No remote at `none` or `local`."),
+      GitVcsLevel::None { .. } | GitVcsLevel::Local { .. } => err!("No remote at `none` or `local`."),
       GitVcsLevel::Remote { remote_name, .. } | GitVcsLevel::Smart { remote_name, .. } => Ok(remote_name)
     }
   }
 
   fn fetches(&self) -> Result<&RefCell<HashMap<String, Oid>>> {
     match &self.vcs {
-      GitVcsLevel::None { .. } | GitVcsLevel::Local { .. } => versio_err!("No fetches at `none` or `local`."),
+      GitVcsLevel::None { .. } | GitVcsLevel::Local { .. } => err!("No fetches at `none` or `local`."),
       GitVcsLevel::Remote { fetches, .. } | GitVcsLevel::Smart { fetches, .. } => Ok(fetches)
     }
   }
@@ -443,7 +443,7 @@ impl<'r> Slice<'r> {
 
   pub fn blob<P: AsRef<Path>>(&self, path: P) -> Result<Blob> {
     let obj = self.object(path.as_ref())?;
-    obj.into_blob().map_err(|e| versio_error!("Not a blob: {} : {:?}", path.as_ref().to_string_lossy(), e))
+    obj.into_blob().map_err(|e| bad!("Not a blob: {} : {:?}", path.as_ref().to_string_lossy(), e))
   }
 
   fn object<P: AsRef<Path>>(&self, path: P) -> Result<Object> {
@@ -453,7 +453,7 @@ impl<'r> Slice<'r> {
 
   pub fn date(&self) -> Result<Time> {
     let obj = self.repo.repo()?.revparse_single(&format!("{}^{{}}", self.refspec))?;
-    let commit = obj.into_commit().map_err(|o| versio_error!("\"{}\" isn't a commit.", o.id()))?;
+    let commit = obj.into_commit().map_err(|o| bad!("\"{}\" isn't a commit.", o.id()))?;
     Ok(commit.time())
   }
 }
@@ -590,7 +590,7 @@ impl FullPr {
   ) -> Result<FullPr> {
     match repo.fetch(&headref) {
       Err(e) => {
-        warn!("Couldn't fetch {}: using best-guess instead: {:?}", headref, e);
+        warn!("Couldn't fetch {}: using best-guess instead: {}", headref, e);
         Ok(FullPr {
           number,
           head_ref: headref,
@@ -679,7 +679,7 @@ fn find_root_blind<P: AsRef<Path>>(path: P) -> Result<PathBuf> {
   if path.join(CONFIG_FILENAME).exists() {
     Ok(path.to_path_buf())
   } else {
-    path.parent().ok_or_else(|| versio_error!("Not found in path: {}", CONFIG_FILENAME)).and_then(find_root_blind)
+    path.parent().ok_or_else(|| bad!("Not found in path: {}", CONFIG_FILENAME)).and_then(find_root_blind)
   }
 }
 
@@ -691,25 +691,25 @@ fn find_remote_name(repo: &Repository, branch_name: &str) -> Result<String> {
     .or_else(|_| {
       let remotes = repo.remotes()?;
       if remotes.is_empty() {
-        versio_err!("No remotes in this repo.")
+        err!("No remotes in this repo.")
       } else if remotes.len() == 1 {
-        Ok(remotes.iter().next().unwrap().ok_or_else(|| versio_error!("Non-utf8 remote name."))?.to_string())
+        Ok(remotes.iter().next().unwrap().ok_or_else(|| bad!("Non-utf8 remote name."))?.to_string())
       } else {
-        versio_err!("Too many remotes in this repo.")
+        err!("Too many remotes in this repo.")
       }
     })
 }
 
 fn find_branch_name(repo: &Repository) -> Result<String> {
-  let head_ref = repo.find_reference("HEAD").map_err(|e| versio_error!("Couldn't resolve head: {:?}.", e))?;
+  let head_ref = repo.find_reference("HEAD").map_err(|e| bad!("Couldn't resolve head: {:?}.", e))?;
   if head_ref.kind() != Some(ReferenceType::Symbolic) {
-    return versio_err!("Not on a branch.");
+    return err!("Not on a branch.");
   } else {
-    let branch_name = head_ref.symbolic_target().ok_or_else(|| versio_error!("Branch is not named."))?;
+    let branch_name = head_ref.symbolic_target().ok_or_else(|| bad!("Branch is not named."))?;
     if branch_name.starts_with("refs/heads/") {
       Ok(branch_name[11 ..].to_string())
     } else {
-      return versio_err!("Current {} is not a branch.", branch_name);
+      return err!("Current {} is not a branch.", branch_name);
     }
   }
 }
@@ -717,19 +717,19 @@ fn find_branch_name(repo: &Repository) -> Result<String> {
 fn find_github_info(repo: &Repository, remote_name: &str) -> Result<GithubInfo> {
   let remote = repo.find_remote(remote_name)?;
 
-  let url = remote.url().ok_or_else(|| versio_error!("Invalid utf8 remote url."))?;
+  let url = remote.url().ok_or_else(|| bad!("Invalid utf8 remote url."))?;
   let path = if url.starts_with("https://github.com/") {
     &url[19 ..]
   } else if url.starts_with("git@github.com:") {
     &url[15 ..]
   } else {
-    return versio_err!("Can't find github in remote url {}", url);
+    return err!("Can't find github in remote url {}", url);
   };
 
   let len = path.len();
   let path = if path.ends_with(".git") { &path[0 .. len - 4] } else { path };
   let slash = path.char_indices().find(|(_, c)| *c == '/').map(|(i, _)| i);
-  let slash = slash.ok_or_else(|| versio_error!("No slash found in github path \"{}\".", path))?;
+  let slash = slash.ok_or_else(|| bad!("No slash found in github path \"{}\".", path))?;
 
   Ok(GithubInfo::new(path[0 .. slash].to_string(), path[slash + 1 ..].to_string()))
 }
@@ -809,7 +809,7 @@ fn ff_merge<'a>(repo: &'a Repository, branch_name: &str, commit: &AnnotatedCommi
       }
     }
   } else if analysis.0.is_normal() {
-    versio_err!("Can't pull: would not be a fast-forward.")
+    err!("Can't pull: would not be a fast-forward.")
   } else {
     info!("No merge: already up to date.");
     Ok(())
