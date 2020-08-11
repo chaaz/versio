@@ -52,9 +52,9 @@ $ rustup toolchain install nightly
 $ rustup component add rustfmt --toolchain nightly
 $ cargo install cargo-audit 
 $ rustup component add clippy 
-$ curl -L https://github.com/chaaz/rust_coverage/raw/master/rustcov \
+$ curl -L https://github.com/chaaz/rust_coverage/raw/main/rustcov \
        -o in/my/PATH/rustcov && chmod a+x in/my/PATH/rustcov
-$ curl -L https://github.com/chaaz/rust_coverage/raw/master/genhtml \
+$ curl -L https://github.com/chaaz/rust_coverage/raw/main/genhtml \
        -o in/my/PATH/genhtml && chmod a+x in/my/PATH/genhtml
 $ cargo install grcov
 ```

@@ -4,11 +4,11 @@ use crate::config::ProjectId;
 use crate::errors::Result;
 use crate::git::{Repo, Slice};
 use crate::mark::{NamedData, Picker};
+use log::warn;
 use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use log::warn;
 
 pub trait StateRead {
   /// Find the commit hash it's reading from; returns `None` if it is located at the current state.
@@ -109,8 +109,7 @@ impl OldTags {
 
     for (pref, afts) in &self.not_after {
       let ind: usize = *afts.get(new_oid).ok_or_else(|| bad!("Bad new_oid {}", new_oid))?;
-      let list =
-        self.by_prefix.get(pref).ok_or_else(|| bad!("Illegal prefix {} oid for {}", pref, new_oid))?;
+      let list = self.by_prefix.get(pref).ok_or_else(|| bad!("Illegal prefix {} oid for {}", pref, new_oid))?;
       let list = list[ind ..].to_vec();
       by_prefix.insert(pref.clone(), list);
 
@@ -179,7 +178,7 @@ impl StateWrite {
     Ok(())
   }
 
-  pub fn commit(&mut self, repo: &Repo, last_commits: &HashMap<ProjectId, String>) -> Result<()> {
+  pub fn commit(&mut self, repo: &Repo, prev_tag: &str, last_commits: &HashMap<ProjectId, String>) -> Result<()> {
     for write in &self.writes {
       write.write()?;
     }
@@ -206,11 +205,14 @@ impl StateWrite {
       }
     }
     self.tag_head_or_last.clear();
+    self.proj_writes.clear();
 
     for (tag, oid) in &self.tag_commit {
       repo.update_tag(tag, oid)?;
     }
     self.tag_commit.clear();
+
+    repo.update_tag_head(prev_tag)?;
 
     Ok(())
   }

@@ -8,6 +8,7 @@ use crate::mark::Mark;
 use crate::scan::parts::ToPart;
 use crate::scan::parts::{is_match_str, IntoPartVec, Part};
 use crate::scan::Scanner;
+use error_chain::bail;
 use xmlparser::{ElementEnd, Token, Tokenizer};
 
 pub struct XmlScanner {

@@ -1,5 +1,7 @@
 # VCS Levels / Dry run
 
+> TODO : actually implement dry-run
+
 - `dry-run` flag prohibits writing to the file system, git local, git
   remote, or github API. Everything can still be read just fine, though.
   - github API currently doesn't write in any case
@@ -47,13 +49,15 @@
   - `none|local|remote|smart`: sets the minimum acceptable interaction:
     will complain and exit if the level can't be reached.
 
-- some commands have a default min and max values: e.g. `set` has
-  `max=none`, which are overriden by your choices except `auto`.
-
-- Some commands have command-level min and max values which can *narrow*
-  your choice: the command-level min represents what's required for the
-  command to run: the command-level max represents the features that are
-  used.
+- application
+  - some commands have a *default* min and max value: e.g. `set` has
+    `max=none`, which are overriden by your choices except `auto`.
+  - Some commands have *required* min and max value, which represent
+    what's necessary for the command to run.
+  - Every command will use a *negotiated* min and max value, which
+    represent what's actually available in the repo.
+  - The actual level used is the max of the intersection of the default,
+    required, and negotiated ranges.
 
 - if you don't use `auto`, some things might not go as
   planned.
@@ -74,3 +78,7 @@
   github API. All commands can run at operate at `max=remote`, although
   your changelogs and sizing might suffer because of the lack of
   PRs/unsquash.
+
+> TODO: have commands warn when they are unexpected: e.g. `set` will
+> warn if it runs at `none` on a tags project (e.g. "warning: nothing
+> actually done").

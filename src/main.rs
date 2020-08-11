@@ -6,7 +6,7 @@ fn main() {
   if let Err(e) = run() {
     use std::io::Write;
     let stderr = &mut std::io::stderr();
-    let errmsg = "Error writing to stderr";
+    let errmsg = "Error writing to stderr.";
 
     writeln!(stderr, "Error: {}", e).expect(errmsg);
 

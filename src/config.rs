@@ -7,6 +7,7 @@ use crate::mark::{FilePicker, LinePicker, Picker, ScanningPicker};
 use crate::mono::ChangeLog;
 use crate::scan::parts::{deserialize_parts, Part};
 use crate::state::{CurrentState, PickPath, PrevState, StateRead, StateWrite};
+use error_chain::bail;
 use glob::{glob_with, MatchOptions, Pattern};
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, Unexpected, Visitor};
 use serde::Deserialize;
@@ -88,7 +89,8 @@ impl ConfigFile {
   pub fn from_dir<P: AsRef<Path>>(p: P) -> Result<ConfigFile> {
     let path = p.as_ref();
     let file = path.join(CONFIG_FILENAME);
-    ConfigFile::read(&std::fs::read_to_string(&file).chain_err(|| format!("No {}", file.to_string_lossy()))?)
+    let data = std::fs::read_to_string(&file).chain_err(|| format!("Can't read \"{}\".", file.to_string_lossy()))?;
+    ConfigFile::read(&data)
   }
 
   pub fn empty() -> ConfigFile {
@@ -221,9 +223,11 @@ impl Project {
     if kind.ends_with('!') {
       return Ok(Size::Major);
     }
-    parent_sizes.get(kind).copied().map(Ok).unwrap_or_else(|| {
-      parent_sizes.get("*").copied().map(Ok).unwrap_or_else(|| err!("Unknown kind \"{}\".", kind))
-    })
+    parent_sizes
+      .get(kind)
+      .copied()
+      .map(Ok)
+      .unwrap_or_else(|| parent_sizes.get("*").copied().map(Ok).unwrap_or_else(|| err!("Unknown kind \"{}\".", kind)))
   }
 
   pub fn does_cover(&self, path: &str) -> Result<bool> {
@@ -602,7 +606,7 @@ fn deserialize_sizes<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<
       }
 
       // Based on the angular standard:
-      // https://github.com/angular/angular.js/blob/master/DEVELOPERS.md#-git-commit-guidelines
+      // https://github.com/angular/angular.js/blob/main/DEVELOPERS.md#-git-commit-guidelines
       if using_angular {
         insert_if_missing(&mut result, "feat", Size::Minor);
         insert_if_missing(&mut result, "fix", Size::Patch);

@@ -2,9 +2,10 @@
 
 use crate::errors::Result;
 use crate::git::Repo;
+use error_chain::bail;
+use log::debug;
 use std::cmp::{max, min};
 use std::str::FromStr;
-use log::debug;
 
 #[derive(Debug)]
 pub struct VcsRange {
@@ -25,9 +26,9 @@ impl VcsRange {
     VcsRange::new(max(self.min(), other.min()), min(self.max(), other.max()))
   }
 
-  pub fn negotiate() -> Result<VcsRange> { Ok(VcsRange::new(VcsLevel::None, Repo::negotiate(".")?)) }
+  pub fn detect() -> Result<VcsRange> { Ok(VcsRange::new(VcsLevel::None, Repo::detect(".")?)) }
 
-  pub fn negotiate_and_combine(pref: &VcsRange, reqd: &VcsRange) -> Result<VcsRange> {
+  pub fn detect_and_combine(pref: &VcsRange, reqd: &VcsRange) -> Result<VcsRange> {
     if pref.is_empty() {
       bail!("Preferred VCS {:?} is empty.", pref);
     } else if reqd.is_empty() {
@@ -43,13 +44,13 @@ impl VcsRange {
       }
     }
 
-    let negd = VcsRange::negotiate()?;
-    let i2 = i1.intersect(&negd);
+    let dctd = VcsRange::detect()?;
+    let i2 = i1.intersect(&dctd);
     if i2.is_empty() {
-      bail!("Couldn't negotiate {:?} with preferred {:?} required {:?}", negd, pref, reqd);
+      bail!("Couldn't detect {:?} with preferred {:?} required {:?}", dctd, pref, reqd);
     }
 
-    debug!("combining pref {:?}, reqd {:?}, negd {:?} = {:?}", pref, reqd, negd, i2.max());
+    debug!("Combining preferred {:?}, required {:?}, detected {:?} = {:?}", pref, reqd, dctd, i2.max());
 
     Ok(i2)
   }

@@ -9,7 +9,7 @@ use clap::{crate_version, App, AppSettings, Arg, ArgGroup, ArgMatches, SubComman
 pub fn execute() -> Result<()> {
   let m = App::new("versio")
     .setting(AppSettings::UnifiedHelpMessage)
-    .author("Charlie Ozinga, charlie@cloud-elements.com")
+    .author("Charlie Ozinga, ozchaz@gmail.com")
     .version(concat!(crate_version!(), " (", env!("GIT_SHORT_HASH"), " ", env!("DATE_DASH"), ")"))
     .about("Manage version numbers")
     .arg(
@@ -19,6 +19,7 @@ pub fn execute() -> Result<()> {
         .takes_value(true)
         .value_name("level")
         .possible_values(&["auto", "max", "none", "local", "remote", "smart"])
+        .conflicts_with_all(&["vcslevelmin", "vcslevelmax"])
         .display_order(1)
         .help("The VCS level")
     )
@@ -40,10 +41,10 @@ pub fn execute() -> Result<()> {
         .takes_value(true)
         .value_name("max")
         .possible_values(&["none", "local", "remote", "smart"])
+        .requires("vcslevelmin")
         .display_order(1)
         .help("The maximum VCS level")
     )
-    .group(ArgGroup::with_name("level").args(&["vcslevel", "vcslevelmin"]).required(false))
     .subcommand(
       SubCommand::with_name("check")
         .setting(AppSettings::UnifiedHelpMessage)
@@ -60,7 +61,7 @@ pub fn execute() -> Result<()> {
             .long("prev")
             .takes_value(false)
             .display_order(1)
-            .help("Whether to show prev versions")
+            .help("Whether to show prev versions.")
         )
         .arg(
           Arg::with_name("wide")
@@ -238,7 +239,6 @@ pub fn execute() -> Result<()> {
 }
 
 fn parse_matches(m: ArgMatches) -> Result<()> {
-  println!("parsing matches");
   let pref_vcs = parse_vcs(&m)?;
 
   match m.subcommand() {
@@ -527,5 +527,5 @@ fn combine_vcs(
 ) -> Result<VcsRange> {
   let pref_vcs = user_pref_vcs.unwrap_or_else(move || VcsRange::new(my_pref_lo, my_pref_hi));
   let reqd_vcs = VcsRange::new(my_reqd_lo, my_reqd_hi);
-  VcsRange::negotiate_and_combine(&pref_vcs, &reqd_vcs)
+  VcsRange::detect_and_combine(&pref_vcs, &reqd_vcs)
 }

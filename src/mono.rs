@@ -5,10 +5,11 @@ use crate::config::{Config, ConfigFile, Project, ProjectId, Size};
 use crate::either::{IterEither2 as E2, IterEither3 as E3};
 use crate::errors::Result;
 use crate::git::{CommitInfoBuf, FullPr, Repo, Slice};
-use crate::github::{changes, line_commits, Changes};
+use crate::github::{changes, line_commits_head, Changes};
 use crate::state::{CurrentState, OldTags, StateRead, StateWrite};
 use crate::vcs::VcsLevel;
 use chrono::{DateTime, FixedOffset};
+use error_chain::bail;
 use std::cmp::max;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::identity;
@@ -45,7 +46,8 @@ impl Mono {
     Ok(Mono { current, next, last_commits, repo })
   }
 
-  pub fn commit(&mut self) -> Result<()> { self.next.commit(&self.repo, &self.last_commits) }
+  pub fn commit(&mut self) -> Result<()> { self.next.commit(&self.repo, self.current.prev_tag(), &self.last_commits) }
+
   pub fn projects(&self) -> &[Project] { self.current.projects() }
 
   pub fn get_project(&self, id: ProjectId) -> Result<&Project> {
@@ -55,24 +57,6 @@ impl Mono {
   pub fn get_named_project(&self, name: &str) -> Result<&Project> {
     let id = self.current.find_unique(name)?;
     self.get_project(id)
-  }
-
-  pub fn changes(&self) -> Result<Changes> {
-    let base = self.current.prev_tag().to_string();
-    let head = self.repo.branch_name()?.to_string();
-    changes(&self.repo, head, base)
-  }
-
-  pub fn keyed_files<'a>(&'a self) -> Result<impl Iterator<Item = Result<(String, String)>> + 'a> {
-    let changes = self.changes()?;
-    let prs = changes.into_groups().into_iter().map(|(_, v)| v).filter(|pr| !pr.best_guess());
-
-    let mut vec = Vec::new();
-    for pr in prs {
-      vec.push(pr_keyed_files(&self.repo, pr));
-    }
-
-    Ok(vec.into_iter().flatten())
   }
 
   pub fn diff(&self) -> Result<Analysis> {
@@ -123,14 +107,23 @@ impl Mono {
     Ok(())
   }
 
-  pub fn build_plan(&self) -> Result<Plan> {
-    let prev_spec = self.current.prev_tag().to_string();
-    let head = self.repo.branch_name()?.to_string();
+  pub fn keyed_files<'a>(&'a self) -> Result<impl Iterator<Item = Result<(String, String)>> + 'a> {
+    let changes = self.changes()?;
+    let prs = changes.into_groups().into_iter().map(|(_, v)| v).filter(|pr| !pr.best_guess());
 
-    let mut plan = PlanBuilder::create(self.repo.slice(prev_spec.clone()), self.current.file())?;
+    let mut vec = Vec::new();
+    for pr in prs {
+      vec.push(pr_keyed_files(&self.repo, pr));
+    }
+
+    Ok(vec.into_iter().flatten())
+  }
+
+  pub fn build_plan(&self) -> Result<Plan> {
+    let mut plan = PlanBuilder::create(&self.repo, self.current.file())?;
 
     // Consider the grouped, unsquashed commits to determine project sizing and changelogs.
-    for pr in changes(&self.repo, head, prev_spec)?.groups().values() {
+    for pr in self.changes()?.groups().values() {
       plan.start_pr(pr)?;
       for commit in pr.included_commits() {
         plan.start_commit(commit.clone())?;
@@ -151,17 +144,22 @@ impl Mono {
 
     Ok(plan.build())
   }
+
+  pub fn changes(&self) -> Result<Changes> {
+    let base = self.current.prev_tag().to_string();
+    let head = self.repo.branch_name()?.to_string();
+    changes(&self.repo, base, head)
+  }
 }
 
 /// Find the last covering commit ID, if any, for each current project.
 fn find_last_commits(current: &Config<CurrentState>, repo: &Repo) -> Result<HashMap<ProjectId, String>> {
-  let prev_spec = current.prev_tag().to_string();
-  let head = repo.branch_name()?.to_string();
+  let prev_spec = current.prev_tag();
 
-  let mut last_commits = LastCommitBuilder::create(repo.slice(prev_spec.clone()), &current)?;
+  let mut last_commits = LastCommitBuilder::create(repo, &current)?;
 
   // Consider the in-line commits to determine the last commit (if any) for each project.
-  for commit in line_commits(repo, head, prev_spec)? {
+  for commit in line_commits_head(repo, prev_spec)? {
     last_commits.start_line_commit(&commit)?;
     for file in commit.files() {
       last_commits.start_line_file(file)?;
@@ -272,20 +270,20 @@ struct PlanBuilder<'s> {
   on_pr_sizes: HashMap<ProjectId, LoggedPr>,
   on_ineffective: Option<LoggedPr>,
   on_commit: Option<CommitInfoBuf>,
-  prev: (Slice<'s>, ConfigFile),
+  prev: Slicer<'s>,
   current: &'s ConfigFile,
   incrs: HashMap<ProjectId, (Size, ChangeLog)>, // proj ID, incr size, change log
   ineffective: Vec<LoggedPr>                    // PRs that didn't apply to any project
 }
 
 impl<'s> PlanBuilder<'s> {
-  fn create(prev: Slice<'s>, current: &'s ConfigFile) -> Result<PlanBuilder<'s>> {
-    let prev_file = ConfigFile::from_slice(&prev)?;
+  fn create(repo: &'s Repo, current: &'s ConfigFile) -> Result<PlanBuilder<'s>> {
+    let prev = Slicer::init(repo);
     let builder = PlanBuilder {
       on_pr_sizes: HashMap::new(),
       on_ineffective: None,
       on_commit: None,
-      prev: (prev, prev_file),
+      prev,
       current,
       incrs: HashMap::new(),
       ineffective: Vec::new()
@@ -324,7 +322,7 @@ impl<'s> PlanBuilder<'s> {
     let kind = commit.kind().to_string();
     let summary = commit.summary().to_string();
     self.on_commit = Some(commit);
-    self.slice_to(id.clone())?;
+    self.prev.slice_to(id.clone())?;
 
     for (proj_id, logged_pr) in &mut self.on_pr_sizes {
       if let Some(cur_project) = self.current.get_project(*proj_id) {
@@ -342,7 +340,7 @@ impl<'s> PlanBuilder<'s> {
     let commit = self.on_commit.as_ref().ok_or_else(|| bad!("Not on a commit"))?;
     let commit_id = commit.id();
 
-    for prev_project in self.prev.1.projects() {
+    for prev_project in self.prev.file()?.projects() {
       if let Some(logged_pr) = self.on_pr_sizes.get_mut(&prev_project.id()) {
         if prev_project.does_cover(path)? {
           let LoggedCommit { applies, .. } = logged_pr.commits.iter_mut().find(|c| c.oid == commit_id).unwrap();
@@ -414,33 +412,26 @@ impl<'s> PlanBuilder<'s> {
   }
 
   pub fn build(self) -> Plan { Plan { incrs: self.incrs, ineffective: self.ineffective } }
-
-  fn slice_to(&mut self, id: String) -> Result<()> {
-    let prev = self.prev.0.slice(id);
-    let file = ConfigFile::from_slice(&prev)?;
-    self.prev = (prev, file);
-    Ok(())
-  }
 }
 
 struct LastCommitBuilder<'s, C: StateRead> {
   on_line_commit: Option<String>,
   last_commits: HashMap<ProjectId, String>,
-  prev: (Slice<'s>, ConfigFile),
+  prev: Slicer<'s>,
   current: &'s Config<C>
 }
 
 impl<'s, C: StateRead> LastCommitBuilder<'s, C> {
-  fn create(prev: Slice<'s>, current: &'s Config<C>) -> Result<LastCommitBuilder<'s, C>> {
-    let file = ConfigFile::from_slice(&prev)?;
-    let builder = LastCommitBuilder { on_line_commit: None, last_commits: HashMap::new(), prev: (prev, file), current };
+  fn create(repo: &'s Repo, current: &'s Config<C>) -> Result<LastCommitBuilder<'s, C>> {
+    let prev = Slicer::init(repo);
+    let builder = LastCommitBuilder { on_line_commit: None, last_commits: HashMap::new(), prev, current };
     Ok(builder)
   }
 
   pub fn start_line_commit(&mut self, commit: &CommitInfoBuf) -> Result<()> {
     let id = commit.id().to_string();
     self.on_line_commit = Some(id.clone());
-    self.slice_to(id)?;
+    self.prev.slice_to(id)?;
     Ok(())
   }
 
@@ -449,7 +440,7 @@ impl<'s, C: StateRead> LastCommitBuilder<'s, C> {
   pub fn start_line_file(&mut self, path: &str) -> Result<()> {
     let commit_id = self.on_line_commit.as_ref().ok_or_else(|| bad!("Not on a line commit"))?;
 
-    for prev_project in self.prev.1.projects() {
+    for prev_project in self.prev.file()?.projects() {
       let proj_id = prev_project.id();
       if self.current.get_project(proj_id).is_some() && prev_project.does_cover(path)? {
         self.last_commits.insert(proj_id, commit_id.clone());
@@ -461,11 +452,34 @@ impl<'s, C: StateRead> LastCommitBuilder<'s, C> {
   pub fn finish_line_file(&mut self) -> Result<()> { Ok(()) }
 
   pub fn build(self) -> Result<HashMap<ProjectId, String>> { Ok(self.last_commits) }
+}
 
-  fn slice_to(&mut self, id: String) -> Result<()> {
-    let prev = self.prev.0.slice(id);
+enum Slicer<'r> {
+  Orig(&'r Repo),
+  Slice((Slice<'r>, ConfigFile))
+}
+
+impl<'r> Slicer<'r> {
+  pub fn init(repo: &'r Repo) -> Slicer<'r> { Slicer::Orig(repo) }
+
+  pub fn file(&self) -> Result<&ConfigFile> {
+    match self {
+      Slicer::Slice((_, file)) => Ok(file),
+      _ => err!("Slicer not sliced")
+    }
+  }
+
+  pub fn slice(&self, id: String) -> Slice<'r> {
+    match self {
+      Slicer::Orig(repo) => repo.slice(id),
+      Slicer::Slice((slice, _)) => slice.slice(id)
+    }
+  }
+
+  pub fn slice_to(&mut self, id: String) -> Result<()> {
+    let prev = self.slice(id);
     let file = ConfigFile::from_slice(&prev)?;
-    self.prev = (prev, file);
+    *self = Slicer::Slice((prev, file));
     Ok(())
   }
 }
@@ -475,12 +489,12 @@ fn find_old_tags<'s, I: Iterator<Item = &'s str>>(prefixes: I, prev_tag: &str, r
 
   for tag_prefix in prefixes {
     let fnmatch = if tag_prefix.is_empty() {
-      // TODO: this fnmatch pattern doesn't seem right
-      "v[[digit]]*.[[digit]]*.[[digit]]*".to_string()
+      // TODO: narrow to v[[digit:*]].[[digit:*]].[[digit:*]] or however it's supposed to work.
+      "v*".to_string()
     } else {
       // tag_prefix must be alphanum + '-', so no escaping necessary
-      // TODO: this fnmatch pattern doesn't seem right
-      format!("{}-v[[digit]]*.[[digit]]*.[[digit]]*", tag_prefix)
+      // TODO: narrow to v[[digit:*]].[[digit:*]].[[digit:*]] or however it's supposed to work.
+      format!("{}-v*", tag_prefix)
     };
     for tag in repo.tag_names(Some(fnmatch.as_str()))?.iter().filter_map(identity) {
       let hash = repo.revparse_oid(&format!("{}^{{}}", tag))?;

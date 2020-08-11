@@ -149,43 +149,40 @@ located:
 
 The `tag_prefix` property causes Versio to write out a new
 "projname-v*x.y.z*" tag for the project when the version number is
-changed. It is optional for most projects, but required for projects
-that use `located: tags`. The default value is used when no existing
-"projname-v*x.y.z*" tags currently exist.
+changed. The property is optional for most projects, but required for
+projects that use `located: tags`. The default value is used when no
+existing "projname-v*x.y.z*" tags currently exist.
+
+> Since `tag_prefix` is used to find older tags of a project, you should
+> not change this property value over the life of your project. If you
+> change the `tag_prefix`, you may need to manually re-tag your commit
+> history, or else Versio may be unable to locate past version numbers.
 
 > If a project uses `located: tags:`, you may want to use the
-> `--vcs-level=max` option while running the `versio set` command on
+> `--vcs-level=max` option while running the `versio set` command for
 > that project. This command normally runs at the `none` VCS level,
-> because it is used just to update a value in a file. However, if there
-> is no file to update, you may want to instead update the VCS tags on
+> because it typically used to just update a file. However, for
+> tags-based projects, you may want to instead update the VCS tags on
 > the local machine and/or the remote, which requires a higher VCS
 > level. See [VCS Levels](./docs/vcs_levels.md) and [Usage:
 > Set](./docs/usage.md#setting) for more info.
 
-<!---
-> Warning! This style of project requires the `tag_prefix` property to
-> be present, which creates/updates git tags like
-> `<<tag_prefix>>-v1.2.3` for the project. Since only one project in the
-> repository can have a `tag_prefix` of "" (the empty string results in
-> Go-standard prefix-less tags like `v1.2.3`), this makes it difficult
-> to properly deploy monorepos that contain more than one Go-style
-> project.
--->
-
 > If the tag prefix is *empty* (`tag_prefix: ""`), then tags for the
-> project take a non-prefixed form "v*a.b.c*", which is conducive to
-> most Go tools: `got get` and `go mod` especially search for version
-> tags in that form. If you do use a prefix, you'll need to reference
-> your project explicitly by its prefixed tag for those tools: e.g. `go
-> get server.io/path/to/proj@projname-v1.2.3`, or you'll probably just
-> end up with the latest commit.
+> project take a non-prefixed form "v*a.b.c*", which is combatible with
+> most Go tools. Especially `go get` and `go mod`, which search for
+> version tags in that form. If you do use a prefix, you'll need to
+> reference your project with the fully-qualified tag: e.g. `go get
+> server.io/path/to/proj@projname-v1.2.3`. Failure to use a tag will
+> probably just get you the latest commit. If you need to also use a
+> major subdirectory (see below), you'll need to use a full path like
+> `server.io/path/to/proj/v3@projname-v3.2.1`.
 >
 > This problem is compounded in a monorepo with two or more Go projects:
 > only one of those projects can have an empty prefix, because prefixes
 > must be unique. Also, tags in most VCS apply to an entire repo, and
 > not just a single project. Be very careful referencing your projects
-> with Go tools in this situation: it's almost always best to reference
-> all your projects with explicit tags.
+> with Go tools in this situation: it's usually best in that case to be
+> explicit and reference all your projects with tags.
 
 There are other options available to fine-tune control of version tags:
 see [Go Projects](./docs/gostyle.md) for more info.
@@ -222,124 +219,22 @@ see [Go Projects](./docs/gostyle.md) for more info.
 Check out the [Using Versio](docs/usage.md) page for details on running
 Versio, including all command-line options and the format of the
 `.versio.yaml` config file. [Use Cases](./docs/use_cases.md) lists
-specific use cases that might meet a need in your project. The
-[Publishing](./docs/publishing.md) document shows specifically how
-Versio can publish your software. And the [Go
+specific use cases that might meet a need in your project or
+organization. The [Publishing](./docs/publishing.md) page shows
+specifically how Versio can publish your software. Finally, the [Go
 Projects](./docs/gostyle.md) doc talks about how to use Versio for the
 unique versioning approach of "Go"-style projects.
 
 ## Troubleshooting
 
-Generally, there are three ways that Versio can fail:
-
-1. It will fail to run entirely, exiting with some kind of error.
-1. It will incorrectly calculate the new version for one or more
-   projects.
-1. It will incorrectly write files, or commit, tag, or push the
-   repository.
-
-### Errors
-
-> TODO
-
-### Bad Calculations
-
-> TODO
-
-Use `versio show` and `versio show --prev` to see the current/previous
-version numbers.
-
-Use `versio plan --verbose` to get a listing of all PRs, files,
-dependencies, locks, etc. that go into calculating version numbers.
-
-### Bad Operations
-
-> TODO
-
-Use `versio run --show-all --verbose` to show all the reasoning used to
-figure out the correct filesystem / VCS operations to take. You might
-want to use `--verbose` in your CI for a while to record and debug that
-reasoning.
-
-`--dry-run` will prevent such actions from actually being taken.
-
-### Tracking
-
-If you suspect that Versio is not tracking commits, you can have it
-stream out all files that it considers with the `versio files` command;
-this will output lines of data like this:
+There's a whole [Troubleshooting](./docs/troubleshooting.md) document
+for tracking down and reporting errors or other unexpected behavior. A
+lot of the time, though, it comes down to running Versio with logging
+and error tracing activated:
 
 ```
-$ versio files
-fix : path/to/file.txt
-(...)
+RUST_LOG=versio=trace RUST_BACKTRACE=1 versio <command>
 ```
-
-Each line is a conventional commit type, followed by `:`, followed by a
-path to a file which has been altered since the previous tag. This
-stream of files forms the basis of the increment plan. You can see the
-plan itself using the `versio plan` command, which outputs exactly the
-sizes it hopes to apply to each project:
-
-```
-$ versio plan
-codebase : minor
-```
-
-If you have outstanding changes either locally or remote, do a `git
-push` and/or `git pull` to make your repo current, and compare the
-results of `versio plan` or `versio files` to `git log --stat --oneline
-versio-prev..`
-
-You can also view the differences between the previous and current
-config files:
-
-```
-$ versio diff
-New projects:
-  secondary : 0.0.4
-
-Unchanged versions:
-  codebase : 1.0.1
-```
-
-Or show projects from the previous version:
-
-```
-$ versio show --prev
-codebase : 1.0.1
-```
-
-### Rebase
-
-If you rebase your branch, it might cause the last `versio-prev` tag to
-no longer be an ancestor of your latest commit. In that case, Versio
-might not find the correct commits to update the version.
-
-If you perform such a rebase, you should manually move the `versio-prev`
-tag to the corresponding commit on your new branch, with the
-command-line `git tag -f versio-prev (new commit sha)`, or something
-similar. If your repo has a remote, you should also push this tag with
-e.g. `git push --tags --force`, or else it will be reverted when versio
-pulls the tag.
-
-### Dry run
-
-Ultimately, you can put this all together with the `run` command, but
-pass `--dry-run` in order to suppress actually changing files, or
-committing or pushing changes.
-
-```
-$ versio run --dry-run
-Executing plan:
-  codebase : 1.0.1 -> 1.1.0
-Dry run: no actual changes.
-```
-
-Most of these commands will fetch from the remote first (if it exists)
-to ensure that you have the correct `versio-prev` tag and branch data.
-
-> TODO: --no-fetch and fetch conflicts
 
 ## Contributing
 

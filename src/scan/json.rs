@@ -165,11 +165,7 @@ impl Trace {
   }
 
   pub fn find_start(&self) -> Result<usize> {
-    Ok(
-      self.bytes.iter().position(|b| *b == b'"').ok_or_else(|| bad!("No quote found in value"))?
-        + self.leader
-        + 1
-    )
+    Ok(self.bytes.iter().position(|b| *b == b'"').ok_or_else(|| bad!("No quote found in value"))? + self.leader + 1)
   }
 }
 

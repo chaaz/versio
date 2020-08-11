@@ -3,6 +3,7 @@
 use crate::errors::Result;
 use crate::scan::parts::{deserialize_parts, Part};
 use crate::scan::{JsonScanner, Scanner, TomlScanner, XmlScanner, YamlScanner};
+use error_chain::bail;
 use regex::Regex;
 use serde::Deserialize;
 use std::fmt;

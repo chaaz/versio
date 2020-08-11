@@ -80,9 +80,9 @@ located:
   at: projectName
   tags:
     all:
-      branch: master
+      branch: main
     v8:
-      branch: master
+      branch: main
       path: vers_8
 ```
 

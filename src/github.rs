@@ -24,13 +24,13 @@ use std::fmt;
 /// rebase). The squash commit is excluded from all PRs: instead the PR's own commits are examined normally. In
 /// this way, the original type and size information from the PR is preserved.
 #[allow(clippy::map_entry)]
-pub fn changes(repo: &Repo, headref: String, base: String) -> Result<Changes> {
+pub fn changes(repo: &Repo, baseref: String, headref: String) -> Result<Changes> {
   let mut all_commits = HashSet::new();
   let mut all_prs = HashMap::new();
 
   let mut queue = VecDeque::new();
   let offset = FixedOffset::west(0);
-  let pr_zero = FullPr::lookup(repo, headref.clone(), base, 0, offset.timestamp(Utc::now().timestamp(), 0))?;
+  let pr_zero = FullPr::lookup(repo, baseref, headref.clone(), 0, offset.timestamp(Utc::now().timestamp(), 0))?;
   queue.push_back(pr_zero.span().ok_or_else(|| bad!("Unable to get oid for seed ref \"{}\".", headref))?);
   all_prs.insert(pr_zero.number(), pr_zero);
 
@@ -53,7 +53,7 @@ pub fn changes(repo: &Repo, headref: String, base: String) -> Result<Changes> {
         for pr in prs.merged_only() {
           let number = pr.number();
           if !all_prs.contains_key(&number) {
-            let full_pr = match pr.lookup_full(repo) {
+            let full_pr = match pr.lookup(repo) {
               Ok(pr) => pr,
               Err(e) => return Some(Err(e))
             };
@@ -89,10 +89,9 @@ pub fn changes(repo: &Repo, headref: String, base: String) -> Result<Changes> {
   Ok(Changes { commits: all_commits, groups: all_prs })
 }
 
-pub fn line_commits(repo: &Repo, headref: String, base: String) -> Result<Vec<CommitInfoBuf>> {
-  let offset = FixedOffset::west(0);
-  let pr_zero = FullPr::lookup(repo, headref, base, 0, offset.timestamp(Utc::now().timestamp(), 0))?;
-  Ok(pr_zero.into_commits())
+pub fn line_commits_head(repo: &Repo, base: &str) -> Result<Vec<CommitInfoBuf>> {
+  // TODO: fetch head ?
+  repo.commits_to_head(&base)?.map(|i| i?.buffer()).collect::<Result<_>>()
 }
 
 fn commits_from_v4_api(github_info: &GithubInfo, span: &Span) -> Result<Vec<ApiCommit>> {
@@ -271,8 +270,8 @@ impl PrEdgeNode {
   pub fn number(&self) -> u32 { self.number }
   pub fn state(&self) -> &str { &self.state }
 
-  pub fn lookup_full(self, repo: &Repo) -> Result<FullPr> {
-    FullPr::lookup(repo, self.head_ref_name, self.base_ref_oid, self.number, self.closed_at)
+  pub fn lookup(self, repo: &Repo) -> Result<FullPr> {
+    FullPr::lookup(repo, self.base_ref_oid, self.head_ref_name, self.number, self.closed_at)
   }
 }
 

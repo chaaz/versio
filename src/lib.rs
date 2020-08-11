@@ -3,10 +3,9 @@
 #![recursion_limit = "1024"]
 
 #[macro_use]
-extern crate error_chain;
-
-#[macro_use]
 pub mod errors {
+  use error_chain::error_chain;
+
   error_chain! {
     links {
       Gql(github_gql::errors::Error, github_gql::errors::ErrorKind);
@@ -36,7 +35,9 @@ pub mod errors {
 
   #[macro_export]
   macro_rules! err {
-    ($($arg:tt)*) => (std::result::Result::Err(crate::errors::Error::from_kind(crate::errors::ErrorKind::Msg(format!($($arg)*)))))
+    ($($arg:tt)*) => (
+      std::result::Result::Err(crate::errors::Error::from_kind(crate::errors::ErrorKind::Msg(format!($($arg)*))))
+    )
   }
 
   #[macro_export]
@@ -57,7 +58,3 @@ pub mod output;
 pub mod scan;
 pub mod state;
 pub mod vcs;
-
-// #[macro_use]
-// extern crate error_chain;
-
