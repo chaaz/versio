@@ -10,7 +10,7 @@ use crate::state::{CurrentState, OldTags, StateRead, StateWrite};
 use crate::vcs::VcsLevel;
 use chrono::{DateTime, FixedOffset};
 use error_chain::bail;
-use std::cmp::max;
+use std::cmp::{max, Ordering};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::identity;
 use std::iter;
@@ -37,9 +37,6 @@ impl Mono {
     let state = CurrentState::new(root.to_path_buf(), old_tags);
     let current = Config::new(state, file);
 
-    // TODO: last_commits can be expensive to create: only create them when we build a plan and/or commit?
-    //  - we commit often: perhaps only use a real last_commits when we're commiting a plan?
-    //  - could `last_commits` be created as part of generating the plan?
     let last_commits = find_last_commits(&current, &repo)?;
     let next = StateWrite::new();
 
@@ -489,19 +486,14 @@ fn find_old_tags<'s, I: Iterator<Item = &'s str>>(prefixes: I, prev_tag: &str, r
 
   for tag_prefix in prefixes {
     let fnmatch = if tag_prefix.is_empty() {
-      // TODO: narrow to v[[digit:*]].[[digit:*]].[[digit:*]] or however it's supposed to work.
       "v*".to_string()
     } else {
       // tag_prefix must be alphanum + '-', so no escaping necessary
-      // TODO: narrow to v[[digit:*]].[[digit:*]].[[digit:*]] or however it's supposed to work.
       format!("{}-v*", tag_prefix)
     };
     for tag in repo.tag_names(Some(fnmatch.as_str()))?.iter().filter_map(identity) {
       let hash = repo.revparse_oid(&format!("{}^{{}}", tag))?;
       let by_id = by_prefix_id.entry(tag_prefix.to_string()).or_insert_with(HashMap::new);
-
-      // TODO: if adding to non-empty list, sort by tag timestamp (make these annotated and use
-      // `Tag.tagger().when()` ?), latest first
       by_id.entry(hash).or_insert_with(Vec::new).push(tag.to_string());
     }
   }
@@ -514,7 +506,9 @@ fn find_old_tags<'s, I: Iterator<Item = &'s str>>(prefixes: I, prev_tag: &str, r
     for (prefix, by_id) in &mut by_prefix_id {
       let not_after_walk = not_after_walk.entry(prefix.clone()).or_insert_with(Vec::new);
       not_after_walk.push(commit_oid.clone());
-      if let Some(tags) = by_id.remove(&commit_oid) {
+      if let Some(mut tags) = by_id.remove(&commit_oid) {
+        // TODO: sort by timestamp (annotated `Tag.tagger().when()`), latest first instead?
+        tags.sort_unstable_by(tag_sort);
         let old_tags = by_prefix.entry(prefix.clone()).or_insert_with(Vec::new);
         let best_ind = old_tags.len();
         old_tags.extend_from_slice(&tags);
@@ -527,4 +521,39 @@ fn find_old_tags<'s, I: Iterator<Item = &'s str>>(prefixes: I, prev_tag: &str, r
   }
 
   Ok(OldTags::new(by_prefix, not_after))
+}
+
+#[allow(clippy::ptr_arg)]
+fn tag_sort(a: &String, b: &String) -> Ordering {
+  let adash = a.rfind('-').unwrap();
+  let bdash = b.rfind('-').unwrap();
+
+  let p1 = Size::parts(&a[adash + 1 ..]);
+  let p2 = Size::parts(&b[bdash + 1 ..]);
+
+  if let Ok(p1) = p1 {
+    if let Ok(p2) = p2 {
+      if p1[0] < p2[0] {
+        Ordering::Greater
+      } else if p1[0] > p2[0] {
+        Ordering::Less
+      } else if p1[1] < p2[1] {
+        Ordering::Greater
+      } else if p1[1] > p2[1] {
+        Ordering::Less
+      } else if p1[2] < p2[2] {
+        Ordering::Greater
+      } else if p1[2] > p2[2] {
+        Ordering::Less
+      } else {
+        Ordering::Equal
+      }
+    } else {
+      Ordering::Greater
+    }
+  } else if p2.is_ok() {
+    Ordering::Less
+  } else {
+    Ordering::Equal
+  }
 }

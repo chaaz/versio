@@ -413,7 +413,7 @@ impl Size {
     }
   }
 
-  fn parts(v: &str) -> Result<[u32; 3]> {
+  pub fn parts(v: &str) -> Result<[u32; 3]> {
     let parts: Vec<_> = v.split('.').map(|p| p.parse()).collect::<std::result::Result<_, _>>()?;
     if parts.len() != 3 {
       return err!("Not a 3-part version: {}", v);

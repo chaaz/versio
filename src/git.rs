@@ -739,21 +739,22 @@ fn get_oid_local<'r>(repo: &'r Repository, spec: &str) -> Result<AnnotatedCommit
 fn get_oid_remote<'r>(
   repo: &'r Repository, branch_name: &str, spec: &str, remote_name: &str, fetches: &RefCell<HashMap<String, Oid>>
 ) -> Result<AnnotatedCommit<'r>> {
-  let oid = fetch_start(repo, remote_name, fetches, spec)?;
-  let commit = check_after_fetch(repo, oid)?;
+  let (commit, cached) = verified_fetch(repo, remote_name, fetches, spec)?;
 
-  if spec == branch_name || spec == "HEAD" {
-    info!("Merging to {} on local.", spec);
+  if !cached && (spec == branch_name || spec == "HEAD") {
+    info!("Merging to \"{}\" on local.", spec);
     ff_merge(repo, branch_name, &commit)?;
   }
   Ok(commit)
 }
 
-fn fetch_start(
-  repo: &Repository, remote_name: &str, fetches: &RefCell<HashMap<String, Oid>>, spec: &str
-) -> Result<Oid> {
+fn verified_fetch<'r>(
+  repo: &'r Repository, remote_name: &str, fetches: &RefCell<HashMap<String, Oid>>, spec: &str
+) -> Result<(AnnotatedCommit<'r>, bool)> {
   if let Some(oid) = fetches.borrow().get(spec).cloned() {
-    return Ok(oid);
+    info!("No fetch for \"{}\": already fetched.", spec);
+    let fetch_commit = repo.find_annotated_commit(oid)?;
+    return Ok((fetch_commit, true));
   }
 
   safe_fetch(repo, remote_name, &[spec], true)?;
@@ -772,7 +773,19 @@ fn fetch_start(
   }
 
   fetches.borrow_mut().insert(spec.to_string(), oid);
-  Ok(oid)
+
+  let fetch_commit = repo.find_annotated_commit(oid)?;
+  assert!(fetch_commit.id() == oid);
+
+  let mut status_opts = StatusOptions::new();
+  status_opts.include_ignored(false);
+  status_opts.include_untracked(true);
+  status_opts.exclude_submodules(false);
+  if repo.statuses(Some(&mut status_opts))?.iter().any(|s| s.status() != Status::CURRENT) {
+    bail!("Can't complete fetch: repository isn't current.");
+  }
+
+  Ok((fetch_commit, false))
 }
 
 fn safe_fetch(repo: &Repository, remote_name: &str, specs: &[&str], all_tags: bool) -> Result<()> {
@@ -788,7 +801,7 @@ fn safe_fetch(repo: &Repository, remote_name: &str, specs: &[&str], all_tags: bo
   do_fetch(&mut remote, specs, all_tags)
 }
 
-/// Fetch the given refspecs (and all tags) from the remote.
+/// Fetch the given refspecs (and maybe all tags) from the remote.
 fn do_fetch<'a>(remote: &'a mut Remote, refs: &[&str], all_tags: bool) -> Result<()> {
   // WARNING: Currently not supporting fetching via sha:
   //
@@ -849,24 +862,11 @@ fn do_fetch<'a>(remote: &'a mut Remote, refs: &[&str], all_tags: bool) -> Result
   Ok(())
 }
 
-fn check_after_fetch(repo: &Repository, fetch_oid: Oid) -> Result<AnnotatedCommit> {
-  let fetch_commit = repo.find_annotated_commit(fetch_oid)?;
-  assert!(fetch_commit.id() == fetch_oid);
-
-  let mut status_opts = StatusOptions::new();
-  status_opts.include_ignored(false);
-  status_opts.include_untracked(true);
-  status_opts.exclude_submodules(false);
-  if repo.statuses(Some(&mut status_opts))?.iter().any(|s| s.status() != Status::CURRENT) {
-    bail!("Can't complete fetch: repository isn't current.");
-  }
-
-  Ok(fetch_commit)
-}
-
 pub fn do_push(repo: &Repository, remote_name: &str, specs: &[String]) -> Result<()> {
   let mut cb = RemoteCallbacks::new();
   cb.credentials(|_url, username_from_url, _allowed_types| Cred::ssh_key_from_agent(username_from_url.unwrap()));
+
+  info!("Pushing specs {:?} to remote {}", specs, remote_name);
 
   cb.push_update_reference(|rref, status| {
     if let Some(status) = status {
