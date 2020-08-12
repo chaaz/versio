@@ -802,13 +802,13 @@ fn safe_fetch(repo: &Repository, remote_name: &str, specs: &[&str], all_tags: bo
 }
 
 /// Fetch the given refspecs (and maybe all tags) from the remote.
-fn do_fetch<'a>(remote: &'a mut Remote, refs: &[&str], all_tags: bool) -> Result<()> {
+fn do_fetch(remote: &mut Remote, refs: &[&str], all_tags: bool) -> Result<()> {
   // WARNING: Currently not supporting fetching via sha:
   //
   // git has supported `git fetch <remote> <sha>` for a while, but it has to work a bit differently (since sha's
   // are not technically refspecs).
 
-  info!("Fetching {:?} {} all tags", refs, if all_tags { "with" } else { "without" });
+  info!("Fetching {:?}{}", refs, if all_tags { " and all tags." } else { "." });
 
   let mut cb = RemoteCallbacks::new();
 
