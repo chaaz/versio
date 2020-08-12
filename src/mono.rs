@@ -66,7 +66,7 @@ impl Mono {
   }
 
   pub fn writer(&mut self) -> &mut StateWrite { &mut self.next }
-  pub fn reader(&self) -> &dyn StateRead { self.current.state_read() }
+  pub fn reader(&self) -> &CurrentState { self.current.state_read() }
 
   pub fn set_by_id(&mut self, id: ProjectId, val: &str) -> Result<()> {
     self.do_project(id, move |p, n| p.set_value(n, val))

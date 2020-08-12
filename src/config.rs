@@ -271,7 +271,7 @@ impl Project {
     Ok(())
   }
 
-  pub fn get_value<S: StateRead + ?Sized>(&self, read: &S) -> Result<String> {
+  pub fn get_value<S: StateRead>(&self, read: &S) -> Result<String> {
     self.located.read_value(read, &self.root, self.tag_prefix())
   }
 
@@ -312,7 +312,7 @@ impl Location {
     }
   }
 
-  pub fn read_value<S: StateRead + ?Sized>(
+  pub fn read_value<S: StateRead>(
     &self, read: &S, root: &Option<String>, pref: &Option<String>
   ) -> Result<String> {
     match self {
@@ -336,7 +336,7 @@ struct TagLocation {
 }
 
 impl TagLocation {
-  fn read_value<S: StateRead + ?Sized>(&self, read: &S, prefix: &Option<String>) -> Result<String> {
+  fn read_value<S: StateRead>(&self, read: &S, prefix: &Option<String>) -> Result<String> {
     // TODO: restructure types to make it impossible to have a tags project w/out a tag_prefix
     let prefix = prefix.as_ref().ok_or_else(|| bad!("No tag prefix for tag location."))?;
 
@@ -375,7 +375,7 @@ impl FileLocation {
     write.update_mark(PickPath::new(file, self.picker.clone()), val.to_string(), id)
   }
 
-  pub fn read_value<S: StateRead + ?Sized>(&self, read: &S, root: &Option<String>) -> Result<String> {
+  pub fn read_value<S: StateRead>(&self, read: &S, root: &Option<String>) -> Result<String> {
     let file = self.rooted(root);
     let data: String = read.read_file(&file)?;
     self.picker.find(&data).map(|m| m.into_value())

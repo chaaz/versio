@@ -85,7 +85,7 @@ pub struct ProjLine {
 impl ProjLine {
   pub fn new(id: ProjectId, name: String, version: String) -> ProjLine { ProjLine { id, name, version } }
 
-  pub fn from<S: StateRead + ?Sized>(p: &Project, read: &S) -> Result<ProjLine> {
+  pub fn from<S: StateRead>(p: &Project, read: &S) -> Result<ProjLine> {
     let id = p.id();
     let name = p.name().to_string();
     let version = p.get_value(read)?;
