@@ -38,10 +38,6 @@ impl Config<CurrentState> {
   }
 }
 
-impl<'r> Config<PrevState<'r>> {
-  pub fn slice(&self, spec: String) -> Result<Config<PrevState<'r>>> { Config::from_state(self.state.slice(spec)?) }
-}
-
 impl<S: StateRead> Config<S> {
   pub fn new(state: S, file: ConfigFile) -> Config<S> { Config { state, file } }
 
@@ -68,6 +64,17 @@ impl<S: StateRead> Config<S> {
   pub fn annotate(&self) -> Result<Vec<AnnotatedMark>> {
     self.file.projects.iter().map(|p| p.annotate(&self.state)).collect()
   }
+
+  pub fn get_value(&self, id: ProjectId) -> Result<Option<String>> {
+    self.do_project_read(id, |p, s| p.get_value(s))
+  }
+
+  fn do_project_read<F, T>(&self, id: ProjectId, f: F) -> Result<Option<T>>
+  where
+    F: FnOnce(&Project, &S) -> Result<T>
+  {
+    self.get_project(id).map(|proj| f(proj, &self.state)).transpose()
+  }
 }
 
 #[derive(Deserialize, Debug)]
@@ -91,10 +98,6 @@ impl ConfigFile {
     let file = path.join(CONFIG_FILENAME);
     let data = std::fs::read_to_string(&file).chain_err(|| format!("Can't read \"{}\".", file.to_string_lossy()))?;
     ConfigFile::read(&data)
-  }
-
-  pub fn empty() -> ConfigFile {
-    ConfigFile { options: Default::default(), projects: Vec::new(), sizes: HashMap::new() }
   }
 
   pub fn read(data: &str) -> Result<ConfigFile> {
@@ -337,11 +340,8 @@ struct TagLocation {
 
 impl TagLocation {
   fn read_value<S: StateRead>(&self, read: &S, prefix: &Option<String>) -> Result<String> {
-    // TODO: restructure types to make it impossible to have a tags project w/out a tag_prefix
     let prefix = prefix.as_ref().ok_or_else(|| bad!("No tag prefix for tag location."))?;
-
-    // TODO: use TagSpec default instead of Err
-    Ok(read.latest_tag(prefix).ok_or_else(|| bad!("No tag found for {}", prefix))?.clone())
+    Ok(read.latest_tag(prefix).cloned().unwrap_or_else(|| self.tags.default_value()))
   }
 }
 
@@ -350,6 +350,15 @@ impl TagLocation {
 enum TagSpec {
   DefaultTag(DefaultTagSpec),
   MajorTag(MajorTagSpec)
+}
+
+impl TagSpec {
+  pub fn default_value(&self) -> String {
+    match self {
+      TagSpec::DefaultTag(spec) => spec.default.clone(),
+      TagSpec::MajorTag(MajorTagSpec { major}) => format!("{}.0.0", major)
+    }
+  }
 }
 
 #[derive(Deserialize, Debug)]
@@ -673,9 +682,8 @@ fn construct_change_log_html(cl: &ChangeLog) -> Result<String> {
 
 #[cfg(test)]
 mod test {
-  use super::{ConfigFile, FileLocation, LinePicker, Location, Picker, Project, ScanningPicker, Size};
+  use super::{ConfigFile, FileLocation, Location, Picker, Project, ScanningPicker, Size};
   use crate::scan::parts::Part;
-  use std::marker::PhantomData;
 
   #[test]
   fn test_both_file_and_tags() {
@@ -835,17 +843,6 @@ projects:
   }
 
   #[test]
-  fn test_find_reg() {
-    let data = r#"
-This is text.
-Current rev is "v1.2.3" because it is."#;
-
-    let mark = LinePicker::find_reg_data(data, "v(\\d+\\.\\d+\\.\\d+)").unwrap();
-    assert_eq!("1.2.3", mark.value());
-    assert_eq!(32, mark.start());
-  }
-
-  #[test]
   fn test_sizes() {
     let config = r#"
 projects: []
@@ -890,7 +887,7 @@ sizes:
       change_log: None,
       located: Location::File(FileLocation {
         file: "package.json".into(),
-        picker: Picker::Json(ScanningPicker { _scan: PhantomData, parts: vec![Part::Map("version".into())] })
+        picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())]))
       }),
       tag_prefix: None
     };
@@ -911,7 +908,7 @@ sizes:
       change_log: None,
       located: Location::File(FileLocation {
         file: "package.json".into(),
-        picker: Picker::Json(ScanningPicker { _scan: PhantomData, parts: vec![Part::Map("version".into())] })
+        picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())]))
       }),
       tag_prefix: None
     };
@@ -931,7 +928,7 @@ sizes:
       change_log: None,
       located: Location::File(FileLocation {
         file: "package.json".into(),
-        picker: Picker::Json(ScanningPicker { _scan: PhantomData, parts: vec![Part::Map("version".into())] })
+        picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())]))
       }),
       tag_prefix: None
     };

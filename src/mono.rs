@@ -65,11 +65,12 @@ impl Mono {
     Ok(analyze(prev_annotate, curt_annotate))
   }
 
-  pub fn writer(&mut self) -> &mut StateWrite { &mut self.next }
   pub fn reader(&self) -> &CurrentState { self.current.state_read() }
+  pub fn config(&self) -> &Config<CurrentState> { &self.current }
+  pub fn repo(&self) -> &Repo { &self.repo }
 
   pub fn set_by_id(&mut self, id: ProjectId, val: &str) -> Result<()> {
-    self.do_project(id, move |p, n| p.set_value(n, val))
+    self.do_project_write(id, move |p, n| p.set_value(n, val))
   }
 
   pub fn set_by_name(&mut self, name: &str, val: &str) -> Result<()> {
@@ -78,14 +79,14 @@ impl Mono {
   }
 
   pub fn forward_by_id(&mut self, id: ProjectId, val: &str) -> Result<()> {
-    self.do_project(id, move |p, n| p.forward_tag(n, val))
+    self.do_project_write(id, move |p, n| p.forward_tag(n, val))
   }
 
   pub fn write_change_log(&mut self, id: ProjectId, change_log: &ChangeLog) -> Result<Option<PathBuf>> {
-    self.do_project(id, move |p, n| p.write_change_log(n, change_log))
+    self.do_project_write(id, move |p, n| p.write_change_log(n, change_log))
   }
 
-  fn do_project<F, T>(&mut self, id: ProjectId, f: F) -> Result<T>
+  fn do_project_write<F, T>(&mut self, id: ProjectId, f: F) -> Result<T>
   where
     F: FnOnce(&Project, &mut StateWrite) -> Result<T>
   {

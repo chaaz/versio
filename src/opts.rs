@@ -1,6 +1,7 @@
 //! The command-line options for the executable.
 
-use crate::errors::Result;
+use crate::errors::{Result, ResultExt};
+use crate::config::Size;
 use crate::mono::Mono;
 use crate::output::{Output, ProjLine};
 use crate::vcs::{VcsLevel, VcsRange};
@@ -339,7 +340,7 @@ fn files(pref_vcs: Option<VcsRange>) -> Result<()> {
   output.commit()
 }
 
-pub fn log(pref_vcs: Option<VcsRange>) -> Result<()> {
+fn log(pref_vcs: Option<VcsRange>) -> Result<()> {
   let mut mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
   let output = Output::new();
   let mut output = output.log();
@@ -370,7 +371,7 @@ fn changes(pref_vcs: Option<VcsRange>) -> Result<()> {
   output.commit()
 }
 
-pub fn plan(pref_vcs: Option<VcsRange>) -> Result<()> {
+fn plan(pref_vcs: Option<VcsRange>) -> Result<()> {
   let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
   let output = Output::new();
   let mut output = output.plan();
@@ -379,7 +380,7 @@ pub fn plan(pref_vcs: Option<VcsRange>) -> Result<()> {
   output.commit(&mono)
 }
 
-pub fn run(pref_vcs: Option<VcsRange>, _all: bool, _dry: bool) -> Result<()> {
+fn run(pref_vcs: Option<VcsRange>, all: bool, dry: bool) -> Result<()> {
   let mut mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
   let output = Output::new();
   let mut output = output.run();
@@ -391,105 +392,45 @@ pub fn run(pref_vcs: Option<VcsRange>, _all: bool, _dry: bool) -> Result<()> {
     return output.commit();
   }
 
-  for (&id, (_size, change_log)) in plan.incrs() {
-    // let proj = mono.get_project(id)?;
-    // let _name = proj.name();
-
-    // let curt_vers = curt_cfg.get_mark_value(id).unwrap()?;
-    // let prev_vers = prev_cfg.get_mark_value(id).transpose()?;
-
+  for (&id, (size, change_log)) in plan.incrs() {
     if let Some(wrote) = mono.write_change_log(id, change_log)? {
       output.write_logged(wrote)?;
     }
 
-    // if let Some(prev_vers) = prev_vers {
-    //   let target = size.apply(&prev_vers)?;
-    //   if Size::less_than(&curt_vers, &target)? {
-    //     if !dry {
-    //       curt_cfg.set_by_id(id, &target, last_commit.as_ref(), &mut new_tags, wrote_change_log)?;
-    //     } else {
-    //       new_tags.flag_commit();
-    //     }
-    //     if prev_vers == curt_vers {
-    //       println!("  {} : {} -> {}", curt_name, prev_vers, &target);
-    //     } else {
-    //       println!("  {} : {} -> {} instead of {}", curt_name, prev_vers, &target, curt_vers);
-    //     }
-    //   } else {
-    //     if !dry {
-    //       curt_cfg.forward_by_id(id, &curt_vers, last_commit.as_ref(), &mut new_tags, wrote_change_log)?;
-    //     } else if wrote_change_log {
-    //       new_tags.flag_commit();
-    //     }
-    //     if all {
-    //       if prev_vers == curt_vers {
-    //         println!("  {} : no change to {}", curt_name, curt_vers);
-    //       } else if curt_vers == target {
-    //         println!("  {} : no change: already {} -> {}", curt_name, prev_vers, &target);
-    //       } else {
-    //         println!("  {} : no change: {} -> {} exceeds {}", curt_name, prev_vers, curt_vers, &target);
-    //       }
-    //     }
-    //   }
-    // } else {
-    //   if !dry {
-    //     curt_cfg.forward_by_id(id, &curt_vers, last_commit.as_ref(), &mut new_tags, wrote_change_log)?;
-    //   } else if wrote_change_log {
-    //     new_tags.flag_commit();
-    //   }
+    let name = mono.get_project(id)?.name().to_string();
+    let curt_config = mono.config();
+    let prev_config = curt_config.slice_to_prev(mono.repo())?;
+    let curt_vers = curt_config
+      .get_value(id)
+      .chain_err(|| format!("Unable to find project {} value.", id))?
+      .expect(&format!("No such project {}.", id));
+    let prev_vers = prev_config.get_value(id).chain_err(|| format!("Unable to find prev {} value.", id))?;
 
-    //   if all {
-    //     println!("  {} : no change: {} is new", curt_name, curt_vers);
-    //   }
-    // }
+    if let Some(prev_vers) = prev_vers {
+      let target = size.apply(&prev_vers)?;
+      if Size::less_than(&curt_vers, &target)? {
+        mono.set_by_id(id, &target)?;
+        output.write_changed(name.clone(), prev_vers.clone(), curt_vers.clone(), target.clone())?;
+      } else {
+        mono.forward_by_id(id, &target)?;
+        output.write_forward(all, name.clone(), prev_vers.clone(), curt_vers.clone(), target.clone())?;
+      }
+    } else {
+      mono.forward_by_id(id, &curt_vers)?;
+      output.write_new(all, name.clone(), curt_vers.clone())?;
+    }
   }
 
-  if !_dry {
-    // TODO: suppress command-level commit
+  if !dry {
+    mono.commit()?;
+    output.write_commit()?;
+  } else {
+    output.write_dry()?;
   }
-
-  // if new_tags.should_commit() {
-  //   if dry {
-  //     println!("Dry run: no actual commits.");
-  //   } else if prev.repo()?.make_changes(new_tags.tags_for_new_commit())? {
-  //     if prev.has_remote() {
-  //       println!("Changes committed and pushed.");
-  //     } else {
-  //       println!("Changes committed.");
-  //     }
-  //   } else {
-  //     return versio_err!("No file changes found somehow.");
-  //   }
-  // } else {
-  //   // TODO: still tag / push ?
-  //   println!("No planned increments: not committing.");
-  // }
-
-  // if prev.repo()?.forward_tags(new_tags.changed_tags())? {
-  //   if dry {
-  //     println!("Dry run: no actual tag forwarding.");
-  //   } else if prev.has_remote() {
-  //     println!("Tags forwarded and pushed.");
-  //   } else {
-  //     println!("Tags forwarded.");
-  //   }
-  // }
-
-  // if dry {
-  //   println!("Dry run: no actual prevtag update.");
-  // } else {
-  //   prev.repo()?.forward_prev_tag(curt_cfg.prev_tag())?;
-  //   if prev.has_remote() {
-  //     println!("Prevtag forwarded and pushed.");
-  //   } else {
-  //     println!("Prevtag forwarded.");
-  //   }
-  // }
 
   output.write_done()?;
-
-  mono.commit()?;
-  output.commit()
+  output.commit()?;
+  Ok(())
 }
 
 fn unknown_cmd(c: &str) -> Result<()> { err!("Unknown command: \"{}\" (try \"help\").", c) }

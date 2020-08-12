@@ -351,7 +351,7 @@ fn println_plan(plan: &Plan, mono: &Mono) -> Result<()> {
         } else {
           println!("  PR {} : {}", pr.number(), size);
         }
-        for c /* (oid, msg, size, appl, dup) */ in pr.commits().iter().filter(|c| c.included()) {
+        for c in pr.commits().iter().filter(|c| c.included()) {
           let symbol = if c.duplicate() {
             "."
           } else if c.applies() {
@@ -362,6 +362,27 @@ fn println_plan(plan: &Plan, mono: &Mono) -> Result<()> {
           println!("    {} commit {} ({}) : {}", symbol, &c.oid()[.. 7], c.size(), c.message());
         }
       }
+    }
+  }
+
+  for pr in plan.ineffective() {
+    if !pr.commits().iter().any(|c| c.included()) {
+      continue;
+    }
+    if pr.number() == 0 {
+      println!("  Unapplied commits");
+    } else {
+      println!("  Unapplied PR {}", pr.number());
+    }
+    for c in pr.commits().iter().filter(|c| c.included()) {
+      let symbol = if c.duplicate() {
+        "."
+      } else if c.applies() {
+        "*"
+      } else {
+        " "
+      };
+      println!("    {} commit {} ({}) : {}", symbol, &c.oid()[.. 7], c.size(), c.message());
     }
   }
 
@@ -386,6 +407,20 @@ impl RunOutput {
 
   pub fn write_logged(&mut self, path: PathBuf) -> Result<()> { self.result.append_logged(path) }
   pub fn write_done(&mut self) -> Result<()> { self.result.append_done() }
+  pub fn write_commit(&mut self) -> Result<()> { self.result.append_commit() }
+  pub fn write_dry(&mut self) -> Result<()> { self.result.append_dry() }
+
+  pub fn write_changed(&mut self, name: String, prev: String, curt: String, targ: String) -> Result<()> {
+    self.result.append_changed(name, prev, curt, targ)
+  }
+
+  pub fn write_forward(&mut self, all: bool, name: String, prev: String, curt: String, targ: String) -> Result<()> {
+    self.result.append_forward(all, name, prev, curt, targ)
+  }
+
+  pub fn write_new(&mut self, all: bool, name: String, curt: String) -> Result<()> {
+    self.result.append_new(all, name, curt)
+  }
 
   pub fn commit(&mut self) -> Result<()> { self.result.commit() }
 }
@@ -398,6 +433,20 @@ enum RunResult {
 impl RunResult {
   fn append_logged(&mut self, path: PathBuf) -> Result<()> { self.append(RunEvent::Logged(path)) }
   fn append_done(&mut self) -> Result<()> { self.append(RunEvent::Done) }
+  fn append_commit(&mut self) -> Result<()> { self.append(RunEvent::Commit) }
+  fn append_dry(&mut self) -> Result<()> { self.append(RunEvent::Dry) }
+
+  fn append_changed(&mut self, name: String, prev: String, curt: String, targ: String) -> Result<()> {
+    self.append(RunEvent::Changed(name, prev, curt, targ))
+  }
+
+  fn append_forward(&mut self, all: bool, name: String, prev: String, curt: String, targ: String) -> Result<()> {
+    self.append(RunEvent::Forward(all, name, prev, curt, targ))
+  }
+
+  fn append_new(&mut self, all: bool, name: String, curt: String) -> Result<()> {
+    self.append(RunEvent::New(all, name, curt))
+  }
 
   fn append(&mut self, ev: RunEvent) -> Result<()> {
     match self {
@@ -443,14 +492,44 @@ impl WroteRuns {
 
 enum RunEvent {
   Logged(PathBuf),
-  Done
+  Changed(String, String, String, String),
+  Forward(bool, String, String, String, String),
+  New(bool, String, String),
+  Commit,
+  Dry,
+  Done,
 }
 
 impl RunEvent {
   fn commit(&mut self) -> Result<()> {
     match self {
       RunEvent::Logged(p) => println!("Wrote changelog at {}.", p.to_string_lossy()),
-      RunEvent::Done => println!("Run complete.")
+      RunEvent::Done => println!("Run complete."),
+      RunEvent::Commit => println!("Changes committed."),
+      RunEvent::Dry => println!("Dry run: no actual changes."),
+      RunEvent::Changed(name, prev, curt, targ) => {
+        if prev == curt {
+          println!("  {} : {} -> {}", name, prev, targ);
+        } else {
+          println!("  {} : {} -> {} instead of {}", name, prev, targ, curt);
+        }
+      }
+      RunEvent::Forward(all, name, prev, curt, targ) => {
+        if *all {
+          if prev == curt {
+            println!("  {} : no change to {}", name, curt);
+          } else if curt == targ {
+            println!("  {} : no change: already {} -> {}", name, prev, targ);
+          } else {
+            println!("  {} : no change: {} -> {} exceeds {}", name, prev, curt, targ);
+          }
+        }
+      }
+      RunEvent::New(all, name, curt) => {
+        if *all {
+          println!("  {} : no change: {} is new", name, curt);
+        }
+      }
     }
     Ok(())
   }

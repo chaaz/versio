@@ -84,8 +84,6 @@ impl Repo {
     Ok(Repo { vcs: GitVcsLevel::from(vcs, root, repo, branch_name, remote_name, fetches) })
   }
 
-  pub fn vcs_level(&self) -> VcsLevel { self.vcs.vcs_level() }
-
   pub fn working_dir(&self) -> Result<&Path> {
     match &self.vcs {
       GitVcsLevel::None { root } => Ok(root),
@@ -300,10 +298,10 @@ pub struct Slice<'r> {
 }
 
 impl<'r> Slice<'r> {
-  pub fn refspec(&self) -> &str { &self.refspec }
   pub fn has_blob<P: AsRef<Path>>(&self, path: P) -> Result<bool> { Ok(self.object(path).is_ok()) }
   pub fn slice(&self, refspec: String) -> Slice<'r> { Slice { repo: self.repo, refspec } }
   pub fn repo(&self) -> &Repo { &self.repo }
+  pub fn refspec(&self) -> &str { &self.refspec }
 
   pub fn blob<P: AsRef<Path>>(&self, path: P) -> Result<Blob> {
     let obj = self.object(path.as_ref())?;
@@ -492,7 +490,6 @@ impl FullPr {
   pub fn best_guess(&self) -> bool { self.head_oid.is_none() }
   pub fn has_exclude(&self, oid: &str) -> bool { self.excludes.iter().any(|c| c == oid) }
   pub fn closed_at(&self) -> &DateTime<FixedOffset> { &self.closed_at }
-  pub fn into_commits(self) -> Vec<CommitInfoBuf> { self.commits }
 
   pub fn included_commits(&self) -> impl Iterator<Item = &CommitInfoBuf> + '_ {
     self.commits.iter().filter(move |c| !self.has_exclude(c.id()))
@@ -564,15 +561,6 @@ impl GitVcsLevel {
       VcsLevel::Local => GitVcsLevel::Local { repo, branch_name },
       VcsLevel::Remote => GitVcsLevel::Remote { repo, branch_name, remote_name, fetches },
       VcsLevel::Smart => GitVcsLevel::Smart { repo, branch_name, remote_name, fetches }
-    }
-  }
-
-  pub fn vcs_level(&self) -> VcsLevel {
-    match self {
-      GitVcsLevel::None { .. } => VcsLevel::None,
-      GitVcsLevel::Local { .. } => VcsLevel::Local,
-      GitVcsLevel::Remote { .. } => VcsLevel::Remote,
-      GitVcsLevel::Smart { .. } => VcsLevel::Smart
     }
   }
 }

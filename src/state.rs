@@ -69,11 +69,11 @@ impl<'r> PrevState<'r> {
     Ok(PrevState::new(slice, commit_oid, tags))
   }
 
-  pub fn slice(&self, spec: String) -> Result<PrevState<'r>> {
-    let commit_oid = self.slice.repo().revparse_oid(self.slice.refspec())?;
-    let old_tags = self.tags.slice_earlier(&commit_oid)?;
-    Ok(PrevState::new(self.slice.slice(spec), commit_oid, old_tags))
-  }
+  // pub fn slice(&self, spec: String) -> Result<PrevState<'r>> {
+  //   let commit_oid = self.slice.repo().revparse_oid(self.slice.refspec())?;
+  //   let old_tags = self.tags.slice_earlier(&commit_oid)?;
+  //   Ok(PrevState::new(self.slice.slice(spec), commit_oid, old_tags))
+  // }
 
   fn has(&self, path: &Path) -> Result<bool> { self.slice.has_blob(path) }
 
@@ -95,11 +95,6 @@ impl OldTags {
   }
 
   fn latest(&self, prefix: &str) -> Option<&String> { self.by_prefix.get(prefix).and_then(|p| p.first()) }
-
-  // /// Get the latest string that doesn't come after the given boundry oid
-  // fn not_after(&self, prefix: &str, boundry: &str) -> Option<&String> {
-  //   self.not_after.get(boundry).and_then(|m| m.get(prefix)).map(|i| &self.by_prefix[prefix][*i])
-  // }
 
   /// Construct a tags index for an earlier commit; a `latest` call on the returned index will match the
   /// `not_after(new_oid)` on this index.

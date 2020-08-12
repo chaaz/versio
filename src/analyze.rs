@@ -56,7 +56,6 @@ impl Change {
   }
 
   pub fn new_mark(&self) -> &AnnotatedMark { &self.new_mark }
-  pub fn old_mark(&self) -> &AnnotatedMark { &self.old_mark }
 
   pub fn name(&self) -> Option<(&str, &str)> {
     if self.name_change {

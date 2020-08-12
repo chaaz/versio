@@ -3,16 +3,16 @@
 #![recursion_limit = "1024"]
 
 #[macro_use]
-pub mod errors;
-pub mod analyze;
-pub mod config;
-pub mod either;
-pub mod git;
-pub mod github;
-pub mod mark;
-pub mod mono;
+mod errors;
+mod analyze;
+mod config;
+mod either;
+mod git;
+mod github;
+mod mark;
+mod mono;
 pub mod opts;
-pub mod output;
-pub mod scan;
-pub mod state;
-pub mod vcs;
+mod output;
+mod scan;
+mod state;
+mod vcs;

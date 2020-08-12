@@ -195,11 +195,25 @@ pub struct CharMark {
 
 impl CharMark {
   pub fn new(value: String, char_start: usize) -> CharMark { CharMark { value, char_start } }
-  pub fn value(&self) -> &str { &self.value }
-  pub fn char_start(&self) -> usize { self.char_start }
 
   pub fn into_byte_mark(self, data: &str) -> Result<Mark> {
     let start = data.char_indices().nth(self.char_start).unwrap().0;
     Mark::make(self.value, start)
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use super::LinePicker;
+
+  #[test]
+  fn test_find_reg() {
+    let data = r#"
+This is text.
+Current rev is "v1.2.3" because it is."#;
+
+    let mark = LinePicker::find_reg_data(data, "v(\\d+\\.\\d+\\.\\d+)").unwrap();
+    assert_eq!("1.2.3", mark.value());
+    assert_eq!(32, mark.start());
   }
 }
