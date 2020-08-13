@@ -14,7 +14,8 @@ pub struct TomlScanner {
 }
 
 impl TomlScanner {
-  pub fn new<P: IntoPartVec>(target: P) -> TomlScanner { TomlScanner { target: target.into_part_vec() } }
+  #[cfg(test)]
+  pub fn new(target: &str) -> TomlScanner { TomlScanner { target: target.into_part_vec() } }
 
   #[cfg(test)]
   pub fn from_parts(target: &[&dyn ToPart]) -> TomlScanner { TomlScanner { target: target.into_part_vec() } }

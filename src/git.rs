@@ -214,7 +214,7 @@ impl Repo {
     let parent_commit = self.find_last_commit()?;
     let sig = Signature::now("Versio", "github.com/chaaz/versio")?;
     let head = Some("HEAD");
-    let msg = "Updated versions by versio";
+    let msg = "chore(deploy): update versions";
 
     let commit_oid = repo.commit(head, &sig, &sig, msg, &tree, &[&parent_commit])?;
     repo.reset(&repo.find_object(commit_oid, Some(ObjectType::Commit))?, ResetType::Mixed, None)?;
@@ -300,8 +300,6 @@ pub struct Slice<'r> {
 impl<'r> Slice<'r> {
   pub fn has_blob<P: AsRef<Path>>(&self, path: P) -> Result<bool> { Ok(self.object(path).is_ok()) }
   pub fn slice(&self, refspec: String) -> Slice<'r> { Slice { repo: self.repo, refspec } }
-  pub fn repo(&self) -> &Repo { &self.repo }
-  pub fn refspec(&self) -> &str { &self.refspec }
 
   pub fn blob<P: AsRef<Path>>(&self, path: P) -> Result<Blob> {
     let obj = self.object(path.as_ref())?;

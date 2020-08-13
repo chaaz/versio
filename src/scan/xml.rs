@@ -16,7 +16,8 @@ pub struct XmlScanner {
 }
 
 impl XmlScanner {
-  pub fn new<P: IntoPartVec>(target: P) -> XmlScanner { XmlScanner { target: target.into_part_vec() } }
+  #[cfg(test)]
+  pub fn new(target: &str) -> XmlScanner { XmlScanner { target: target.into_part_vec() } }
 
   #[cfg(test)]
   pub fn from_parts(target: &[&dyn ToPart]) -> XmlScanner { XmlScanner { target: target.into_part_vec() } }

@@ -14,7 +14,8 @@ pub struct YamlScanner {
 }
 
 impl YamlScanner {
-  pub fn new<P: IntoPartVec>(target: P) -> YamlScanner { YamlScanner { target: target.into_part_vec() } }
+  #[cfg(test)]
+  pub fn new(target: &str) -> YamlScanner { YamlScanner { target: target.into_part_vec() } }
 
   #[cfg(test)]
   pub fn from_parts(target: &[&dyn ToPart]) -> YamlScanner { YamlScanner { target: target.into_part_vec() } }

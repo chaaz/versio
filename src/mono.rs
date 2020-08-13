@@ -230,10 +230,6 @@ pub struct LoggedPr {
 }
 
 impl LoggedPr {
-  pub fn empty(number: u32, closed_at: DateTime<FixedOffset>) -> LoggedPr {
-    LoggedPr { number, commits: Vec::new(), closed_at }
-  }
-
   pub fn capture(pr: &FullPr) -> LoggedPr {
     LoggedPr { number: pr.number(), closed_at: *pr.closed_at(), commits: Vec::new() }
   }

@@ -403,7 +403,7 @@ fn run(pref_vcs: Option<VcsRange>, all: bool, dry: bool) -> Result<()> {
     let curt_vers = curt_config
       .get_value(id)
       .chain_err(|| format!("Unable to find project {} value.", id))?
-      .expect(&format!("No such project {}.", id));
+      .unwrap_or_else(|| panic!("No such project {}.", id));
     let prev_vers = prev_config.get_value(id).chain_err(|| format!("Unable to find prev {} value.", id))?;
 
     if let Some(prev_vers) = prev_vers {

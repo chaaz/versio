@@ -6,8 +6,6 @@ use crate::git::{Repo, Slice};
 use crate::mark::{NamedData, Picker};
 use log::warn;
 use std::collections::{HashMap, HashSet};
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 pub trait StateRead {
@@ -63,11 +61,6 @@ impl<'r> StateRead for PrevState<'r> {
 
 impl<'r> PrevState<'r> {
   fn new(slice: Slice<'r>, commit_oid: String, tags: OldTags) -> PrevState { PrevState { slice, commit_oid, tags } }
-
-  pub fn sliced(slice: Slice<'r>, tags: OldTags) -> Result<PrevState> {
-    let commit_oid = slice.repo().revparse_oid(slice.refspec())?;
-    Ok(PrevState::new(slice, commit_oid, tags))
-  }
 
   // pub fn slice(&self, spec: String) -> Result<PrevState<'r>> {
   //   let commit_oid = self.slice.repo().revparse_oid(self.slice.refspec())?;
@@ -146,30 +139,14 @@ impl StateWrite {
     Ok(())
   }
 
-  pub fn append_file<C: ToString>(&mut self, file: PathBuf, content: C, proj_id: ProjectId) -> Result<()> {
-    self.writes.push(FileWrite::Append { path: file, val: content.to_string() });
-    self.proj_writes.insert(proj_id);
-    Ok(())
-  }
-
   pub fn update_mark<C: ToString>(&mut self, pick: PickPath, content: C, proj_id: ProjectId) -> Result<()> {
     self.writes.push(FileWrite::Update { pick, val: content.to_string() });
     self.proj_writes.insert(proj_id);
     Ok(())
   }
 
-  pub fn tag_head<T: ToString>(&mut self, tag: T) -> Result<()> {
-    self.tag_head.push(tag.to_string());
-    Ok(())
-  }
-
   pub fn tag_head_or_last<T: ToString>(&mut self, tag: T, proj: ProjectId) -> Result<()> {
     self.tag_head_or_last.push((tag.to_string(), proj));
-    Ok(())
-  }
-
-  pub fn tag_commit<T: ToString, O: ToString>(&mut self, commit_oid: O, tag: T) -> Result<()> {
-    self.tag_commit.insert(tag.to_string(), commit_oid.to_string());
     Ok(())
   }
 
@@ -215,7 +192,6 @@ impl StateWrite {
 
 enum FileWrite {
   Write { path: PathBuf, val: String },
-  Append { path: PathBuf, val: String },
   Update { pick: PickPath, val: String }
 }
 
@@ -223,10 +199,10 @@ impl FileWrite {
   pub fn write(&self) -> Result<()> {
     match self {
       FileWrite::Write { path, val } => Ok(std::fs::write(path, &val)?),
-      FileWrite::Append { path, val } => {
-        let mut file = OpenOptions::new().append(true).open(path)?;
-        Ok(file.write_all(val.as_bytes())?)
-      }
+      // FileWrite::Append { path, val } => {
+      //   let mut file = OpenOptions::new().append(true).open(path)?;
+      //   Ok(file.write_all(val.as_bytes())?)
+      // }
       FileWrite::Update { pick, val } => pick.write_value(val)
     }
   }
@@ -247,10 +223,5 @@ impl PickPath {
     let mut mark = self.picker.scan(data)?;
     mark.write_new_value(val)?;
     Ok(())
-  }
-
-  pub fn read_value(&self) -> Result<String> {
-    let data = std::fs::read_to_string(&self.file)?;
-    self.picker.find(&data).map(|m| m.into_value())
   }
 }

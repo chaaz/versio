@@ -16,7 +16,8 @@ pub struct JsonScanner {
 }
 
 impl JsonScanner {
-  pub fn new<P: IntoPartVec>(target: P) -> JsonScanner { JsonScanner { target: target.into_part_vec() } }
+  #[cfg(test)]
+  pub fn new(target: &str) -> JsonScanner { JsonScanner { target: target.into_part_vec() } }
 
   #[cfg(test)]
   pub fn from_parts(target: &[&dyn ToPart]) -> JsonScanner { JsonScanner { target: target.into_part_vec() } }

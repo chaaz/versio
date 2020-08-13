@@ -196,6 +196,12 @@ pub struct CharMark {
 impl CharMark {
   pub fn new(value: String, char_start: usize) -> CharMark { CharMark { value, char_start } }
 
+  #[cfg(test)]
+  pub fn value(&self) -> &str { &self.value }
+
+  #[cfg(test)]
+  pub fn char_start(&self) -> usize { self.char_start }
+
   pub fn into_byte_mark(self, data: &str) -> Result<Mark> {
     let start = data.char_indices().nth(self.char_start).unwrap().0;
     Mark::make(self.value, start)
