@@ -202,6 +202,7 @@ impl Project {
   }
 
   pub fn tag_prefix(&self) -> &Option<String> { &self.tag_prefix }
+  pub fn tag_major(&self) -> Option<u32> { self.located.tag_major() }
 
   pub fn write_change_log(&self, write: &mut StateWrite, cl: &ChangeLog) -> Result<Option<PathBuf>> {
     if cl.is_empty() {
@@ -254,6 +255,8 @@ impl Project {
 
     self.check_excludes()?;
 
+    self.check_prefix()?;
+
     // Check that each pattern includes at least one file.
     for cov in &self.includes {
       let pattern = self.rooted_pattern(cov);
@@ -268,9 +271,16 @@ impl Project {
   /// Ensure that we don't have excludes without includes.
   fn check_excludes(&self) -> Result<()> {
     if !self.excludes.is_empty() && self.includes.is_empty() {
-      return err!("Proj {} has excludes, but no includes.", self.id);
+      bail!("Proj {} has excludes, but no includes.", self.id);
     }
+    Ok(())
+  }
 
+  /// Ensure that we don't have excludes without includes.
+  fn check_prefix(&self) -> Result<()> {
+    if self.located.is_tag() && self.tag_prefix.is_none() {
+      bail!("Proj {} has located: tag without tag_prefix, self.id");
+    }
     Ok(())
   }
 
@@ -308,6 +318,13 @@ enum Location {
 }
 
 impl Location {
+  pub fn tag_major(&self) -> Option<u32> {
+    match self {
+      Location::File(_) => None,
+      Location::Tag(tagl) => tagl.major()
+    }
+  }
+
   pub fn write_value(&self, write: &mut StateWrite, root: &Option<String>, val: &str, id: ProjectId) -> Result<()> {
     match self {
       Location::File(l) => l.write_value(write, root, val, id),
@@ -321,6 +338,13 @@ impl Location {
     match self {
       Location::File(l) => l.read_value(read, root),
       Location::Tag(l) => l.read_value(read, pref)
+    }
+  }
+
+  pub fn is_tag(&self) -> bool {
+    match self {
+      Location::Tag(..) => true,
+      _ => false
     }
   }
 
@@ -339,6 +363,8 @@ struct TagLocation {
 }
 
 impl TagLocation {
+  pub fn major(&self) -> Option<u32> { self.tags.major() }
+
   fn read_value<S: StateRead>(&self, read: &S, prefix: &Option<String>) -> Result<String> {
     let prefix = prefix.as_ref().ok_or_else(|| bad!("No tag prefix for tag location."))?;
     Ok(read.latest_tag(prefix).cloned().unwrap_or_else(|| self.tags.default_value()))
@@ -353,6 +379,13 @@ enum TagSpec {
 }
 
 impl TagSpec {
+  pub fn major(&self) -> Option<u32> {
+    match self {
+      TagSpec::DefaultTag(_) => None,
+      TagSpec::MajorTag(mtag) => Some(mtag.major())
+    }
+  }
+
   pub fn default_value(&self) -> String {
     match self {
       TagSpec::DefaultTag(spec) => spec.default.clone(),
@@ -369,6 +402,10 @@ struct DefaultTagSpec {
 #[derive(Deserialize, Debug)]
 struct MajorTagSpec {
   major: u32
+}
+
+impl MajorTagSpec {
+  pub fn major(&self) -> u32 { self.major }
 }
 
 #[derive(Clone, Deserialize, Debug)]

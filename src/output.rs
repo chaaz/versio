@@ -1,8 +1,9 @@
 //! The way we output things to the user.
 
+use crate::config::Size;
 use crate::analyze::Analysis;
 use crate::config::{Project, ProjectId};
-use crate::errors::Result;
+use crate::errors::{Result, ResultExt};
 use crate::github::Changes;
 use crate::mono::{Mono, Plan};
 use crate::state::StateRead;
@@ -331,14 +332,22 @@ fn println_plan(plan: &Plan, mono: &Mono) -> Result<()> {
   if plan.incrs().is_empty() {
     println!("(No projects)");
   } else {
-    for (id, (size, change_log)) in plan.incrs() {
-      let curt_proj = mono.get_project(*id).unwrap();
+    for (&id, (size, change_log)) in plan.incrs() {
+      let curt_proj = mono.get_project(id).unwrap();
       println!("{} : {}", curt_proj.name(), size);
       for dep in curt_proj.depends() {
         let size = plan.incrs().get(dep).unwrap().0;
         let dep_proj = mono.get_project(*dep).unwrap();
         println!("  Depends on {} : {}", dep_proj.name(), size);
       }
+
+      let curt_config = mono.config();
+      let prev_config = curt_config.slice_to_prev(mono.repo())?;
+      let prev_vers = prev_config.get_value(id).chain_err(|| format!("Unable to find prev {} value.", id))?;
+      if prev_vers.is_some() && curt_proj.tag_major().is_some() && size >= &Size::Major {
+        println!("  ! Illegal size change for restricted project.");
+      }
+
       for (pr, size) in change_log.entries() {
         if !pr.commits().iter().any(|c| c.included()) {
           continue;

@@ -6,6 +6,7 @@ use crate::mono::Mono;
 use crate::output::{Output, ProjLine};
 use crate::vcs::{VcsLevel, VcsRange};
 use clap::{crate_version, App, AppSettings, Arg, ArgGroup, ArgMatches, SubCommand};
+use error_chain::bail;
 
 pub fn execute() -> Result<()> {
   let m = App::new("versio")
@@ -397,7 +398,8 @@ fn run(pref_vcs: Option<VcsRange>, all: bool, dry: bool) -> Result<()> {
       output.write_logged(wrote)?;
     }
 
-    let name = mono.get_project(id)?.name().to_string();
+    let proj = mono.get_project(id)?;
+    let name = proj.name().to_string();
     let curt_config = mono.config();
     let prev_config = curt_config.slice_to_prev(mono.repo())?;
     let curt_vers = curt_config
@@ -407,6 +409,11 @@ fn run(pref_vcs: Option<VcsRange>, all: bool, dry: bool) -> Result<()> {
     let prev_vers = prev_config.get_value(id).chain_err(|| format!("Unable to find prev {} value.", id))?;
 
     if let Some(prev_vers) = prev_vers {
+      // if a project has a specific major, rebuke major changes to a previous version.
+      if proj.tag_major().is_some() && size >= &Size::Major {
+        bail!("Illegal size change for restricted project \"{}\".", name);
+      }
+
       let target = size.apply(&prev_vers)?;
       if Size::less_than(&curt_vers, &target)? {
         mono.set_by_id(id, &target)?;

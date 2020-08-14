@@ -32,8 +32,9 @@ impl Mono {
 
     // A little dance to construct a state and config.
     let file = ConfigFile::from_dir(root)?;
-    let tag_prefixes = file.projects().iter().filter_map(|p| p.tag_prefix().as_ref().map(|s| s.as_str()));
-    let old_tags = find_old_tags(tag_prefixes, file.prev_tag(), &repo)?;
+    // let tag_prefixes = file.projects().iter().filter_map(|p| p.tag_prefix().as_ref().map(|s| s.as_str()));
+    let projects = file.projects().iter();
+    let old_tags = find_old_tags(projects, file.prev_tag(), &repo)?;
     let state = CurrentState::new(root.to_path_buf(), old_tags);
     let current = Config::new(state, file);
 
@@ -478,20 +479,16 @@ impl<'r> Slicer<'r> {
   }
 }
 
-fn find_old_tags<'s, I: Iterator<Item = &'s str>>(prefixes: I, prev_tag: &str, repo: &Repo) -> Result<OldTags> {
-  let mut by_prefix_id = HashMap::new(); // Map<prefix, Map<oid, Vec<tag>>>
+fn find_old_tags<'s, I: Iterator<Item = &'s Project>>(projects: I, prev_tag: &str, repo: &Repo) -> Result<OldTags> {
+  let mut by_prefix_oid = HashMap::new(); // Map<prefix, Map<oid, Vec<tag>>>
 
-  for tag_prefix in prefixes {
-    let fnmatch = if tag_prefix.is_empty() {
-      "v*".to_string()
-    } else {
-      // tag_prefix must be alphanum + '-', so no escaping necessary
-      format!("{}-v*", tag_prefix)
-    };
-    for tag in repo.tag_names(Some(fnmatch.as_str()))?.iter().filter_map(identity) {
-      let hash = repo.revparse_oid(&format!("{}^{{}}", tag))?;
-      let by_id = by_prefix_id.entry(tag_prefix.to_string()).or_insert_with(HashMap::new);
-      by_id.entry(hash).or_insert_with(Vec::new).push(tag.to_string());
+  for proj in projects {
+    if let Some((tag_prefix, fnmatch)) = tag_fnmatch(proj) {
+      for tag in repo.tag_names(Some(fnmatch.as_str()))?.iter().filter_map(identity) {
+        let oid = repo.revparse_oid(&format!("{}^{{}}", tag))?;
+        let by_id = by_prefix_oid.entry(tag_prefix.clone()).or_insert_with(HashMap::new);
+        by_id.entry(oid).or_insert_with(Vec::new).push(tag.to_string());
+      }
     }
   }
 
@@ -500,7 +497,7 @@ fn find_old_tags<'s, I: Iterator<Item = &'s str>>(prefixes: I, prev_tag: &str, r
   let mut not_after_walk = HashMap::new();
   for commit_oid in repo.commits_to_head(prev_tag)?.map(|c| c.map(|c| c.id())) {
     let commit_oid = commit_oid?;
-    for (prefix, by_id) in &mut by_prefix_id {
+    for (prefix, by_id) in &mut by_prefix_oid {
       let not_after_walk = not_after_walk.entry(prefix.clone()).or_insert_with(Vec::new);
       not_after_walk.push(commit_oid.clone());
       if let Some(mut tags) = by_id.remove(&commit_oid) {
@@ -518,6 +515,31 @@ fn find_old_tags<'s, I: Iterator<Item = &'s str>>(prefixes: I, prev_tag: &str, r
   }
 
   Ok(OldTags::new(by_prefix, not_after))
+}
+
+/// Construct a fnmatch pattern for a project that can be used to retrieve the project's tags.
+///
+/// The resulting pattern is usable by both `Repository::tag_names` and as a git fetch refspec
+/// `refs/tags/{pattern}`.
+fn tag_fnmatch(proj: &Project) -> Option<(String, String)> {
+  proj.tag_prefix().as_ref().map(|s| s.as_str()).map(|tag_prefix| {
+    let major = proj.tag_major();
+
+    let major_v = if let Some(major) = major {
+      format!("v{}-*", major)
+    } else {
+      "v*".to_string()
+    };
+
+    let fnmatch = if tag_prefix.is_empty() {
+      major_v
+    } else {
+      // tag_prefix must be alphanum + '-', so no escaping necessary
+      format!("{}-{}", tag_prefix, major_v)
+    };
+
+    (tag_prefix.to_string(), fnmatch)
+  })
 }
 
 #[allow(clippy::ptr_arg)]
