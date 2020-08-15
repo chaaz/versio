@@ -1,9 +1,12 @@
+//! Some simple routines to compare the difference between sets of projects.
+
+use crate::config::ProjectId;
 use std::collections::HashMap;
 use std::collections::HashSet;
 
 pub fn analyze(olds: Vec<AnnotatedMark>, news: Vec<AnnotatedMark>) -> Analysis {
-  let olds_ids: HashSet<u32> = olds.iter().map(|m| m.id).collect();
-  let news_ids: HashSet<u32> = news.iter().map(|m| m.id).collect();
+  let olds_ids: HashSet<ProjectId> = olds.iter().map(|m| m.id).collect();
+  let news_ids: HashSet<ProjectId> = news.iter().map(|m| m.id).collect();
 
   let (older, old_matches): (Vec<_>, Vec<_>) = olds.into_iter().partition(|m| !news_ids.contains(&m.id));
   let (newer, new_matches): (Vec<_>, Vec<_>) = news.into_iter().partition(|m| !olds_ids.contains(&m.id));
@@ -17,13 +20,13 @@ pub fn analyze(olds: Vec<AnnotatedMark>, news: Vec<AnnotatedMark>) -> Analysis {
 }
 
 pub struct AnnotatedMark {
-  id: u32,
+  id: ProjectId,
   name: String,
   mark: String
 }
 
 impl AnnotatedMark {
-  pub fn new(id: u32, name: String, mark: String) -> AnnotatedMark { AnnotatedMark { id, name, mark } }
+  pub fn new(id: ProjectId, name: String, mark: String) -> AnnotatedMark { AnnotatedMark { id, name, mark } }
   pub fn name(&self) -> &str { &self.name }
   pub fn mark(&self) -> &str { &self.mark }
 }

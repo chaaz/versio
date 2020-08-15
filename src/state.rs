@@ -8,20 +8,26 @@ use log::warn;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-pub trait StateRead {
+pub trait StateRead: FilesRead {
+  fn latest_tag(&self, prefix: &str) -> Option<&String>;
+}
+
+impl<S: StateRead> StateRead for &S {
+  fn latest_tag(&self, prefix: &str) -> Option<&String> { <S as StateRead>::latest_tag(*self, prefix) }
+}
+
+pub trait FilesRead {
   /// Find the commit hash it's reading from; returns `None` if it is located at the current state.
   fn commit_oid(&self) -> Option<String>;
 
   fn has_file(&self, path: &Path) -> Result<bool>;
   fn read_file(&self, path: &Path) -> Result<String>;
-  fn latest_tag(&self, prefix: &str) -> Option<&String>;
 }
 
-impl<S: StateRead> StateRead for &S {
-  fn commit_oid(&self) -> Option<String> { <S as StateRead>::commit_oid(*self) }
-  fn has_file(&self, path: &Path) -> Result<bool> { <S as StateRead>::has_file(*self, path) }
-  fn read_file(&self, path: &Path) -> Result<String> { <S as StateRead>::read_file(*self, path) }
-  fn latest_tag(&self, prefix: &str) -> Option<&String> { <S as StateRead>::latest_tag(*self, prefix) }
+impl<F: FilesRead> FilesRead for &F {
+  fn commit_oid(&self) -> Option<String> { <F as FilesRead>::commit_oid(*self) }
+  fn has_file(&self, path: &Path) -> Result<bool> { <F as FilesRead>::has_file(*self, path) }
+  fn read_file(&self, path: &Path) -> Result<String> { <F as FilesRead>::read_file(*self, path) }
 }
 
 pub struct CurrentState {
@@ -29,10 +35,13 @@ pub struct CurrentState {
   tags: OldTags
 }
 
-impl StateRead for CurrentState {
+impl FilesRead for CurrentState {
   fn commit_oid(&self) -> Option<String> { None }
   fn has_file(&self, path: &Path) -> Result<bool> { Ok(self.root.join(path).exists()) }
   fn read_file(&self, path: &Path) -> Result<String> { Ok(std::fs::read_to_string(&self.root.join(path))?) }
+}
+
+impl StateRead for CurrentState {
   fn latest_tag(&self, prefix: &str) -> Option<&String> { self.tags.latest(prefix) }
 }
 
@@ -47,34 +56,45 @@ impl CurrentState {
 }
 
 pub struct PrevState<'r> {
-  slice: Slice<'r>,
-  commit_oid: String,
+  files: PrevFiles<'r>,
   tags: OldTags
 }
 
+impl<'r> FilesRead for PrevState<'r> {
+  fn commit_oid(&self) -> Option<String> { self.files.commit_oid() }
+  fn has_file(&self, path: &Path) -> Result<bool> { self.files.has_file(path) }
+  fn read_file(&self, path: &Path) -> Result<String> { self.files.read_file(path) }
+}
+
 impl<'r> StateRead for PrevState<'r> {
-  fn commit_oid(&self) -> Option<String> { Some(self.commit_oid.clone()) }
-  fn has_file(&self, path: &Path) -> Result<bool> { self.has(path) }
-  fn read_file(&self, path: &Path) -> Result<String> { PrevState::read(&self.slice, path) }
   fn latest_tag(&self, prefix: &str) -> Option<&String> { self.tags.latest(prefix) }
 }
 
 impl<'r> PrevState<'r> {
-  fn new(slice: Slice<'r>, commit_oid: String, tags: OldTags) -> PrevState { PrevState { slice, commit_oid, tags } }
-
-  // pub fn slice(&self, spec: String) -> Result<PrevState<'r>> {
-  //   let commit_oid = self.slice.repo().revparse_oid(self.slice.refspec())?;
-  //   let old_tags = self.tags.slice_earlier(&commit_oid)?;
-  //   Ok(PrevState::new(self.slice.slice(spec), commit_oid, old_tags))
-  // }
-
-  fn has(&self, path: &Path) -> Result<bool> { self.slice.has_blob(path) }
-
-  pub fn read<P: AsRef<Path>>(slice: &Slice, path: P) -> Result<String> {
-    let blob = slice.blob(path.as_ref())?;
-    let cont: &str = std::str::from_utf8(blob.content())?;
-    Ok(cont.to_string())
+  fn new(slice: Slice<'r>, commit_oid: String, tags: OldTags) -> PrevState {
+    PrevState { files: PrevFiles::new(slice, commit_oid), tags }
   }
+}
+
+pub struct PrevFiles<'r> {
+  slice: Slice<'r>,
+  commit_oid: String,
+}
+
+impl<'r> FilesRead for PrevFiles<'r> {
+  fn commit_oid(&self) -> Option<String> { Some(self.commit_oid.clone()) }
+  fn has_file(&self, path: &Path) -> Result<bool> { self.slice.has_blob(path) }
+  fn read_file(&self, path: &Path) -> Result<String> { read_from_slice(&self.slice, path) }
+}
+
+impl<'r> PrevFiles<'r> {
+  pub fn from_slice(slice: Slice<'r>) -> Result<PrevFiles> { 
+    let commit_oid = slice.revparse_oid()?;
+    Ok(PrevFiles::new(slice, commit_oid))
+  }
+
+  pub fn new(slice: Slice<'r>, commit_oid: String) -> PrevFiles { PrevFiles { slice, commit_oid } }
+  pub fn slice_to(&self, spec: String) -> Result<PrevFiles<'r>> { PrevFiles::from_slice(self.slice.slice(spec)) }
 }
 
 pub struct OldTags {
@@ -224,4 +244,10 @@ impl PickPath {
     mark.write_new_value(val)?;
     Ok(())
   }
+}
+
+pub fn read_from_slice<P: AsRef<Path>>(slice: &Slice, path: P) -> Result<String> {
+  let blob = slice.blob(path.as_ref())?;
+  let cont: &str = std::str::from_utf8(blob.content())?;
+  Ok(cont.to_string())
 }

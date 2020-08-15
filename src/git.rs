@@ -292,6 +292,7 @@ impl Repo {
   }
 }
 
+#[derive(Clone)]
 pub struct Slice<'r> {
   repo: &'r Repo,
   refspec: String
@@ -300,6 +301,7 @@ pub struct Slice<'r> {
 impl<'r> Slice<'r> {
   pub fn has_blob<P: AsRef<Path>>(&self, path: P) -> Result<bool> { Ok(self.object(path).is_ok()) }
   pub fn slice(&self, refspec: String) -> Slice<'r> { Slice { repo: self.repo, refspec } }
+  pub fn revparse_oid(&self) -> Result<String> { self.repo.revparse_oid(&self.refspec) }
 
   pub fn blob<P: AsRef<Path>>(&self, path: P) -> Result<Blob> {
     let obj = self.object(path.as_ref())?;

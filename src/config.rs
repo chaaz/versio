@@ -6,7 +6,7 @@ use crate::git::{Repo, Slice};
 use crate::mark::{FilePicker, LinePicker, Picker, ScanningPicker};
 use crate::mono::ChangeLog;
 use crate::scan::parts::{deserialize_parts, Part};
-use crate::state::{CurrentState, PickPath, PrevState, StateRead, StateWrite};
+use crate::state::{CurrentState, PickPath, PrevState, PrevFiles, StateRead, StateWrite, FilesRead};
 use error_chain::bail;
 use glob::{glob_with, MatchOptions, Pattern};
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, Unexpected, Visitor};
@@ -16,10 +16,68 @@ use std::cmp::{Ord, Ordering};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 pub const CONFIG_FILENAME: &str = ".versio.yaml";
 
-pub type ProjectId = u32;
+#[derive(Hash, Debug, Eq, PartialEq, Clone, Copy)]
+pub struct ProjectId {
+  id: u32,
+  major: Option<u32>
+}
+
+impl ProjectId {
+  pub fn from_id(id: u32) -> ProjectId { ProjectId { id, major: None } }
+}
+
+impl FromStr for ProjectId {
+  type Err = crate::errors::Error;
+  fn from_str(v: &str) -> Result<ProjectId> { Ok(ProjectId::from_id(v.parse()?)) }
+}
+
+impl fmt::Display for ProjectId {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    if let Some(major) = &self.major {
+      write!(f, "[{} ({})]", self.id, major)
+    } else {
+      write!(f, "[{}]", self.id)
+    }
+  }
+}
+
+impl<'de> Deserialize<'de> for ProjectId {
+  fn deserialize<D: Deserializer<'de>>(desr: D) -> std::result::Result<ProjectId, D::Error> {
+    struct ProjectIdVisitor;
+
+    type DeResult<E> = std::result::Result<ProjectId, E>;
+
+    impl<'de> Visitor<'de> for ProjectIdVisitor {
+      type Value = ProjectId;
+
+      fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result { formatter.write_str("a project id") }
+
+      fn visit_i8<E: de::Error>(self, v: i8) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
+      fn visit_i16<E: de::Error>(self, v: i16) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
+      fn visit_i32<E: de::Error>(self, v: i32) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
+      fn visit_i64<E: de::Error>(self, v: i64) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
+      fn visit_i128<E: de::Error>(self, v: i128) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
+      fn visit_u8<E: de::Error>(self, v: u8) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
+      fn visit_u16<E: de::Error>(self, v: u16) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
+      fn visit_u32<E: de::Error>(self, v: u32) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
+      fn visit_u64<E: de::Error>(self, v: u64) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
+      fn visit_u128<E: de::Error>(self, v: u128) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
+      fn visit_f32<E: de::Error>(self, v: f32) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
+      fn visit_f64<E: de::Error>(self, v: f64) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
+
+      fn visit_str<E: de::Error>(self, v: &str) -> DeResult<E> {
+        let v = v.parse().map_err(|_| E::invalid_value(Unexpected::Str(v), &self))?;
+        Ok(ProjectId::from_id(v))
+      }
+    }
+
+    desr.deserialize_any(ProjectIdVisitor)
+  }
+}
 
 pub struct Config<S: StateRead> {
   state: S,
@@ -42,7 +100,7 @@ impl<S: StateRead> Config<S> {
   pub fn new(state: S, file: ConfigFile) -> Config<S> { Config { state, file } }
 
   pub fn from_state(state: S) -> Result<Config<S>> {
-    let file = ConfigFile::from_state(&state)?;
+    let file = ConfigFile::from_read(&state)?;
     Ok(Config::new(state, file))
   }
 
@@ -77,6 +135,32 @@ impl<S: StateRead> Config<S> {
   }
 }
 
+pub struct PrevFilesConfig<'r> {
+  prev_files: PrevFiles<'r>,
+  file: ConfigFile
+}
+
+impl<'r> PrevFilesConfig<'r> {
+  pub fn new(prev_files: PrevFiles<'r>, file: ConfigFile) -> PrevFilesConfig<'r> {
+    PrevFilesConfig { prev_files, file }
+  }
+
+  pub fn from_read(prev_files: PrevFiles<'r>) -> Result<PrevFilesConfig<'r>> {
+    let file = ConfigFile::from_read(&prev_files)?;
+    Ok(PrevFilesConfig::new(prev_files, file))
+  }
+
+  pub fn from_slice(slice: Slice<'r>) -> Result<PrevFilesConfig<'r>> { 
+    PrevFilesConfig::from_read(PrevFiles::from_slice(slice)?)
+  }
+
+  pub fn slice_to(&self, spec: String) -> Result<PrevFilesConfig<'r>> {
+    PrevFilesConfig::from_read(self.prev_files.slice_to(spec)?)
+  }
+
+  pub fn file(&self) -> &ConfigFile { &self.file }
+}
+
 #[derive(Deserialize, Debug)]
 pub struct ConfigFile {
   #[serde(default)]
@@ -87,11 +171,9 @@ pub struct ConfigFile {
 }
 
 impl ConfigFile {
-  pub fn from_state<S: StateRead>(state: &S) -> Result<ConfigFile> {
-    ConfigFile::read(&state.read_file(CONFIG_FILENAME.as_ref())?)
+  pub fn from_read<R: FilesRead>(read: &R) -> Result<ConfigFile> {
+    ConfigFile::read(&read.read_file(CONFIG_FILENAME.as_ref())?)
   }
-
-  pub fn from_slice(slice: &Slice) -> Result<ConfigFile> { ConfigFile::read(&PrevState::read(slice, CONFIG_FILENAME)?) }
 
   pub fn from_dir<P: AsRef<Path>>(p: P) -> Result<ConfigFile> {
     let path = p.as_ref();
@@ -100,7 +182,7 @@ impl ConfigFile {
     ConfigFile::read(&data)
   }
 
-  pub fn read(data: &str) -> Result<ConfigFile> {
+  fn read(data: &str) -> Result<ConfigFile> {
     let file: ConfigFile = serde_yaml::from_str(data)?;
     file.validate()?;
     Ok(file)

@@ -1,10 +1,10 @@
 //! A monorepo can read and alter the current state of all projects.
 
 use crate::analyze::{analyze, Analysis};
-use crate::config::{Config, ConfigFile, Project, ProjectId, Size};
+use crate::config::{Config, ConfigFile, Project, ProjectId, Size, PrevFilesConfig};
 use crate::either::{IterEither2 as E2, IterEither3 as E3};
 use crate::errors::Result;
-use crate::git::{CommitInfoBuf, FullPr, Repo, Slice};
+use crate::git::{CommitInfoBuf, FullPr, Repo};
 use crate::github::{changes, line_commits_head, Changes};
 use crate::state::{CurrentState, OldTags, StateRead, StateWrite};
 use crate::vcs::VcsLevel;
@@ -32,7 +32,6 @@ impl Mono {
 
     // A little dance to construct a state and config.
     let file = ConfigFile::from_dir(root)?;
-    // let tag_prefixes = file.projects().iter().filter_map(|p| p.tag_prefix().as_ref().map(|s| s.as_str()));
     let projects = file.projects().iter();
     let old_tags = find_old_tags(projects, file.prev_tag(), &repo)?;
     let state = CurrentState::new(root.to_path_buf(), old_tags);
@@ -451,7 +450,7 @@ impl<'s, C: StateRead> LastCommitBuilder<'s, C> {
 
 enum Slicer<'r> {
   Orig(&'r Repo),
-  Slice((Slice<'r>, ConfigFile))
+  Slice(PrevFilesConfig<'r>)
 }
 
 impl<'r> Slicer<'r> {
@@ -459,22 +458,16 @@ impl<'r> Slicer<'r> {
 
   pub fn file(&self) -> Result<&ConfigFile> {
     match self {
-      Slicer::Slice((_, file)) => Ok(file),
+      Slicer::Slice(pfc) => Ok(pfc.file()),
       _ => err!("Slicer not sliced")
     }
   }
 
-  pub fn slice(&self, id: String) -> Slice<'r> {
-    match self {
-      Slicer::Orig(repo) => repo.slice(id),
-      Slicer::Slice((slice, _)) => slice.slice(id)
-    }
-  }
-
   pub fn slice_to(&mut self, id: String) -> Result<()> {
-    let prev = self.slice(id);
-    let file = ConfigFile::from_slice(&prev)?;
-    *self = Slicer::Slice((prev, file));
+    *self = Slicer::Slice(match self {
+      Slicer::Orig(repo) => PrevFilesConfig::from_slice(repo.slice(id))?,
+      Slicer::Slice(pfc) => pfc.slice_to(id)?
+    });
     Ok(())
   }
 }
