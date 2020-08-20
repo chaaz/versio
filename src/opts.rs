@@ -1,7 +1,7 @@
 //! The command-line options for the executable.
 
-use crate::errors::{Result, ResultExt};
 use crate::config::Size;
+use crate::errors::{Result, ResultExt};
 use crate::mono::Mono;
 use crate::output::{Output, ProjLine};
 use crate::vcs::{VcsLevel, VcsRange};
@@ -291,7 +291,7 @@ fn get(
   let reader = mono.reader();
   if let Some(id) = id {
     let id = id.parse()?;
-    output.write_project(ProjLine::from(mono.get_project(id)?, reader)?)?;
+    output.write_project(ProjLine::from(mono.get_project(&id)?, reader)?)?;
   } else {
     output.write_project(ProjLine::from(mono.get_named_project(name.unwrap())?, reader)?)?;
   }
@@ -313,7 +313,7 @@ fn set(pref_vcs: Option<VcsRange>, id: Option<&str>, name: Option<&str>, value: 
   let mut mono = build(pref_vcs, VcsLevel::None, VcsLevel::None, VcsLevel::None, VcsLevel::Smart)?;
 
   if let Some(id) = id {
-    mono.set_by_id(id.parse()?, value)?;
+    mono.set_by_id(&id.parse()?, value)?;
   } else {
     mono.set_by_name(name.unwrap(), value)?;
   }
@@ -353,7 +353,7 @@ fn log(pref_vcs: Option<VcsRange>) -> Result<()> {
     return output.commit();
   }
 
-  for (&id, (.., change_log)) in plan.incrs() {
+  for (id, (.., change_log)) in plan.incrs() {
     if let Some(wrote) = mono.write_change_log(id, change_log)? {
       output.write_logged(wrote)?;
     }
@@ -393,7 +393,7 @@ fn run(pref_vcs: Option<VcsRange>, all: bool, dry: bool) -> Result<()> {
     return output.commit();
   }
 
-  for (&id, (size, change_log)) in plan.incrs() {
+  for (id, (size, change_log)) in plan.incrs() {
     if let Some(wrote) = mono.write_change_log(id, change_log)? {
       output.write_logged(wrote)?;
     }
@@ -410,7 +410,7 @@ fn run(pref_vcs: Option<VcsRange>, all: bool, dry: bool) -> Result<()> {
 
     if let Some(prev_vers) = prev_vers {
       // if a project has a specific major, rebuke major changes to a previous version.
-      if proj.tag_major().is_some() && size >= &Size::Major {
+      if proj.tag_majors().is_some() && size >= &Size::Major {
         bail!("Illegal size change for restricted project \"{}\".", name);
       }
 

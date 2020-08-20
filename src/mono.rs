@@ -1,19 +1,19 @@
 //! A monorepo can read and alter the current state of all projects.
 
 use crate::analyze::{analyze, Analysis};
-use crate::config::{Config, ConfigFile, Project, ProjectId, Size, PrevFilesConfig};
+use crate::config::{Config, ConfigFile, FsConfig, Project, ProjectId, Size};
 use crate::either::{IterEither2 as E2, IterEither3 as E3};
 use crate::errors::Result;
 use crate::git::{CommitInfoBuf, FullPr, Repo};
 use crate::github::{changes, line_commits_head, Changes};
-use crate::state::{CurrentState, OldTags, StateRead, StateWrite};
+use crate::state::{CurrentState, OldTags, PrevFiles, StateRead, StateWrite};
 use crate::vcs::VcsLevel;
 use chrono::{DateTime, FixedOffset};
 use error_chain::bail;
 use std::cmp::{max, Ordering};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::identity;
-use std::iter;
+use std::iter::{empty, once};
 use std::path::{Path, PathBuf};
 
 pub struct Mono {
@@ -47,7 +47,7 @@ impl Mono {
 
   pub fn projects(&self) -> &[Project] { self.current.projects() }
 
-  pub fn get_project(&self, id: ProjectId) -> Result<&Project> {
+  pub fn get_project(&self, id: &ProjectId) -> Result<&Project> {
     self.current.get_project(id).ok_or_else(|| bad!("No such project {}", id))
   }
 
@@ -69,24 +69,24 @@ impl Mono {
   pub fn config(&self) -> &Config<CurrentState> { &self.current }
   pub fn repo(&self) -> &Repo { &self.repo }
 
-  pub fn set_by_id(&mut self, id: ProjectId, val: &str) -> Result<()> {
+  pub fn set_by_id(&mut self, id: &ProjectId, val: &str) -> Result<()> {
     self.do_project_write(id, move |p, n| p.set_value(n, val))
   }
 
   pub fn set_by_name(&mut self, name: &str, val: &str) -> Result<()> {
-    let id = self.current.find_unique(name)?;
-    self.set_by_id(id, val)
+    let id = self.current.find_unique(name)?.clone();
+    self.set_by_id(&id, val)
   }
 
-  pub fn forward_by_id(&mut self, id: ProjectId, val: &str) -> Result<()> {
+  pub fn forward_by_id(&mut self, id: &ProjectId, val: &str) -> Result<()> {
     self.do_project_write(id, move |p, n| p.forward_tag(n, val))
   }
 
-  pub fn write_change_log(&mut self, id: ProjectId, change_log: &ChangeLog) -> Result<Option<PathBuf>> {
+  pub fn write_change_log(&mut self, id: &ProjectId, change_log: &ChangeLog) -> Result<Option<PathBuf>> {
     self.do_project_write(id, move |p, n| p.write_change_log(n, change_log))
   }
 
-  fn do_project_write<F, T>(&mut self, id: ProjectId, f: F) -> Result<T>
+  fn do_project_write<F, T>(&mut self, id: &ProjectId, f: F) -> Result<T>
   where
     F: FnOnce(&Project, &mut StateWrite) -> Result<T>
   {
@@ -172,7 +172,7 @@ fn find_last_commits(current: &Config<CurrentState>, repo: &Repo) -> Result<Hash
 fn pr_keyed_files<'a>(repo: &'a Repo, pr: FullPr) -> impl Iterator<Item = Result<(String, String)>> + 'a {
   let head_oid = match pr.head_oid() {
     Some(oid) => *oid,
-    None => return E3::C(iter::empty())
+    None => return E3::C(empty())
   };
 
   let iter = repo.commits_between(pr.base_oid(), head_oid).map(move |cmts| {
@@ -187,18 +187,18 @@ fn pr_keyed_files<'a>(repo: &'a Repo, pr: FullPr) -> impl Iterator<Item = Result
                 let kind = cmt.kind();
                 Some(E2::A(files.map(move |f| Ok((kind.clone(), f)))))
               }
-              Err(e) => Some(E2::B(iter::once(Err(e))))
+              Err(e) => Some(E2::B(once(Err(e))))
             }
           }
         }
-        Err(e) => Some(E2::B(iter::once(Err(e))))
+        Err(e) => Some(E2::B(once(Err(e))))
       })
       .flatten()
   });
 
   match iter {
     Ok(iter) => E3::A(iter),
-    Err(e) => E3::B(iter::once(Err(e)))
+    Err(e) => E3::B(once(Err(e)))
   }
 }
 
@@ -286,7 +286,7 @@ impl<'s> PlanBuilder<'s> {
   }
 
   pub fn start_pr(&mut self, pr: &FullPr) -> Result<()> {
-    self.on_pr_sizes = self.current.projects().iter().map(|p| (p.id(), LoggedPr::capture(pr))).collect();
+    self.on_pr_sizes = self.current.projects().iter().map(|p| (p.id().clone(), LoggedPr::capture(pr))).collect();
     self.on_ineffective = Some(LoggedPr::capture(pr));
     Ok(())
   }
@@ -319,7 +319,7 @@ impl<'s> PlanBuilder<'s> {
     self.prev.slice_to(id.clone())?;
 
     for (proj_id, logged_pr) in &mut self.on_pr_sizes {
-      if let Some(cur_project) = self.current.get_project(*proj_id) {
+      if let Some(cur_project) = self.current.get_project(proj_id) {
         let size = cur_project.size(&self.current.sizes(), &kind)?;
         logged_pr.commits.push(LoggedCommit::new(id.clone(), summary.clone(), size));
       }
@@ -354,27 +354,27 @@ impl<'s> PlanBuilder<'s> {
     let mut dependents: HashMap<ProjectId, HashSet<ProjectId>> = HashMap::new();
     for project in self.current.projects() {
       for dep in project.depends() {
-        dependents.entry(*dep).or_insert_with(HashSet::new).insert(project.id());
+        dependents.entry(dep.clone()).or_insert_with(HashSet::new).insert(project.id().clone());
       }
 
       if project.depends().is_empty() {
         if let Some((size, ..)) = self.incrs.get(&project.id()) {
-          queue.push_back((project.id(), *size));
+          queue.push_back((project.id().clone(), *size));
         } else {
-          queue.push_back((project.id(), Size::None))
+          queue.push_back((project.id().clone(), Size::None))
         }
       }
     }
 
     while let Some((id, size)) = queue.pop_front() {
-      let val = &mut self.incrs.entry(id).or_insert((Size::None, ChangeLog::empty())).0;
+      let val = &mut self.incrs.entry(id.clone()).or_insert((Size::None, ChangeLog::empty())).0;
       *val = max(*val, size);
 
       let depds: Option<HashSet<ProjectId>> = dependents.get(&id).cloned();
       if let Some(depds) = depds {
         for depd in depds {
           dependents.get_mut(&id).unwrap().remove(&depd);
-          let val = &mut self.incrs.entry(depd).or_insert((Size::None, ChangeLog::empty())).0;
+          let val = &mut self.incrs.entry(depd.clone()).or_insert((Size::None, ChangeLog::empty())).0;
           *val = max(*val, size);
 
           if dependents.values().all(|ds| !ds.contains(&depd)) {
@@ -437,7 +437,7 @@ impl<'s, C: StateRead> LastCommitBuilder<'s, C> {
     for prev_project in self.prev.file()?.projects() {
       let proj_id = prev_project.id();
       if self.current.get_project(proj_id).is_some() && prev_project.does_cover(path)? {
-        self.last_commits.insert(proj_id, commit_id.clone());
+        self.last_commits.insert(proj_id.clone(), commit_id.clone());
       }
     }
     Ok(())
@@ -450,7 +450,7 @@ impl<'s, C: StateRead> LastCommitBuilder<'s, C> {
 
 enum Slicer<'r> {
   Orig(&'r Repo),
-  Slice(PrevFilesConfig<'r>)
+  Slice(FsConfig<PrevFiles<'r>>)
 }
 
 impl<'r> Slicer<'r> {
@@ -458,15 +458,15 @@ impl<'r> Slicer<'r> {
 
   pub fn file(&self) -> Result<&ConfigFile> {
     match self {
-      Slicer::Slice(pfc) => Ok(pfc.file()),
+      Slicer::Slice(fsc) => Ok(fsc.file()),
       _ => err!("Slicer not sliced")
     }
   }
 
   pub fn slice_to(&mut self, id: String) -> Result<()> {
     *self = Slicer::Slice(match self {
-      Slicer::Orig(repo) => PrevFilesConfig::from_slice(repo.slice(id))?,
-      Slicer::Slice(pfc) => pfc.slice_to(id)?
+      Slicer::Orig(repo) => FsConfig::from_slice(repo.slice(id))?,
+      Slicer::Slice(fsc) => fsc.slice_to(id)?
     });
     Ok(())
   }
@@ -476,7 +476,8 @@ fn find_old_tags<'s, I: Iterator<Item = &'s Project>>(projects: I, prev_tag: &st
   let mut by_prefix_oid = HashMap::new(); // Map<prefix, Map<oid, Vec<tag>>>
 
   for proj in projects {
-    if let Some((tag_prefix, fnmatch)) = tag_fnmatch(proj) {
+    for fnmatch in tag_fnmatches(proj) {
+      let tag_prefix = proj.tag_prefix().as_ref().expect("fnmatches without a tag, somehow.");
       for tag in repo.tag_names(Some(fnmatch.as_str()))?.iter().filter_map(identity) {
         let oid = repo.revparse_oid(&format!("{}^{{}}", tag))?;
         let by_id = by_prefix_oid.entry(tag_prefix.clone()).or_insert_with(HashMap::new);
@@ -512,27 +513,23 @@ fn find_old_tags<'s, I: Iterator<Item = &'s Project>>(projects: I, prev_tag: &st
 
 /// Construct a fnmatch pattern for a project that can be used to retrieve the project's tags.
 ///
-/// The resulting pattern is usable by both `Repository::tag_names` and as a git fetch refspec
-/// `refs/tags/{pattern}`.
-fn tag_fnmatch(proj: &Project) -> Option<(String, String)> {
-  proj.tag_prefix().as_ref().map(|s| s.as_str()).map(|tag_prefix| {
-    let major = proj.tag_major();
+/// This will return an empty iterator if the project doesn't have a tag_prefix. The resulting patterns are
+/// usable by both `Repository::tag_names` and as a git fetch refspec `refs/tags/{pattern}`.
+fn tag_fnmatches(proj: &Project) -> impl Iterator<Item = String> + '_ {
+  let majors = proj.tag_majors();
 
-    let major_v = if let Some(major) = major {
-      format!("v{}-*", major)
-    } else {
-      "v*".to_string()
-    };
+  let majors_v = if let Some(majors) = majors {
+    E2::A(majors.iter().map(|major| format!("v{}-*", major)))
+  } else {
+    E2::B(once("v*".to_string()))
+  };
 
-    let fnmatch = if tag_prefix.is_empty() {
-      major_v
-    } else {
-      // tag_prefix must be alphanum + '-', so no escaping necessary
-      format!("{}-{}", tag_prefix, major_v)
-    };
-
-    (tag_prefix.to_string(), fnmatch)
-  })
+  let tag_prefix = proj.tag_prefix().as_ref().map(|p| p.as_str());
+  match tag_prefix {
+    None => E3::A(empty()),
+    Some("") => E3::B(majors_v),
+    Some(pref) => E3::C(majors_v.map(move |major_v| format!("{}-{}", pref, major_v)))
+  }
 }
 
 #[allow(clippy::ptr_arg)]

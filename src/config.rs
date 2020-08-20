@@ -1,12 +1,13 @@
 //! The configuration and top-level commands for Versio.
 
 use crate::analyze::AnnotatedMark;
+use crate::either::IterEither2 as E2;
 use crate::errors::{Result, ResultExt};
 use crate::git::{Repo, Slice};
 use crate::mark::{FilePicker, LinePicker, Picker, ScanningPicker};
 use crate::mono::ChangeLog;
 use crate::scan::parts::{deserialize_parts, Part};
-use crate::state::{CurrentState, PickPath, PrevState, PrevFiles, StateRead, StateWrite, FilesRead};
+use crate::state::{CurrentFiles, CurrentState, FilesRead, PickPath, PrevFiles, PrevState, StateRead, StateWrite};
 use error_chain::bail;
 use glob::{glob_with, MatchOptions, Pattern};
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, Unexpected, Visitor};
@@ -15,19 +16,25 @@ use std::borrow::Cow;
 use std::cmp::{Ord, Ordering};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::iter::once;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 pub const CONFIG_FILENAME: &str = ".versio.yaml";
 
-#[derive(Hash, Debug, Eq, PartialEq, Clone, Copy)]
+#[derive(Hash, Debug, Eq, PartialEq, Clone)]
 pub struct ProjectId {
   id: u32,
-  major: Option<u32>
+  majors: Vec<u32>
 }
 
 impl ProjectId {
-  pub fn from_id(id: u32) -> ProjectId { ProjectId { id, major: None } }
+  pub fn from_id(id: u32) -> ProjectId { ProjectId { id, majors: Vec::new() } }
+
+  fn expand(&self, sub: &Sub) -> ProjectId {
+    assert!(self.majors.is_empty(), "ProjectId {} expanding.", self);
+    ProjectId { id: self.id, majors: sub.majors().to_vec() }
+  }
 }
 
 impl FromStr for ProjectId {
@@ -37,11 +44,7 @@ impl FromStr for ProjectId {
 
 impl fmt::Display for ProjectId {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    if let Some(major) = &self.major {
-      write!(f, "[{} ({})]", self.id, major)
-    } else {
-      write!(f, "[{}]", self.id)
-    }
+    write!(f, "[{} {:?}]", self.id, self.majors)
   }
 }
 
@@ -107,11 +110,11 @@ impl<S: StateRead> Config<S> {
   pub fn file(&self) -> &ConfigFile { &self.file }
   pub fn state_read(&self) -> &S { &self.state }
   pub fn projects(&self) -> &[Project] { &self.file.projects() }
-  pub fn get_project(&self, id: ProjectId) -> Option<&Project> { self.file.get_project(id) }
+  pub fn get_project(&self, id: &ProjectId) -> Option<&Project> { self.file.get_project(id) }
   pub fn is_configured(&self) -> Result<bool> { self.state.has_file(CONFIG_FILENAME.as_ref()) }
 
-  pub fn find_unique(&self, name: &str) -> Result<ProjectId> {
-    let mut iter = self.file.projects.iter().filter(|p| p.name.contains(name)).map(|p| p.id);
+  pub fn find_unique(&self, name: &str) -> Result<&ProjectId> {
+    let mut iter = self.file.projects.iter().filter(|p| p.name.contains(name)).map(|p| p.id());
     let id = iter.next().ok_or_else(|| bad!("No project named {}", name))?;
     if iter.next().is_some() {
       bail!("Multiple projects with name {}", name);
@@ -123,11 +126,9 @@ impl<S: StateRead> Config<S> {
     self.file.projects.iter().map(|p| p.annotate(&self.state)).collect()
   }
 
-  pub fn get_value(&self, id: ProjectId) -> Result<Option<String>> {
-    self.do_project_read(id, |p, s| p.get_value(s))
-  }
+  pub fn get_value(&self, id: &ProjectId) -> Result<Option<String>> { self.do_project_read(id, |p, s| p.get_value(s)) }
 
-  fn do_project_read<F, T>(&self, id: ProjectId, f: F) -> Result<Option<T>>
+  fn do_project_read<F, T>(&self, id: &ProjectId, f: F) -> Result<Option<T>>
   where
     F: FnOnce(&Project, &S) -> Result<T>
   {
@@ -135,27 +136,27 @@ impl<S: StateRead> Config<S> {
   }
 }
 
-pub struct PrevFilesConfig<'r> {
-  prev_files: PrevFiles<'r>,
+pub struct FsConfig<F: FilesRead> {
+  files: F,
   file: ConfigFile
 }
 
-impl<'r> PrevFilesConfig<'r> {
-  pub fn new(prev_files: PrevFiles<'r>, file: ConfigFile) -> PrevFilesConfig<'r> {
-    PrevFilesConfig { prev_files, file }
+impl<'r> FsConfig<PrevFiles<'r>> {
+  pub fn slice_to(&self, spec: String) -> Result<FsConfig<PrevFiles<'r>>> {
+    FsConfig::from_read(self.files.slice_to(spec)?)
   }
 
-  pub fn from_read(prev_files: PrevFiles<'r>) -> Result<PrevFilesConfig<'r>> {
-    let file = ConfigFile::from_read(&prev_files)?;
-    Ok(PrevFilesConfig::new(prev_files, file))
+  pub fn from_slice(slice: Slice<'r>) -> Result<FsConfig<PrevFiles<'r>>> {
+    FsConfig::from_read(PrevFiles::from_slice(slice)?)
   }
+}
 
-  pub fn from_slice(slice: Slice<'r>) -> Result<PrevFilesConfig<'r>> { 
-    PrevFilesConfig::from_read(PrevFiles::from_slice(slice)?)
-  }
+impl<F: FilesRead> FsConfig<F> {
+  pub fn new(files: F, file: ConfigFile) -> FsConfig<F> { FsConfig { files, file } }
 
-  pub fn slice_to(&self, spec: String) -> Result<PrevFilesConfig<'r>> {
-    PrevFilesConfig::from_read(self.prev_files.slice_to(spec)?)
+  pub fn from_read(files: F) -> Result<FsConfig<F>> {
+    let file = ConfigFile::from_read(&files)?;
+    Ok(FsConfig::new(files, file))
   }
 
   pub fn file(&self) -> &ConfigFile { &self.file }
@@ -172,14 +173,12 @@ pub struct ConfigFile {
 
 impl ConfigFile {
   pub fn from_read<R: FilesRead>(read: &R) -> Result<ConfigFile> {
-    ConfigFile::read(&read.read_file(CONFIG_FILENAME.as_ref())?)
+    ConfigFile::read(&read.read_file(CONFIG_FILENAME.as_ref())?)?.expand(read)
   }
 
   pub fn from_dir<P: AsRef<Path>>(p: P) -> Result<ConfigFile> {
-    let path = p.as_ref();
-    let file = path.join(CONFIG_FILENAME);
-    let data = std::fs::read_to_string(&file).chain_err(|| format!("Can't read \"{}\".", file.to_string_lossy()))?;
-    ConfigFile::read(&data)
+    let files = CurrentFiles::new(p.as_ref().to_path_buf());
+    ConfigFile::from_read(&files)
   }
 
   fn read(data: &str) -> Result<ConfigFile> {
@@ -188,9 +187,16 @@ impl ConfigFile {
     Ok(file)
   }
 
+  fn expand<R: FilesRead>(self, read: &R) -> Result<ConfigFile> {
+    let iters: Vec<_> = self.projects.into_iter().map(move |p| p.expand(read)).collect::<Result<_>>()?;
+    let projects = iters.into_iter().flatten().collect();
+
+    Ok(ConfigFile { projects, ..self })
+  }
+
   pub fn prev_tag(&self) -> &str { self.options.prev_tag() }
   pub fn projects(&self) -> &[Project] { &self.projects }
-  pub fn get_project(&self, id: ProjectId) -> Option<&Project> { self.projects.iter().find(|p| p.id == id) }
+  pub fn get_project(&self, id: &ProjectId) -> Option<&Project> { self.projects.iter().find(|p| p.id() == id) }
   pub fn sizes(&self) -> &HashMap<String, Size> { &self.sizes }
 
   /// Check that IDs are unique, etc.
@@ -203,7 +209,7 @@ impl ConfigFile {
       if ids.contains(&p.id) {
         bail!("id {} is duplicated", p.id);
       }
-      ids.insert(p.id);
+      ids.insert(p.id.clone());
 
       if names.contains(&p.name) {
         bail!("name {} is duplicated", p.name);
@@ -260,17 +266,19 @@ pub struct Project {
   change_log: Option<String>,
   #[serde(deserialize_with = "deserialize_located")]
   located: Location,
-  tag_prefix: Option<String>
+  tag_prefix: Option<String>,
+  #[serde(default)]
+  subs: Option<HashMap<String, String>>
 }
 
 impl Project {
-  pub fn id(&self) -> ProjectId { self.id }
+  pub fn id(&self) -> &ProjectId { &self.id }
   pub fn name(&self) -> &str { &self.name }
   pub fn root(&self) -> &Option<String> { &self.root }
   pub fn depends(&self) -> &[ProjectId] { &self.depends }
 
   fn annotate<S: StateRead>(&self, state: &S) -> Result<AnnotatedMark> {
-    Ok(AnnotatedMark::new(self.id, self.name.clone(), self.get_value(state)?))
+    Ok(AnnotatedMark::new(self.id.clone(), self.name.clone(), self.get_value(state)?))
   }
 
   pub fn change_log(&self) -> Option<Cow<str>> {
@@ -284,7 +292,7 @@ impl Project {
   }
 
   pub fn tag_prefix(&self) -> &Option<String> { &self.tag_prefix }
-  pub fn tag_major(&self) -> Option<u32> { self.located.tag_major() }
+  pub fn tag_majors(&self) -> Option<&[u32]> { self.located.tag_majors() }
 
   pub fn write_change_log(&self, write: &mut StateWrite, cl: &ChangeLog) -> Result<Option<PathBuf>> {
     if cl.is_empty() {
@@ -371,14 +379,14 @@ impl Project {
   }
 
   pub fn set_value(&self, write: &mut StateWrite, val: &str) -> Result<()> {
-    self.located.write_value(write, &self.root, val, self.id)?;
+    self.located.write_value(write, &self.root, val, &self.id)?;
     self.forward_tag(write, val)
   }
 
   pub fn forward_tag(&self, write: &mut StateWrite, val: &str) -> Result<()> {
     if let Some(tag_prefix) = &self.tag_prefix {
       let tag = if tag_prefix.is_empty() { format!("v{}", val) } else { format!("{}-v{}", tag_prefix, val) };
-      write.tag_head_or_last(tag, self.id)?;
+      write.tag_head_or_last(tag, &self.id)?;
     }
     Ok(())
   }
@@ -390,9 +398,96 @@ impl Project {
       pat.to_string()
     }
   }
+
+  fn expand<R: FilesRead>(self, read: &R) -> Result<impl Iterator<Item = Project>> {
+    if let Some(subs) = self.read_subs(read)? {
+      Ok(E2::A(subs.into_iter().map(move |sub| Project {
+        name: expand_name(&self.name, &sub),
+        id: self.id.expand(&sub),
+        root: expand_root(&self.root, &sub),
+        includes: self.includes.clone(),
+        excludes: expand_excludes(&self.excludes, &sub),
+        depends: expand_depends(&self.depends, &sub),
+        change_log: self.change_log.clone(),
+        located: expand_located(&self.located, &sub),
+        tag_prefix: self.tag_prefix.clone(),
+        subs: None
+      })))
+    } else {
+      Ok(E2::B(once(self)))
+    }
+  }
+
+  fn read_subs<R: FilesRead>(&self, read: &R) -> Result<Option<Vec<Sub>>> {
+    if self.subs.is_some() {
+      let root = self.root.as_ref().expect("Subs project must have root.");
+      let dirs = read.subdirs(root, "v[0-9]+")?;
+      let subs: Vec<_> = dirs
+        .iter()
+        .cloned()
+        .map(|dir| {
+          let major: u32 = dir[1 ..].parse().chain_err(|| format!("Can't parse dir {} as major.", dir))?;
+          Ok((dir, major))
+        })
+        .collect::<Result<_>>()?;
+      let largest = subs.iter().map(|(_, m)| *m).max();
+
+      let list = once(Sub { dir: ".".to_string(), majors: vec![0, 1], largest: dirs.is_empty(), excludes: dirs })
+        .chain(subs.into_iter().map(|(dir, major)| {
+          Sub { dir, majors: vec![major], largest: major == *largest.as_ref().unwrap(), excludes: Vec::new() }
+        }))
+        .collect::<Vec<_>>();
+
+      Ok(Some(list))
+    } else {
+      Ok(None)
+    }
+  }
 }
 
-#[derive(Deserialize, Debug)]
+fn expand_name(name: &str, sub: &Sub) -> String { format!("{}/{}", name, sub.dir()) }
+
+fn expand_root(root: &Option<String>, sub: &Sub) -> Option<String> {
+  Some(Path::new(root.as_ref().expect("Subs without root.")).join(sub.dir()).to_string_lossy().into_owned())
+}
+
+fn expand_excludes(excludes: &[String], sub: &Sub) -> Vec<String> {
+  let mut result = excludes.to_vec();
+  result.extend_from_slice(sub.excludes());
+  result
+}
+
+fn expand_depends(depends: &[ProjectId], sub: &Sub) -> Vec<ProjectId> {
+  if sub.is_largest() {
+    depends.to_vec()
+  } else {
+    Vec::new()
+  }
+}
+
+fn expand_located(located: &Location, sub: &Sub) -> Location {
+  if located.is_tags() {
+    Location::Tag(TagLocation { tags: TagSpec::MajorTag(MajorTagSpec { majors: sub.majors().to_vec() }) })
+  } else {
+    located.clone()
+  }
+}
+
+struct Sub {
+  dir: String,
+  majors: Vec<u32>,
+  largest: bool,
+  excludes: Vec<String>
+}
+
+impl Sub {
+  pub fn dir(&self) -> &str { &self.dir }
+  pub fn excludes(&self) -> &[String] { &self.excludes }
+  pub fn is_largest(&self) -> bool { self.largest }
+  pub fn majors(&self) -> &[u32] { &self.majors }
+}
+
+#[derive(Clone, Deserialize, Debug)]
 #[serde(untagged)]
 enum Location {
   File(FileLocation),
@@ -400,23 +495,28 @@ enum Location {
 }
 
 impl Location {
-  pub fn tag_major(&self) -> Option<u32> {
+  pub fn is_tags(&self) -> bool {
     match self {
-      Location::File(_) => None,
-      Location::Tag(tagl) => tagl.major()
+      Location::Tag(_) => true,
+      _ => false
     }
   }
 
-  pub fn write_value(&self, write: &mut StateWrite, root: &Option<String>, val: &str, id: ProjectId) -> Result<()> {
+  pub fn tag_majors(&self) -> Option<&[u32]> {
+    match self {
+      Location::File(_) => None,
+      Location::Tag(tagl) => tagl.majors()
+    }
+  }
+
+  pub fn write_value(&self, write: &mut StateWrite, root: &Option<String>, val: &str, id: &ProjectId) -> Result<()> {
     match self {
       Location::File(l) => l.write_value(write, root, val, id),
       Location::Tag(_) => Ok(())
     }
   }
 
-  pub fn read_value<S: StateRead>(
-    &self, read: &S, root: &Option<String>, pref: &Option<String>
-  ) -> Result<String> {
+  pub fn read_value<S: StateRead>(&self, read: &S, root: &Option<String>, pref: &Option<String>) -> Result<String> {
     match self {
       Location::File(l) => l.read_value(read, root),
       Location::Tag(l) => l.read_value(read, pref)
@@ -439,13 +539,13 @@ impl Location {
   }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Clone, Deserialize, Debug)]
 struct TagLocation {
   tags: TagSpec
 }
 
 impl TagLocation {
-  pub fn major(&self) -> Option<u32> { self.tags.major() }
+  pub fn majors(&self) -> Option<&[u32]> { self.tags.majors() }
 
   fn read_value<S: StateRead>(&self, read: &S, prefix: &Option<String>) -> Result<String> {
     let prefix = prefix.as_ref().ok_or_else(|| bad!("No tag prefix for tag location."))?;
@@ -453,7 +553,7 @@ impl TagLocation {
   }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Clone, Deserialize, Debug)]
 #[serde(untagged)]
 enum TagSpec {
   DefaultTag(DefaultTagSpec),
@@ -461,33 +561,36 @@ enum TagSpec {
 }
 
 impl TagSpec {
-  pub fn major(&self) -> Option<u32> {
+  pub fn majors(&self) -> Option<&[u32]> {
     match self {
       TagSpec::DefaultTag(_) => None,
-      TagSpec::MajorTag(mtag) => Some(mtag.major())
+      TagSpec::MajorTag(mtag) => Some(mtag.majors())
     }
   }
 
   pub fn default_value(&self) -> String {
     match self {
       TagSpec::DefaultTag(spec) => spec.default.clone(),
-      TagSpec::MajorTag(MajorTagSpec { major}) => format!("{}.0.0", major)
+      TagSpec::MajorTag(MajorTagSpec { majors }) => {
+        let small = majors.iter().min().copied().unwrap_or(0);
+        format!("{}.0.0", small)
+      }
     }
   }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Clone, Deserialize, Debug)]
 struct DefaultTagSpec {
   default: String
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Clone, Deserialize, Debug)]
 struct MajorTagSpec {
-  major: u32
+  majors: Vec<u32>
 }
 
 impl MajorTagSpec {
-  pub fn major(&self) -> u32 { self.major }
+  pub fn majors(&self) -> &[u32] { &self.majors }
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -498,7 +601,7 @@ struct FileLocation {
 }
 
 impl FileLocation {
-  pub fn write_value(&self, write: &mut StateWrite, root: &Option<String>, val: &str, id: ProjectId) -> Result<()> {
+  pub fn write_value(&self, write: &mut StateWrite, root: &Option<String>, val: &str, id: &ProjectId) -> Result<()> {
     let file = self.rooted(root);
     write.update_mark(PickPath::new(file, self.picker.clone()), val.to_string(), id)
   }
@@ -801,7 +904,7 @@ fn construct_change_log_html(cl: &ChangeLog) -> Result<String> {
 
 #[cfg(test)]
 mod test {
-  use super::{ConfigFile, FileLocation, Location, Picker, Project, ScanningPicker, Size};
+  use super::{ConfigFile, FileLocation, Location, Picker, Project, ProjectId, ScanningPicker, Size};
   use crate::scan::parts::Part;
 
   #[test]
@@ -853,7 +956,7 @@ projects:
 
     let config = ConfigFile::read(data).unwrap();
 
-    assert_eq!(config.projects[0].id, 1);
+    assert_eq!(config.projects[0].id, ProjectId::from_id(1));
     assert_eq!("line", config.projects[2].located.picker().picker_type());
   }
 
@@ -998,7 +1101,7 @@ sizes:
   fn test_include_w_root() {
     let proj = Project {
       name: "test".into(),
-      id: 1,
+      id: ProjectId::from_id(1),
       root: Some("base".into()),
       includes: vec!["**/*".into()],
       excludes: Vec::new(),
@@ -1019,7 +1122,7 @@ sizes:
   fn test_exclude_w_root() {
     let proj = Project {
       name: "test".into(),
-      id: 1,
+      id: ProjectId::from_id(1),
       root: Some("base".into()),
       includes: vec!["**/*".into()],
       excludes: vec!["internal/**/*".into()],
@@ -1039,7 +1142,7 @@ sizes:
   fn test_excludes_check() {
     let proj = Project {
       name: "test".into(),
-      id: 1,
+      id: ProjectId::from_id(1),
       root: Some("base".into()),
       includes: vec![],
       excludes: vec!["internal/**/*".into()],

@@ -5,14 +5,14 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 pub fn analyze(olds: Vec<AnnotatedMark>, news: Vec<AnnotatedMark>) -> Analysis {
-  let olds_ids: HashSet<ProjectId> = olds.iter().map(|m| m.id).collect();
-  let news_ids: HashSet<ProjectId> = news.iter().map(|m| m.id).collect();
+  let olds_ids: HashSet<ProjectId> = olds.iter().map(|m| m.id.clone()).collect();
+  let news_ids: HashSet<ProjectId> = news.iter().map(|m| m.id.clone()).collect();
 
   let (older, old_matches): (Vec<_>, Vec<_>) = olds.into_iter().partition(|m| !news_ids.contains(&m.id));
   let (newer, new_matches): (Vec<_>, Vec<_>) = news.into_iter().partition(|m| !olds_ids.contains(&m.id));
 
-  let old_matches: HashMap<_, _> = old_matches.into_iter().map(|m| (m.id, m)).collect();
-  let mut new_matches: HashMap<_, _> = new_matches.into_iter().map(|m| (m.id, m)).collect();
+  let old_matches: HashMap<_, _> = old_matches.into_iter().map(|m| (m.id.clone(), m)).collect();
+  let mut new_matches: HashMap<_, _> = new_matches.into_iter().map(|m| (m.id.clone(), m)).collect();
 
   let changes = old_matches.into_iter().map(|(id, o)| Change::calc(o, new_matches.remove(&id).unwrap())).collect();
 

@@ -21,6 +21,7 @@ use std::ffi::OsStr;
 use std::io::{stdout, Write};
 use std::iter::empty;
 use std::path::{Path, PathBuf};
+use regex::Regex;
 
 pub struct Repo {
   vcs: GitVcsLevel
@@ -306,6 +307,18 @@ impl<'r> Slice<'r> {
   pub fn blob<P: AsRef<Path>>(&self, path: P) -> Result<Blob> {
     let obj = self.object(path.as_ref())?;
     obj.into_blob().map_err(|e| bad!("Not a blob: {} : {:?}", path.as_ref().to_string_lossy(), e))
+  }
+
+  pub fn subdirs<P: AsRef<Path>>(&self, path: P, regex: &str) -> Result<Vec<String>> {
+    let obj = self.object(path.as_ref())?;
+    let tree = obj.into_tree().map_err(|_| bad!("Not a tree: {}", path.as_ref().to_string_lossy()))?;
+    let filter = Regex::new(regex)?;
+    let list = tree
+      .iter()
+      .filter_map(|entry| entry.name().map(|n| n.to_string()))
+      .filter(|n| filter.is_match(&n))
+      .collect();
+    Ok(list)
   }
 
   fn object<P: AsRef<Path>>(&self, path: P) -> Result<Object> {
