@@ -2,7 +2,7 @@ use std::io::{Error, ErrorKind};
 use std::process::Command;
 
 fn main() {
-  // You need to touch (or clean) build.rs to rebuild if any of the lalrpop or git rev changes.
+  // You'd need to touch (or clean) build.rs to rebuild if any of the lalrpop or git rev changes.
   // println!("cargo:rerun-if-changed=build.rs");
 
   // let git_output = Command::new("git").args(&["rev-parse", "--short", "HEAD"]).output();

@@ -202,8 +202,8 @@ subs: {}
 
 `root` is a useful property that specifies a relative base directory for
 the `changelog`, `located.file` and `includes`/`excludes` of a project.
-It is optional on most projects, but required on any project that has
-`subs`.
+If you don't provide it, it is assumed to be `"."` (the repository
+root).
 
 By default, `subs` creates a "subproject" for each directory it detects
 in a name like "v*N*". The root directory for the sub is extended by

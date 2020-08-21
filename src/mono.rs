@@ -10,12 +10,12 @@ use crate::state::{CurrentState, OldTags, PrevFiles, StateRead, StateWrite};
 use crate::vcs::VcsLevel;
 use chrono::{DateTime, FixedOffset};
 use error_chain::bail;
+use log::trace;
 use std::cmp::{max, Ordering};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::identity;
 use std::iter::{empty, once};
 use std::path::{Path, PathBuf};
-use log::trace;
 
 pub struct Mono {
   current: Config<CurrentState>,

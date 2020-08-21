@@ -10,6 +10,7 @@ use crate::scan::parts::{deserialize_parts, Part};
 use crate::state::{CurrentFiles, CurrentState, FilesRead, PickPath, PrevFiles, PrevState, StateRead, StateWrite};
 use error_chain::bail;
 use glob::{glob_with, MatchOptions, Pattern};
+use log::trace;
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, Unexpected, Visitor};
 use serde::Deserialize;
 use std::borrow::Cow;
@@ -19,7 +20,6 @@ use std::fmt;
 use std::iter::once;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use log::trace;
 
 pub const CONFIG_FILENAME: &str = ".versio.yaml";
 
@@ -44,9 +44,7 @@ impl FromStr for ProjectId {
 }
 
 impl fmt::Display for ProjectId {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-    write!(f, "[{} {:?}]", self.id, self.majors)
-  }
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "[{} {:?}]", self.id, self.majors) }
 }
 
 impl<'de> Deserialize<'de> for ProjectId {
@@ -278,9 +276,7 @@ impl Project {
 
   pub fn depends(&self) -> &[ProjectId] { &self.depends }
 
-  pub fn root(&self) -> Option<&String> {
-    self.root.as_ref().and_then(|r| if r == "." { None } else { Some(r) })
-  }
+  pub fn root(&self) -> Option<&String> { self.root.as_ref().and_then(|r| if r == "." { None } else { Some(r) }) }
 
   fn annotate<S: StateRead>(&self, state: &S) -> Result<AnnotatedMark> {
     Ok(AnnotatedMark::new(self.id.clone(), self.name.clone(), self.get_value(state)?))
@@ -331,22 +327,30 @@ impl Project {
 
   pub fn does_cover(&self, path: &str) -> Result<bool> {
     let excludes = self.excludes.iter().try_fold::<_, _, Result<_>>(false, |val, cov| {
-      Ok(val || Pattern::new(&self.rooted_pattern(cov))?.matches_with(path, match_opts()))
+      Ok(
+        val || {
+          let rooted = self.rooted_pattern(cov);
+          let result = Pattern::new(&rooted)?.matches_with(path, match_opts());
+          trace!("exclude {} match {} vs {}: {}", self.id(), rooted, path, result);
+          result
+        }
+      )
     })?;
 
     if excludes {
       return Ok(false);
     }
 
-    self
-      .includes
-      .iter()
-      .try_fold(false, |val, cov| Ok(val || {
-        let rooted = self.rooted_pattern(cov);
-        let result = Pattern::new(&rooted)?.matches_with(path, match_opts());
-        trace!("match {} vs {}: {}", rooted, path, result);
-        result
-      }))
+    self.includes.iter().try_fold(false, |val, cov| {
+      Ok(
+        val || {
+          let rooted = self.rooted_pattern(cov);
+          let result = Pattern::new(&rooted)?.matches_with(path, match_opts());
+          trace!("include {} match {} vs {}: {}", self.id(), rooted, path, result);
+          result
+        }
+      )
+    })
   }
 
   pub fn check<S: StateRead>(&self, state: &S) -> Result<()> {
@@ -444,10 +448,14 @@ impl Project {
         })
         .collect::<Result<_>>()?;
       let largest = subs.iter().map(|(_, m)| *m).max();
+      let excludes = dirs.iter().map(|d| format!("{}/**/*", d)).collect();
 
-      let list = once(Sub { dir: ".".to_string(), majors: vec![0, 1], largest: dirs.is_empty(), excludes: dirs })
-        .chain(subs.into_iter().map(|(dir, major)| {
-          Sub { dir, majors: vec![major], largest: major == *largest.as_ref().unwrap(), excludes: Vec::new() }
+      let list = once(Sub { dir: ".".to_string(), majors: vec![0, 1], largest: dirs.is_empty(), excludes })
+        .chain(subs.into_iter().map(|(dir, major)| Sub {
+          dir,
+          majors: vec![major],
+          largest: major == *largest.as_ref().unwrap(),
+          excludes: Vec::new()
         }))
         .collect::<Vec<_>>();
 

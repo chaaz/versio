@@ -30,7 +30,9 @@ impl<F: FilesRead> FilesRead for &F {
   fn commit_oid(&self) -> Option<String> { <F as FilesRead>::commit_oid(*self) }
   fn has_file(&self, path: &Path) -> Result<bool> { <F as FilesRead>::has_file(*self, path) }
   fn read_file(&self, path: &Path) -> Result<String> { <F as FilesRead>::read_file(*self, path) }
-  fn subdirs(&self, root: Option<&String>, regex: &str) -> Result<Vec<String>> { <F as FilesRead>::subdirs(*self, root, regex) }
+  fn subdirs(&self, root: Option<&String>, regex: &str) -> Result<Vec<String>> {
+    <F as FilesRead>::subdirs(*self, root, regex)
+  }
 }
 
 pub struct CurrentState {
@@ -113,12 +115,10 @@ pub struct PrevFiles<'r> {
 
 impl<'r> FilesRead for PrevFiles<'r> {
   fn commit_oid(&self) -> Option<String> { Some(self.commit_oid.clone()) }
-  fn has_file(&self, path: &Path) -> Result<bool> { self.slice.has_blob(path) }
+  fn has_file(&self, path: &Path) -> Result<bool> { self.slice.has_blob(&path.to_string_lossy().to_string()) }
   fn read_file(&self, path: &Path) -> Result<String> { read_from_slice(&self.slice, path) }
 
-  fn subdirs(&self, root: Option<&String>, regex: &str) -> Result<Vec<String>> {
-    self.slice.subdirs(root, regex)
-  }
+  fn subdirs(&self, root: Option<&String>, regex: &str) -> Result<Vec<String>> { self.slice.subdirs(root, regex) }
 }
 
 impl<'r> PrevFiles<'r> {
@@ -283,7 +283,7 @@ impl PickPath {
 }
 
 pub fn read_from_slice<P: AsRef<Path>>(slice: &Slice, path: P) -> Result<String> {
-  let blob = slice.blob(path.as_ref())?;
+  let blob = slice.blob(&path.as_ref().to_string_lossy().to_string())?;
   let cont: &str = std::str::from_utf8(blob.content())?;
   Ok(cont.to_string())
 }

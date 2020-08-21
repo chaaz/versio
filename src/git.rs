@@ -13,7 +13,8 @@ use git2::{
   PushOptions, Reference, ReferenceType, Remote, RemoteCallbacks, Repository, RepositoryOpenFlags, RepositoryState,
   ResetType, Signature, Status, StatusOptions, Time
 };
-use log::{error, info, warn, trace};
+use log::{error, info, trace, warn};
+use regex::Regex;
 use std::cell::RefCell;
 use std::cmp::min;
 use std::collections::HashMap;
@@ -21,7 +22,6 @@ use std::ffi::OsStr;
 use std::io::{stdout, Write};
 use std::iter::empty;
 use std::path::{Path, PathBuf};
-use regex::Regex;
 
 pub struct Repo {
   vcs: GitVcsLevel
@@ -300,31 +300,29 @@ pub struct Slice<'r> {
 }
 
 impl<'r> Slice<'r> {
-  pub fn has_blob<P: AsRef<Path>>(&self, path: P) -> Result<bool> { Ok(self.object(path).is_ok()) }
+  pub fn has_blob(&self, path: &str) -> Result<bool> { Ok(self.object(path).is_ok()) }
   pub fn slice(&self, refspec: String) -> Slice<'r> { Slice { repo: self.repo, refspec } }
   pub fn revparse_oid(&self) -> Result<String> { self.repo.revparse_oid(&self.refspec) }
 
-  pub fn blob<P: AsRef<Path>>(&self, path: P) -> Result<Blob> {
-    let obj = self.object(path.as_ref())?;
-    obj.into_blob().map_err(|e| bad!("Not a blob: {} : {:?}", path.as_ref().to_string_lossy(), e))
+  pub fn blob(&self, path: &str) -> Result<Blob> {
+    let obj = self.object(path)?;
+    obj.into_blob().map_err(|e| bad!("Not a blob: {} : {:?}", path, e))
   }
 
   pub fn subdirs(&self, path: Option<&String>, regex: &str) -> Result<Vec<String>> {
-    let path = path.map(|s| s.as_str()).unwrap_or(".");
+    trace!("Finding git subdirs at {:?}", path);
+
+    let path = path.map(|s| s.as_str()).unwrap_or("");
     let obj = self.object(path)?;
     let tree = obj.into_tree().map_err(|_| bad!("Not a tree: {}", path))?;
     let filter = Regex::new(regex)?;
-    let list = tree
-      .iter()
-      .filter_map(|entry| entry.name().map(|n| n.to_string()))
-      .filter(|n| filter.is_match(&n))
-      .collect();
+    let list =
+      tree.iter().filter_map(|entry| entry.name().map(|n| n.to_string())).filter(|n| filter.is_match(&n)).collect();
     Ok(list)
   }
 
-  fn object<P: AsRef<Path>>(&self, path: P) -> Result<Object> {
-    let path_string = path.as_ref().to_string_lossy();
-    Ok(self.repo.repo()?.revparse_single(&format!("{}:{}", &self.refspec, &path_string))?)
+  fn object(&self, path: &str) -> Result<Object> {
+    Ok(self.repo.repo()?.revparse_single(&format!("{}:{}", &self.refspec, path))?)
   }
 
   pub fn date(&self) -> Result<Time> {
@@ -719,7 +717,7 @@ fn files_from_commit<'a>(repo: &'a Repository, commit: &Commit<'a>) -> Result<im
 fn lookup_from_commit<'a>(
   repo: &Repo, base: String, commit: Result<AnnotatedCommit<'a>>
 ) -> Result<Result<(AnnotatedCommit<'a>, Vec<CommitInfoBuf>, Time)>> {
-  let commit_id = commit.as_ref().map(|c| c.id().to_string()).unwrap_or("<err>".to_string());
+  let commit_id = commit.as_ref().map(|c| c.id().to_string()).unwrap_or_else(|_| "<err>".to_string());
   let result = match commit {
     Err(e) => Ok(Err(e)),
     Ok(commit) => {
