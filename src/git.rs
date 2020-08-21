@@ -13,7 +13,7 @@ use git2::{
   PushOptions, Reference, ReferenceType, Remote, RemoteCallbacks, Repository, RepositoryOpenFlags, RepositoryState,
   ResetType, Signature, Status, StatusOptions, Time
 };
-use log::{error, info, warn};
+use log::{error, info, warn, trace};
 use std::cell::RefCell;
 use std::cmp::min;
 use std::collections::HashMap;
@@ -309,9 +309,10 @@ impl<'r> Slice<'r> {
     obj.into_blob().map_err(|e| bad!("Not a blob: {} : {:?}", path.as_ref().to_string_lossy(), e))
   }
 
-  pub fn subdirs<P: AsRef<Path>>(&self, path: P, regex: &str) -> Result<Vec<String>> {
-    let obj = self.object(path.as_ref())?;
-    let tree = obj.into_tree().map_err(|_| bad!("Not a tree: {}", path.as_ref().to_string_lossy()))?;
+  pub fn subdirs(&self, path: Option<&String>, regex: &str) -> Result<Vec<String>> {
+    let path = path.map(|s| s.as_str()).unwrap_or(".");
+    let obj = self.object(path)?;
+    let tree = obj.into_tree().map_err(|_| bad!("Not a tree: {}", path))?;
     let filter = Regex::new(regex)?;
     let list = tree
       .iter()
@@ -718,7 +719,8 @@ fn files_from_commit<'a>(repo: &'a Repository, commit: &Commit<'a>) -> Result<im
 fn lookup_from_commit<'a>(
   repo: &Repo, base: String, commit: Result<AnnotatedCommit<'a>>
 ) -> Result<Result<(AnnotatedCommit<'a>, Vec<CommitInfoBuf>, Time)>> {
-  match commit {
+  let commit_id = commit.as_ref().map(|c| c.id().to_string()).unwrap_or("<err>".to_string());
+  let result = match commit {
     Err(e) => Ok(Err(e)),
     Ok(commit) => {
       let base_time = repo.slice(base.clone()).date()?;
@@ -728,7 +730,14 @@ fn lookup_from_commit<'a>(
         .unwrap_or_else(|| (Vec::new(), base_time));
       Ok(Ok((commit, commits, base_time)))
     }
-  }
+  };
+  trace!(
+    "lookup from {} to {:?}: {:?}",
+    base,
+    commit_id,
+    result.as_ref().map(|r| r.as_ref().map(|(_, list, _)| list.iter().map(|c| c.id().to_string()).collect::<Vec<_>>()))
+  );
+  result
 }
 
 fn get_oid_local<'r>(repo: &'r Repository, spec: &str) -> Result<AnnotatedCommit<'r>> {

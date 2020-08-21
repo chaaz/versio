@@ -4,7 +4,7 @@ use crate::config::ProjectId;
 use crate::errors::Result;
 use crate::git::{Repo, Slice};
 use crate::mark::{NamedData, Picker};
-use log::warn;
+use log::{trace, warn};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -23,14 +23,14 @@ pub trait FilesRead {
 
   fn has_file(&self, path: &Path) -> Result<bool>;
   fn read_file(&self, path: &Path) -> Result<String>;
-  fn subdirs(&self, root: &str, regex: &str) -> Result<Vec<String>>;
+  fn subdirs(&self, root: Option<&String>, regex: &str) -> Result<Vec<String>>;
 }
 
 impl<F: FilesRead> FilesRead for &F {
   fn commit_oid(&self) -> Option<String> { <F as FilesRead>::commit_oid(*self) }
   fn has_file(&self, path: &Path) -> Result<bool> { <F as FilesRead>::has_file(*self, path) }
   fn read_file(&self, path: &Path) -> Result<String> { <F as FilesRead>::read_file(*self, path) }
-  fn subdirs(&self, root: &str, regex: &str) -> Result<Vec<String>> { <F as FilesRead>::subdirs(*self, root, regex) }
+  fn subdirs(&self, root: Option<&String>, regex: &str) -> Result<Vec<String>> { <F as FilesRead>::subdirs(*self, root, regex) }
 }
 
 pub struct CurrentState {
@@ -42,7 +42,7 @@ impl FilesRead for CurrentState {
   fn commit_oid(&self) -> Option<String> { self.files.commit_oid() }
   fn has_file(&self, path: &Path) -> Result<bool> { self.files.has_file(path) }
   fn read_file(&self, path: &Path) -> Result<String> { self.files.read_file(path) }
-  fn subdirs(&self, root: &str, regex: &str) -> Result<Vec<String>> { self.files.subdirs(root, regex) }
+  fn subdirs(&self, root: Option<&String>, regex: &str) -> Result<Vec<String>> { self.files.subdirs(root, regex) }
 }
 
 impl StateRead for CurrentState {
@@ -68,8 +68,9 @@ impl FilesRead for CurrentFiles {
   fn has_file(&self, path: &Path) -> Result<bool> { Ok(self.root.join(path).exists()) }
   fn read_file(&self, path: &Path) -> Result<String> { Ok(std::fs::read_to_string(&self.root.join(path))?) }
 
-  fn subdirs(&self, root: &str, regex: &str) -> Result<Vec<String>> {
+  fn subdirs(&self, root: Option<&String>, regex: &str) -> Result<Vec<String>> {
     let filter = Regex::new(regex)?;
+    let root = root.map(|s| s.as_str()).unwrap_or(".");
     Path::new(root)
       .read_dir()?
       .filter_map(|e| e.map(|e| e.file_name().into_string().ok()).transpose())
@@ -92,7 +93,7 @@ impl<'r> FilesRead for PrevState<'r> {
   fn commit_oid(&self) -> Option<String> { self.files.commit_oid() }
   fn has_file(&self, path: &Path) -> Result<bool> { self.files.has_file(path) }
   fn read_file(&self, path: &Path) -> Result<String> { self.files.read_file(path) }
-  fn subdirs(&self, root: &str, regex: &str) -> Result<Vec<String>> { self.files.subdirs(root, regex) }
+  fn subdirs(&self, root: Option<&String>, regex: &str) -> Result<Vec<String>> { self.files.subdirs(root, regex) }
 }
 
 impl<'r> StateRead for PrevState<'r> {
@@ -114,7 +115,10 @@ impl<'r> FilesRead for PrevFiles<'r> {
   fn commit_oid(&self) -> Option<String> { Some(self.commit_oid.clone()) }
   fn has_file(&self, path: &Path) -> Result<bool> { self.slice.has_blob(path) }
   fn read_file(&self, path: &Path) -> Result<String> { read_from_slice(&self.slice, path) }
-  fn subdirs(&self, root: &str, regex: &str) -> Result<Vec<String>> { self.slice.subdirs(root, regex) }
+
+  fn subdirs(&self, root: Option<&String>, regex: &str) -> Result<Vec<String>> {
+    self.slice.subdirs(root, regex)
+  }
 }
 
 impl<'r> PrevFiles<'r> {
@@ -196,7 +200,9 @@ impl StateWrite {
   }
 
   pub fn tag_head_or_last<T: ToString>(&mut self, tag: T, proj: &ProjectId) -> Result<()> {
-    self.tag_head_or_last.push((tag.to_string(), proj.clone()));
+    let tag = tag.to_string();
+    trace!("head_or_last on {} tagged with {}.", proj, tag);
+    self.tag_head_or_last.push((tag, proj.clone()));
     Ok(())
   }
 

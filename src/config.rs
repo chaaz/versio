@@ -19,6 +19,7 @@ use std::fmt;
 use std::iter::once;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use log::trace;
 
 pub const CONFIG_FILENAME: &str = ".versio.yaml";
 
@@ -274,8 +275,12 @@ pub struct Project {
 impl Project {
   pub fn id(&self) -> &ProjectId { &self.id }
   pub fn name(&self) -> &str { &self.name }
-  pub fn root(&self) -> &Option<String> { &self.root }
+
   pub fn depends(&self) -> &[ProjectId] { &self.depends }
+
+  pub fn root(&self) -> Option<&String> {
+    self.root.as_ref().and_then(|r| if r == "." { None } else { Some(r) })
+  }
 
   fn annotate<S: StateRead>(&self, state: &S) -> Result<AnnotatedMark> {
     Ok(AnnotatedMark::new(self.id.clone(), self.name.clone(), self.get_value(state)?))
@@ -283,7 +288,7 @@ impl Project {
 
   pub fn change_log(&self) -> Option<Cow<str>> {
     self.change_log.as_ref().map(|change_log| {
-      if let Some(root) = &self.root {
+      if let Some(root) = self.root() {
         Cow::Owned(PathBuf::from(root).join(change_log).to_string_lossy().to_string())
       } else {
         Cow::Borrowed(change_log.as_str())
@@ -336,7 +341,12 @@ impl Project {
     self
       .includes
       .iter()
-      .try_fold(false, |val, cov| Ok(val || Pattern::new(&self.rooted_pattern(cov))?.matches_with(path, match_opts())))
+      .try_fold(false, |val, cov| Ok(val || {
+        let rooted = self.rooted_pattern(cov);
+        let result = Pattern::new(&rooted)?.matches_with(path, match_opts());
+        trace!("match {} vs {}: {}", rooted, path, result);
+        result
+      }))
   }
 
   pub fn check<S: StateRead>(&self, state: &S) -> Result<()> {
@@ -375,11 +385,11 @@ impl Project {
   }
 
   pub fn get_value<S: StateRead>(&self, read: &S) -> Result<String> {
-    self.located.read_value(read, &self.root, self.tag_prefix())
+    self.located.read_value(read, self.root(), self.tag_prefix())
   }
 
   pub fn set_value(&self, write: &mut StateWrite, val: &str) -> Result<()> {
-    self.located.write_value(write, &self.root, val, &self.id)?;
+    self.located.write_value(write, self.root(), val, &self.id)?;
     self.forward_tag(write, val)
   }
 
@@ -392,8 +402,12 @@ impl Project {
   }
 
   fn rooted_pattern(&self, pat: &str) -> String {
-    if let Some(root) = &self.root {
-      PathBuf::from(root).join(pat).to_string_lossy().to_string()
+    if let Some(root) = self.root() {
+      if root == "." {
+        pat.to_string()
+      } else {
+        PathBuf::from(root).join(pat).to_string_lossy().to_string()
+      }
     } else {
       pat.to_string()
     }
@@ -404,7 +418,7 @@ impl Project {
       Ok(E2::A(subs.into_iter().map(move |sub| Project {
         name: expand_name(&self.name, &sub),
         id: self.id.expand(&sub),
-        root: expand_root(&self.root, &sub),
+        root: expand_root(self.root(), &sub),
         includes: self.includes.clone(),
         excludes: expand_excludes(&self.excludes, &sub),
         depends: expand_depends(&self.depends, &sub),
@@ -420,8 +434,7 @@ impl Project {
 
   fn read_subs<R: FilesRead>(&self, read: &R) -> Result<Option<Vec<Sub>>> {
     if self.subs.is_some() {
-      let root = self.root.as_ref().expect("Subs project must have root.");
-      let dirs = read.subdirs(root, "v[0-9]+")?;
+      let dirs = read.subdirs(self.root(), "v[0-9]+")?;
       let subs: Vec<_> = dirs
         .iter()
         .cloned()
@@ -447,8 +460,14 @@ impl Project {
 
 fn expand_name(name: &str, sub: &Sub) -> String { format!("{}/{}", name, sub.dir()) }
 
-fn expand_root(root: &Option<String>, sub: &Sub) -> Option<String> {
-  Some(Path::new(root.as_ref().expect("Subs without root.")).join(sub.dir()).to_string_lossy().into_owned())
+fn expand_root(root: Option<&String>, sub: &Sub) -> Option<String> {
+  match root {
+    Some(root) => Some(Path::new(root).join(sub.dir()).to_string_lossy().into_owned()),
+    None => match sub.dir() {
+      "." => None,
+      other => Some(Path::new(other).to_string_lossy().into_owned())
+    }
+  }
 }
 
 fn expand_excludes(excludes: &[String], sub: &Sub) -> Vec<String> {
@@ -509,14 +528,14 @@ impl Location {
     }
   }
 
-  pub fn write_value(&self, write: &mut StateWrite, root: &Option<String>, val: &str, id: &ProjectId) -> Result<()> {
+  pub fn write_value(&self, write: &mut StateWrite, root: Option<&String>, val: &str, id: &ProjectId) -> Result<()> {
     match self {
       Location::File(l) => l.write_value(write, root, val, id),
       Location::Tag(_) => Ok(())
     }
   }
 
-  pub fn read_value<S: StateRead>(&self, read: &S, root: &Option<String>, pref: &Option<String>) -> Result<String> {
+  pub fn read_value<S: StateRead>(&self, read: &S, root: Option<&String>, pref: &Option<String>) -> Result<String> {
     match self {
       Location::File(l) => l.read_value(read, root),
       Location::Tag(l) => l.read_value(read, pref)
@@ -601,18 +620,18 @@ struct FileLocation {
 }
 
 impl FileLocation {
-  pub fn write_value(&self, write: &mut StateWrite, root: &Option<String>, val: &str, id: &ProjectId) -> Result<()> {
+  pub fn write_value(&self, write: &mut StateWrite, root: Option<&String>, val: &str, id: &ProjectId) -> Result<()> {
     let file = self.rooted(root);
     write.update_mark(PickPath::new(file, self.picker.clone()), val.to_string(), id)
   }
 
-  pub fn read_value<S: StateRead>(&self, read: &S, root: &Option<String>) -> Result<String> {
+  pub fn read_value<S: StateRead>(&self, read: &S, root: Option<&String>) -> Result<String> {
     let file = self.rooted(root);
     let data: String = read.read_file(&file)?;
     self.picker.find(&data).map(|m| m.into_value())
   }
 
-  pub fn rooted(&self, root: &Option<String>) -> PathBuf {
+  pub fn rooted(&self, root: Option<&String>) -> PathBuf {
     match root {
       Some(root) => PathBuf::from(root).join(&self.file),
       None => PathBuf::from(&self.file)

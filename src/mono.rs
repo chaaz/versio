@@ -15,6 +15,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::identity;
 use std::iter::{empty, once};
 use std::path::{Path, PathBuf};
+use log::trace;
 
 pub struct Mono {
   current: Config<CurrentState>,
@@ -166,7 +167,9 @@ fn find_last_commits(current: &Config<CurrentState>, repo: &Repo) -> Result<Hash
     last_commits.finish_line_commit()?;
   }
 
-  last_commits.build()
+  let result = last_commits.build();
+  trace!("Found last commits: {:?}", result);
+  result
 }
 
 fn pr_keyed_files<'a>(repo: &'a Repo, pr: FullPr) -> impl Iterator<Item = Result<(String, String)>> + 'a {
@@ -286,12 +289,14 @@ impl<'s> PlanBuilder<'s> {
   }
 
   pub fn start_pr(&mut self, pr: &FullPr) -> Result<()> {
+    trace!("planning PR {}.", pr.number());
     self.on_pr_sizes = self.current.projects().iter().map(|p| (p.id().clone(), LoggedPr::capture(pr))).collect();
     self.on_ineffective = Some(LoggedPr::capture(pr));
     Ok(())
   }
 
   pub fn finish_pr(&mut self) -> Result<()> {
+    trace!("planning PR done.");
     let mut found = false;
     for (proj_id, logged_pr) in self.on_pr_sizes.drain() {
       let (size, change_log) = self.incrs.entry(proj_id).or_insert((Size::None, ChangeLog::empty()));
@@ -312,6 +317,7 @@ impl<'s> PlanBuilder<'s> {
   }
 
   pub fn start_commit(&mut self, commit: CommitInfoBuf) -> Result<()> {
+    trace!("  planning commit {}.", commit.id());
     let id = commit.id().to_string();
     let kind = commit.kind().to_string();
     let summary = commit.summary().to_string();
@@ -328,18 +334,28 @@ impl<'s> PlanBuilder<'s> {
     Ok(())
   }
 
-  pub fn finish_commit(&mut self) -> Result<()> { Ok(()) }
+  pub fn finish_commit(&mut self) -> Result<()> {
+    trace!("  planning commit done.");
+    Ok(())
+  }
 
   pub fn start_file(&mut self, path: &str) -> Result<()> {
+    trace!("    planning file {}.", path);
     let commit = self.on_commit.as_ref().ok_or_else(|| bad!("Not on a commit"))?;
     let commit_id = commit.id();
 
     for prev_project in self.prev.file()?.projects() {
       if let Some(logged_pr) = self.on_pr_sizes.get_mut(&prev_project.id()) {
+        trace!("      vs current project {}.", prev_project.id());
         if prev_project.does_cover(path)? {
           let LoggedCommit { applies, .. } = logged_pr.commits.iter_mut().find(|c| c.oid == commit_id).unwrap();
           *applies = true;
+          trace!("        covered.");
+        } else {
+          trace!("        not covered.");
         }
+      } else {
+        trace!("      project {} doesn't currently exist.", prev_project.id());
       }
     }
     Ok(())
