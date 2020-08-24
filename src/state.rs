@@ -10,11 +10,11 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 pub trait StateRead: FilesRead {
-  fn latest_tag(&self, prefix: &str) -> Option<&String>;
+  fn latest_tag(&self, proj: &ProjectId) -> Option<&String>;
 }
 
 impl<S: StateRead> StateRead for &S {
-  fn latest_tag(&self, prefix: &str) -> Option<&String> { <S as StateRead>::latest_tag(*self, prefix) }
+  fn latest_tag(&self, proj: &ProjectId) -> Option<&String> { <S as StateRead>::latest_tag(*self, proj) }
 }
 
 pub trait FilesRead {
@@ -48,7 +48,7 @@ impl FilesRead for CurrentState {
 }
 
 impl StateRead for CurrentState {
-  fn latest_tag(&self, prefix: &str) -> Option<&String> { self.tags.latest(prefix) }
+  fn latest_tag(&self, proj: &ProjectId) -> Option<&String> { self.tags.latest(proj) }
 }
 
 impl CurrentState {
@@ -99,7 +99,7 @@ impl<'r> FilesRead for PrevState<'r> {
 }
 
 impl<'r> StateRead for PrevState<'r> {
-  fn latest_tag(&self, prefix: &str) -> Option<&String> { self.tags.latest(prefix) }
+  fn latest_tag(&self, proj: &ProjectId) -> Option<&String> { self.tags.latest(proj) }
 }
 
 impl<'r> PrevState<'r> {
@@ -133,35 +133,37 @@ impl<'r> PrevFiles<'r> {
 
 #[derive(Debug)]
 pub struct OldTags {
-  by_prefix: HashMap<String, Vec<String>>,
-  not_after: HashMap<String, HashMap<String, usize>>
+  by_proj: HashMap<ProjectId, Vec<String>>,
+  not_after: HashMap<ProjectId, HashMap<String, usize>>
 }
 
 impl OldTags {
-  pub fn new(by_prefix: HashMap<String, Vec<String>>, not_after: HashMap<String, HashMap<String, usize>>) -> OldTags {
-    OldTags { by_prefix, not_after }
+  pub fn new(
+    by_proj: HashMap<ProjectId, Vec<String>>, not_after: HashMap<ProjectId, HashMap<String, usize>>
+  ) -> OldTags {
+    OldTags { by_proj, not_after }
   }
 
-  fn latest(&self, prefix: &str) -> Option<&String> { self.by_prefix.get(prefix).and_then(|p| p.first()) }
+  fn latest(&self, proj: &ProjectId) -> Option<&String> { self.by_proj.get(proj).and_then(|p| p.first()) }
 
   /// Construct a tags index for an earlier commit; a `latest` call on the returned index will match the
   /// `not_after(new_oid)` on this index.
   pub fn slice_earlier(&self, new_oid: &str) -> Result<OldTags> {
-    let mut by_prefix = HashMap::new();
+    let mut by_proj = HashMap::new();
     let mut not_after = HashMap::new();
 
-    for (pref, afts) in &self.not_after {
+    for (proj_id, afts) in &self.not_after {
       let ind: usize = *afts.get(new_oid).ok_or_else(|| bad!("Bad new_oid {}", new_oid))?;
-      let list = self.by_prefix.get(pref).ok_or_else(|| bad!("Illegal prefix {} oid for {}", pref, new_oid))?;
+      let list = self.by_proj.get(proj_id).ok_or_else(|| bad!("Illegal proj {} oid for {}", proj_id, new_oid))?;
       let list = list[ind ..].to_vec();
-      by_prefix.insert(pref.clone(), list);
+      by_proj.insert(proj_id.clone(), list);
 
       let new_afts =
         afts.iter().filter_map(|(oid, i)| if i >= &ind { Some((oid.clone(), i - ind)) } else { None }).collect();
-      not_after.insert(pref.clone(), new_afts);
+      not_after.insert(proj_id.clone(), new_afts);
     }
 
-    Ok(OldTags::new(by_prefix, not_after))
+    Ok(OldTags::new(by_proj, not_after))
   }
 }
 

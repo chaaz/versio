@@ -90,7 +90,7 @@ pub fn changes(repo: &Repo, baseref: String, headref: String) -> Result<Changes>
 }
 
 pub fn line_commits_head(repo: &Repo, base: &str) -> Result<Vec<CommitInfoBuf>> {
-  repo.commits_to_head(&base)?.map(|i| i?.buffer()).collect::<Result<_>>()
+  repo.commits_to_head(&base, false)?.map(|i| i?.buffer()).collect::<Result<_>>()
 }
 
 fn commits_from_v4_api(github_info: &GithubInfo, span: &Span) -> Result<Vec<ApiCommit>> {

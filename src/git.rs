@@ -138,10 +138,19 @@ impl Repo {
   /// Return all commits as in `git rev-list from_sha..to_sha`.
   ///
   /// `from` may be any legal target of `rev-parse`.
-  pub fn commits_between(&self, from: &str, to_oid: Oid) -> Result<impl Iterator<Item = Result<CommitInfo<'_>>> + '_> {
+  pub fn commits_between(
+    &self, from: &str, to_oid: Oid, incl_from: bool
+  ) -> Result<impl Iterator<Item = Result<CommitInfo<'_>>> + '_> {
     let repo = self.repo()?;
     let mut revwalk = repo.revwalk()?;
-    revwalk.hide(repo.revparse_single(from)?.id())?;
+    if incl_from {
+      let commit = repo.revparse_single(from)?.peel_to_commit()?;
+      for pid in commit.parent_ids() {
+        revwalk.hide(pid)?;
+      }
+    } else {
+      revwalk.hide(repo.revparse_single(from)?.id())?;
+    }
     revwalk.push(to_oid)?;
 
     Ok(revwalk.map(move |id| Ok(CommitInfo::new(repo, repo.find_commit(id?)?))))
@@ -150,13 +159,15 @@ impl Repo {
   /// Return all commits as in `git rev-list from_sha..HEAD`.
   ///
   /// `from` may be any legal target of `rev-parse`.
-  pub fn commits_to_head(&self, from: &str) -> Result<impl Iterator<Item = Result<CommitInfo<'_>>> + '_> {
+  pub fn commits_to_head(
+    &self, from: &str, incl_from: bool
+  ) -> Result<impl Iterator<Item = Result<CommitInfo<'_>>> + '_> {
     let head_oid = match &self.vcs {
       GitVcsLevel::None { .. } => return Ok(E2::A(empty())),
       _ => self.get_oid_head()?.id()
     };
 
-    Ok(E2::B(self.commits_between(from, head_oid)?))
+    Ok(E2::B(self.commits_between(from, head_oid, incl_from)?))
   }
 
   pub fn get_oid_head(&self) -> Result<AnnotatedCommit> { self.get_oid(self.branch_name()?) }

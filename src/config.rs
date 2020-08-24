@@ -400,7 +400,7 @@ impl Project {
   }
 
   pub fn get_value<S: StateRead>(&self, read: &S) -> Result<String> {
-    self.located.read_value(read, self.root(), self.tag_prefix())
+    self.located.read_value(read, self.root(), self.id())
   }
 
   pub fn set_value(&self, write: &mut StateWrite, val: &str) -> Result<()> {
@@ -558,10 +558,10 @@ impl Location {
     }
   }
 
-  pub fn read_value<S: StateRead>(&self, read: &S, root: Option<&String>, pref: &Option<String>) -> Result<String> {
+  pub fn read_value<S: StateRead>(&self, read: &S, root: Option<&String>, proj: &ProjectId) -> Result<String> {
     match self {
       Location::File(l) => l.read_value(read, root),
-      Location::Tag(l) => l.read_value(read, pref)
+      Location::Tag(l) => l.read_value(read, proj)
     }
   }
 
@@ -589,9 +589,8 @@ struct TagLocation {
 impl TagLocation {
   pub fn majors(&self) -> Option<&[u32]> { self.tags.majors() }
 
-  fn read_value<S: StateRead>(&self, read: &S, prefix: &Option<String>) -> Result<String> {
-    let prefix = prefix.as_ref().ok_or_else(|| bad!("No tag prefix for tag location."))?;
-    Ok(read.latest_tag(prefix).cloned().unwrap_or_else(|| self.tags.default_value()))
+  fn read_value<S: StateRead>(&self, read: &S, proj: &ProjectId) -> Result<String> {
+    Ok(read.latest_tag(proj).cloned().unwrap_or_else(|| self.tags.default_value()))
   }
 }
 
