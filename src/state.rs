@@ -131,6 +131,7 @@ impl<'r> PrevFiles<'r> {
   pub fn slice_to(&self, spec: String) -> Result<PrevFiles<'r>> { PrevFiles::from_slice(self.slice.slice(spec)) }
 }
 
+#[derive(Debug)]
 pub struct OldTags {
   by_prefix: HashMap<String, Vec<String>>,
   not_after: HashMap<String, HashMap<String, usize>>

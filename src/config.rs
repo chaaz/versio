@@ -20,6 +20,7 @@ use std::fmt;
 use std::iter::once;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use regex::{Regex, escape};
 
 pub const CONFIG_FILENAME: &str = ".versio.yaml";
 
@@ -32,7 +33,7 @@ pub struct ProjectId {
 impl ProjectId {
   pub fn from_id(id: u32) -> ProjectId { ProjectId { id, majors: Vec::new() } }
 
-  fn expand(&self, sub: &Sub) -> ProjectId {
+  fn expand(&self, sub: &SubExtent) -> ProjectId {
     assert!(self.majors.is_empty(), "ProjectId {} expanding.", self);
     ProjectId { id: self.id, majors: sub.majors().to_vec() }
   }
@@ -267,7 +268,7 @@ pub struct Project {
   located: Location,
   tag_prefix: Option<String>,
   #[serde(default)]
-  subs: Option<HashMap<String, String>>
+  subs: Option<Subs>
 }
 
 impl Project {
@@ -280,6 +281,16 @@ impl Project {
 
   fn annotate<S: StateRead>(&self, state: &S) -> Result<AnnotatedMark> {
     Ok(AnnotatedMark::new(self.id.clone(), self.name.clone(), self.get_value(state)?))
+  }
+
+  pub fn verify_restrictions(&self, vers: &str) -> Result<()> {
+    let major = Size::parts(vers)?[0];
+    if let Some(tag_majors) = self.tag_majors() {
+      if !tag_majors.contains(&major) {
+        bail!("Illegal version {} for restricted project \"{}\" with majors {:?}.", vers, self.id, tag_majors);
+      }
+    }
+    Ok(())
   }
 
   pub fn change_log(&self) -> Option<Cow<str>> {
@@ -436,22 +447,26 @@ impl Project {
     }
   }
 
-  fn read_subs<R: FilesRead>(&self, read: &R) -> Result<Option<Vec<Sub>>> {
-    if self.subs.is_some() {
-      let dirs = read.subdirs(self.root(), "v[0-9]+")?;
-      let subs: Vec<_> = dirs
+  fn read_subs<R: FilesRead>(&self, read: &R) -> Result<Option<Vec<SubExtent>>> {
+    if let Some(subs) = &self.subs {
+      let pattern = format!("^{}$", escape(subs.dirs()).replace("<>", "([0-9]+)"));
+      let dirs = read.subdirs(self.root(), &pattern)?;
+      let regex = Regex::new(&pattern)?;
+      let extents: Vec<_> = dirs
         .iter()
         .cloned()
         .map(|dir| {
-          let major: u32 = dir[1 ..].parse().chain_err(|| format!("Can't parse dir {} as major.", dir))?;
+          let caps = regex.captures(&dir).ok_or_else(|| bad!("Unable to capture major from {}", dir))?;
+          let major: u32 = caps[1].parse().chain_err(|| format!("Can't parse dir {} as major.", dir))?;
           Ok((dir, major))
         })
         .collect::<Result<_>>()?;
-      let largest = subs.iter().map(|(_, m)| *m).max();
+      let largest = extents.iter().map(|(_, m)| *m).max();
       let excludes = dirs.iter().map(|d| format!("{}/**/*", d)).collect();
+      let majors = subs.tops().to_vec();
 
-      let list = once(Sub { dir: ".".to_string(), majors: vec![0, 1], largest: dirs.is_empty(), excludes })
-        .chain(subs.into_iter().map(|(dir, major)| Sub {
+      let list = once(SubExtent { dir: ".".to_string(), majors, largest: dirs.is_empty(), excludes })
+        .chain(extents.into_iter().map(|(dir, major)| SubExtent {
           dir,
           majors: vec![major],
           largest: major == *largest.as_ref().unwrap(),
@@ -466,9 +481,9 @@ impl Project {
   }
 }
 
-fn expand_name(name: &str, sub: &Sub) -> String { format!("{}/{}", name, sub.dir()) }
+fn expand_name(name: &str, sub: &SubExtent) -> String { format!("{}/{}", name, sub.dir()) }
 
-fn expand_root(root: Option<&String>, sub: &Sub) -> Option<String> {
+fn expand_root(root: Option<&String>, sub: &SubExtent) -> Option<String> {
   match root {
     Some(root) => Some(Path::new(root).join(sub.dir()).to_string_lossy().into_owned()),
     None => match sub.dir() {
@@ -478,13 +493,13 @@ fn expand_root(root: Option<&String>, sub: &Sub) -> Option<String> {
   }
 }
 
-fn expand_excludes(excludes: &[String], sub: &Sub) -> Vec<String> {
+fn expand_excludes(excludes: &[String], sub: &SubExtent) -> Vec<String> {
   let mut result = excludes.to_vec();
   result.extend_from_slice(sub.excludes());
   result
 }
 
-fn expand_depends(depends: &[ProjectId], sub: &Sub) -> Vec<ProjectId> {
+fn expand_depends(depends: &[ProjectId], sub: &SubExtent) -> Vec<ProjectId> {
   if sub.is_largest() {
     depends.to_vec()
   } else {
@@ -492,7 +507,7 @@ fn expand_depends(depends: &[ProjectId], sub: &Sub) -> Vec<ProjectId> {
   }
 }
 
-fn expand_located(located: &Location, sub: &Sub) -> Location {
+fn expand_located(located: &Location, sub: &SubExtent) -> Location {
   if located.is_tags() {
     Location::Tag(TagLocation { tags: TagSpec::MajorTag(MajorTagSpec { majors: sub.majors().to_vec() }) })
   } else {
@@ -500,14 +515,14 @@ fn expand_located(located: &Location, sub: &Sub) -> Location {
   }
 }
 
-struct Sub {
+struct SubExtent {
   dir: String,
   majors: Vec<u32>,
   largest: bool,
   excludes: Vec<String>
 }
 
-impl Sub {
+impl SubExtent {
   pub fn dir(&self) -> &str { &self.dir }
   pub fn excludes(&self) -> &[String] { &self.excludes }
   pub fn is_largest(&self) -> bool { self.largest }
@@ -647,14 +662,45 @@ impl FileLocation {
   }
 }
 
+#[derive(Deserialize, Debug)]
+struct Subs {
+  #[serde(default)]
+  dirs: Option<String>,
+  #[serde(default)]
+  tops: Option<Vec<u32>>
+}
+
+impl Subs {
+  fn dirs(&self) -> &str { self.dirs.as_deref().unwrap_or("v<>") }
+  fn tops(&self) -> &[u32] { self.tops.as_deref().unwrap_or(&[0, 1]) }
+}
+
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
+/// The "size" of the commit is a measure of "how much" to increment a project's version number based on the
+/// significance of its changes. There are currently six sizes from smallest to largest:
+///
+/// - **Empty**: The project was untouched, so the version will not change.
+/// - **None**: Non-altering / cosmetic changes were made. The new version of the project is operationally
+/// identical to the old version, or close enough to make no difference. The version number will not change.
+/// - **Patch**: Bugs were fixed and/or slightly-more-than-cosmetic changes were made; the new version of the
+/// project is fully backwards-compatible with the old, and probably operationally similar. The "patch" part of
+/// the version number will increment.
+/// - **Minor**: New features were added and/or other significant changes were made; the new version of the
+/// project is backwards-compatible with the old, but possibly expanded or operationally dissimilar. The "minor"
+/// part of the version number will be incremented, and the "patch" part will be reset.
+/// - **Major**: Breaking changes were made: anything from pruning APIs to a full restructuring of the code; the
+/// new version of the project is incompatible with the the old version, and can't be expected to act as a
+/// drop-in replacement. The "major" part of the version number will be incremented, and other parts reset.
+/// - **Fail**: A change occured to the project that could not be understood. No changes will be made to any
+/// version numbers; in fact, the entire process is prematurely halted.
 pub enum Size {
   Fail,
   Major,
   Minor,
   Patch,
-  None
+  None,
+  Empty
 }
 
 impl Size {
@@ -666,6 +712,7 @@ impl Size {
       "minor" => Ok(Size::Minor),
       "patch" => Ok(Size::Patch),
       "none" => Ok(Size::None),
+      "empty" => Ok(Size::Empty),
       "fail" => Ok(Size::Fail),
       other => err!("Unknown size: {}", other)
     }
@@ -694,6 +741,7 @@ impl Size {
       Size::Minor => format!("{}.{}.{}", parts[0], parts[1] + 1, 0),
       Size::Patch => format!("{}.{}.{}", parts[0], parts[1], parts[2] + 1),
       Size::None => format!("{}.{}.{}", parts[0], parts[1], parts[2]),
+      Size::Empty => format!("{}.{}.{}", parts[0], parts[1], parts[2]),
       Size::Fail => bail!("'fail' size encountered.")
     };
 
@@ -708,7 +756,8 @@ impl fmt::Display for Size {
       Size::Minor => write!(f, "minor"),
       Size::Patch => write!(f, "patch"),
       Size::None => write!(f, "none"),
-      Size::Fail => write!(f, "fail")
+      Size::Fail => write!(f, "fail"),
+      Size::Empty => write!(f, "empty")
     }
   }
 }
@@ -735,12 +784,17 @@ impl Ord for Size {
         _ => Ordering::Greater
       },
       Size::Patch => match other {
-        Size::None => Ordering::Greater,
+        Size::None | Size::Empty => Ordering::Greater,
         Size::Patch => Ordering::Equal,
         _ => Ordering::Less
       },
       Size::None => match other {
+        Size::Empty => Ordering::Greater,
         Size::None => Ordering::Equal,
+        _ => Ordering::Less
+      }
+      Size::Empty => match other {
+        Size::Empty => Ordering::Equal,
         _ => Ordering::Less
       }
     }

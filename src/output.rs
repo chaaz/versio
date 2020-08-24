@@ -1,8 +1,7 @@
 //! The way we output things to the user.
 
 use crate::analyze::Analysis;
-use crate::config::Size;
-use crate::config::{Project, ProjectId};
+use crate::config::{Project, ProjectId, Size};
 use crate::errors::{Result, ResultExt};
 use crate::github::Changes;
 use crate::mono::{Mono, Plan};
@@ -329,49 +328,74 @@ impl PlanOutput {
 }
 
 fn println_plan(plan: &Plan, mono: &Mono) -> Result<()> {
+  println_plan_incrs(plan, mono)?;
+  println_plan_ineff(plan)?;
+  Ok(())
+}
+
+fn println_plan_incrs(plan: &Plan, mono: &Mono) -> Result<()> {
   if plan.incrs().is_empty() {
     println!("(No projects)");
-  } else {
-    for (id, (size, change_log)) in plan.incrs() {
-      let curt_proj = mono.get_project(id).unwrap();
-      println!("{} : {}", curt_proj.name(), size);
-      for dep in curt_proj.depends() {
-        let size = plan.incrs().get(dep).unwrap().0;
-        let dep_proj = mono.get_project(dep).unwrap();
-        println!("  Depends on {} : {}", dep_proj.name(), size);
-      }
+    return Ok(());
+  }
 
-      let curt_config = mono.config();
-      let prev_config = curt_config.slice_to_prev(mono.repo())?;
-      let prev_vers = prev_config.get_value(id).chain_err(|| format!("Unable to find prev {} value.", id))?;
-      if prev_vers.is_some() && curt_proj.tag_majors().is_some() && size >= &Size::Major {
-        println!("  ! Illegal size change for restricted project.");
-      }
+  for (id, (size, change_log)) in plan.incrs() {
+    let curt_proj = mono.get_project(id).unwrap();
+    println!("{} : {}", curt_proj.name(), size);
+    for dep in curt_proj.depends() {
+      let dep_size = plan.incrs().get(dep).unwrap().0;
+      let dep_proj = mono.get_project(dep).unwrap();
+      println!("  Depends on {} : {}", dep_proj.name(), dep_size);
+    }
 
-      for (pr, size) in change_log.entries() {
-        if !pr.commits().iter().any(|c| c.included()) {
-          continue;
+    let curt_config = mono.config();
+    let prev_config = curt_config.slice_to_prev(mono.repo())?;
+    let prev_vers = prev_config.get_value(id).chain_err(|| format!("Unable to find prev {} value.", id))?;
+    let curt_vers = curt_config
+      .get_value(id)
+      .chain_err(|| format!("Unable to find project {} value.", id))?
+      .unwrap_or_else(|| panic!("No such project {}.", id));
+
+    if let Some(prev_vers) = prev_vers {
+      if size != &Size::Empty {
+        let target = size.apply(&prev_vers)?;
+        if Size::less_than(&curt_vers, &target)? {
+          if curt_proj.verify_restrictions(&target).is_err() {
+            println!("  ! Illegal size change for restricted project {}.", curt_proj.id());
+          }
+        } else if curt_proj.verify_restrictions(&curt_vers).is_err() {
+          println!("  ! Illegal size change for restricted project {}.", curt_proj.id());
         }
-        if pr.number() == 0 {
-          // "PR zero" is the top-level set of commits.
-          println!("  Other commits : {}", size);
+      }
+    }
+
+    for (pr, size) in change_log.entries() {
+      if !pr.commits().iter().any(|c| c.included()) {
+        continue;
+      }
+      if pr.number() == 0 {
+        // "PR zero" is the top-level set of commits.
+        println!("  Other commits : {}", size);
+      } else {
+        println!("  PR {} : {}", pr.number(), size);
+      }
+      for c in pr.commits().iter().filter(|c| c.included()) {
+        let symbol = if c.duplicate() {
+          "."
+        } else if c.applies() {
+          "*"
         } else {
-          println!("  PR {} : {}", pr.number(), size);
-        }
-        for c in pr.commits().iter().filter(|c| c.included()) {
-          let symbol = if c.duplicate() {
-            "."
-          } else if c.applies() {
-            "*"
-          } else {
-            " "
-          };
-          println!("    {} commit {} ({}) : {}", symbol, &c.oid()[.. 7], c.size(), c.message());
-        }
+          " "
+        };
+        println!("    {} commit {} ({}) : {}", symbol, &c.oid()[.. 7], c.size(), c.message());
       }
     }
   }
 
+  Ok(())
+}
+
+fn println_plan_ineff(plan: &Plan) -> Result<()> {
   for pr in plan.ineffective() {
     if !pr.commits().iter().any(|c| c.included()) {
       continue;
@@ -425,6 +449,10 @@ impl RunOutput {
     self.result.append_forward(all, name, prev, curt, targ)
   }
 
+  pub fn write_no_change(&mut self, all: bool, name: String, prev: Option<String>, curt: String) -> Result<()> {
+    self.result.append_no_change(all, name, prev, curt)
+  }
+
   pub fn write_new(&mut self, all: bool, name: String, curt: String) -> Result<()> {
     self.result.append_new(all, name, curt)
   }
@@ -449,6 +477,10 @@ impl RunResult {
 
   fn append_forward(&mut self, all: bool, name: String, prev: String, curt: String, targ: String) -> Result<()> {
     self.append(RunEvent::Forward(all, name, prev, curt, targ))
+  }
+
+  fn append_no_change(&mut self, all: bool, name: String, prev: Option<String>, curt: String) -> Result<()> {
+    self.append(RunEvent::NoChange(all, name, prev, curt))
   }
 
   fn append_new(&mut self, all: bool, name: String, curt: String) -> Result<()> {
@@ -501,6 +533,7 @@ enum RunEvent {
   Logged(PathBuf),
   Changed(String, String, String, String),
   Forward(bool, String, String, String, String),
+  NoChange(bool, String, Option<String>, String),
   New(bool, String, String),
   Commit,
   Dry,
@@ -521,12 +554,25 @@ impl RunEvent {
           println!("  {} : {} -> {} instead of {}", name, prev, targ, curt);
         }
       }
+      RunEvent::NoChange(all, name, prev, curt) => {
+        if *all {
+          if let Some(prev) = prev {
+            if prev == curt {
+              println!("  {} : untouched at {}", name, curt);
+            } else {
+              println!("  {} : untouched: {} -> {}", name, prev, curt);
+            }
+          } else {
+            println!("  {} : untouched non-existent at {}", name, curt);
+          }
+        }
+      }
       RunEvent::Forward(all, name, prev, curt, targ) => {
         if *all {
           if prev == curt {
             println!("  {} : no change to {}", name, curt);
           } else if curt == targ {
-            println!("  {} : no change: already {} -> {}", name, prev, targ);
+            println!("  {} : no change: already {} -> {}", name, prev, curt);
           } else {
             println!("  {} : no change: {} -> {} exceeds {}", name, prev, curt, targ);
           }

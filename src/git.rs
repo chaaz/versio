@@ -316,9 +316,7 @@ impl<'r> Slice<'r> {
     let obj = self.object(path)?;
     let tree = obj.into_tree().map_err(|_| bad!("Not a tree: {}", path))?;
     let filter = Regex::new(regex)?;
-    let list =
-      tree.iter().filter_map(|entry| entry.name().map(|n| n.to_string())).filter(|n| filter.is_match(&n)).collect();
-    Ok(list)
+    Ok(tree.iter().filter_map(|entry| entry.name().map(|n| n.to_string())).filter(|n| filter.is_match(&n)).collect())
   }
 
   fn object(&self, path: &str) -> Result<Object> {

@@ -90,7 +90,6 @@ pub fn changes(repo: &Repo, baseref: String, headref: String) -> Result<Changes>
 }
 
 pub fn line_commits_head(repo: &Repo, base: &str) -> Result<Vec<CommitInfoBuf>> {
-  // TODO: fetch head ?
   repo.commits_to_head(&base)?.map(|i| i?.buffer()).collect::<Result<_>>()
 }
 

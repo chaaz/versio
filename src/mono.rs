@@ -299,7 +299,7 @@ impl<'s> PlanBuilder<'s> {
     trace!("planning PR done.");
     let mut found = false;
     for (proj_id, logged_pr) in self.on_pr_sizes.drain() {
-      let (size, change_log) = self.incrs.entry(proj_id).or_insert((Size::None, ChangeLog::empty()));
+      let (size, change_log) = self.incrs.entry(proj_id).or_insert((Size::Empty, ChangeLog::empty()));
       let pr_size = logged_pr.commits.iter().filter(|c| c.applies).map(|c| c.size).max();
       if let Some(pr_size) = pr_size {
         found = true;
@@ -377,20 +377,20 @@ impl<'s> PlanBuilder<'s> {
         if let Some((size, ..)) = self.incrs.get(&project.id()) {
           queue.push_back((project.id().clone(), *size));
         } else {
-          queue.push_back((project.id().clone(), Size::None))
+          queue.push_back((project.id().clone(), Size::Empty))
         }
       }
     }
 
     while let Some((id, size)) = queue.pop_front() {
-      let val = &mut self.incrs.entry(id.clone()).or_insert((Size::None, ChangeLog::empty())).0;
+      let val = &mut self.incrs.entry(id.clone()).or_insert((Size::Empty, ChangeLog::empty())).0;
       *val = max(*val, size);
 
       let depds: Option<HashSet<ProjectId>> = dependents.get(&id).cloned();
       if let Some(depds) = depds {
         for depd in depds {
           dependents.get_mut(&id).unwrap().remove(&depd);
-          let val = &mut self.incrs.entry(depd.clone()).or_insert((Size::None, ChangeLog::empty())).0;
+          let val = &mut self.incrs.entry(depd.clone()).or_insert((Size::Empty, ChangeLog::empty())).0;
           *val = max(*val, size);
 
           if dependents.values().all(|ds| !ds.contains(&depd)) {
@@ -415,7 +415,7 @@ impl<'s> PlanBuilder<'s> {
           }
           seen_commits.insert(oid.clone());
         }
-        *size = pr.commits().iter().filter(|c| c.included()).map(|c| c.size).max().unwrap_or(Size::None);
+        *size = pr.commits().iter().filter(|c| c.included()).map(|c| c.size).max().unwrap_or(Size::Empty);
       }
     }
     Ok(())
@@ -524,7 +524,9 @@ fn find_old_tags<'s, I: Iterator<Item = &'s Project>>(projects: I, prev_tag: &st
     }
   }
 
-  Ok(OldTags::new(by_prefix, not_after))
+  let old_tags = OldTags::new(by_prefix, not_after);
+  trace!("Found old tags: {:?}", old_tags);
+  Ok(old_tags)
 }
 
 /// Construct a fnmatch pattern for a project that can be used to retrieve the project's tags.
