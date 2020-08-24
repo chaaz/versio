@@ -409,23 +409,21 @@ fn run(pref_vcs: Option<VcsRange>, all: bool, dry: bool) -> Result<()> {
 
     if size == &Size::Empty {
       output.write_no_change(all, name.clone(), prev_vers.clone(), curt_vers.clone())?;
-    } else {
-      if let Some(prev_vers) = prev_vers {
-        let target = size.apply(&prev_vers)?;
-        if Size::less_than(&curt_vers, &target)? {
-          proj.verify_restrictions(&target)?;
-          mono.set_by_id(id, &target)?;
-          output.write_changed(name.clone(), prev_vers.clone(), curt_vers.clone(), target.clone())?;
-        } else {
-          proj.verify_restrictions(&curt_vers)?;
-          mono.forward_by_id(id, &curt_vers)?;
-          output.write_forward(all, name.clone(), prev_vers.clone(), curt_vers.clone(), target.clone())?;
-        }
+    } else if let Some(prev_vers) = prev_vers {
+      let target = size.apply(&prev_vers)?;
+      if Size::less_than(&curt_vers, &target)? {
+        proj.verify_restrictions(&target)?;
+        mono.set_by_id(id, &target)?;
+        output.write_changed(name.clone(), prev_vers.clone(), curt_vers.clone(), target.clone())?;
       } else {
         proj.verify_restrictions(&curt_vers)?;
         mono.forward_by_id(id, &curt_vers)?;
-        output.write_new(all, name.clone(), curt_vers.clone())?;
+        output.write_forward(all, name.clone(), prev_vers.clone(), curt_vers.clone(), target.clone())?;
       }
+    } else {
+      proj.verify_restrictions(&curt_vers)?;
+      mono.forward_by_id(id, &curt_vers)?;
+      output.write_new(all, name.clone(), curt_vers.clone())?;
     }
   }
 

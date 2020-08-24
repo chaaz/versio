@@ -11,6 +11,7 @@ use crate::state::{CurrentFiles, CurrentState, FilesRead, PickPath, PrevFiles, P
 use error_chain::bail;
 use glob::{glob_with, MatchOptions, Pattern};
 use log::trace;
+use regex::{escape, Regex};
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, Unexpected, Visitor};
 use serde::Deserialize;
 use std::borrow::Cow;
@@ -20,7 +21,6 @@ use std::fmt;
 use std::iter::once;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use regex::{Regex, escape};
 
 pub const CONFIG_FILENAME: &str = ".versio.yaml";
 
@@ -719,7 +719,11 @@ impl Size {
   }
 
   pub fn parts(v: &str) -> Result<[u32; 3]> {
-    let parts: Vec<_> = v.split('.').map(|p| p.parse()).collect::<std::result::Result<_, _>>()?;
+    let parts: Vec<_> = v
+      .split('.')
+      .map(|p| p.parse())
+      .collect::<std::result::Result<_, _>>()
+      .chain_err(|| format!("Couldn't split {} into parts", v))?;
     if parts.len() != 3 {
       return err!("Not a 3-part version: {}", v);
     }
@@ -792,7 +796,7 @@ impl Ord for Size {
         Size::Empty => Ordering::Greater,
         Size::None => Ordering::Equal,
         _ => Ordering::Less
-      }
+      },
       Size::Empty => match other {
         Size::Empty => Ordering::Equal,
         _ => Ordering::Less

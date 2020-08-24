@@ -493,9 +493,11 @@ fn find_old_tags<'s, I: Iterator<Item = &'s Project>>(projects: I, prev_tag: &st
 
   for proj in projects {
     for fnmatch in tag_fnmatches(proj) {
+      trace!("searching tags for proj {} matching {}", proj.id(), fnmatch);
       let tag_prefix = proj.tag_prefix().as_ref().expect("fnmatches without a tag, somehow.");
       for tag in repo.tag_names(Some(fnmatch.as_str()))?.iter().filter_map(identity) {
         let oid = repo.revparse_oid(&format!("{}^{{}}", tag))?;
+        trace!("  found proj {} tag {} at {}", proj.id(), tag, oid);
         let by_id = by_prefix_oid.entry(tag_prefix.clone()).or_insert_with(HashMap::new);
         by_id.entry(oid).or_insert_with(Vec::new).push(tag.to_string());
       }
@@ -505,13 +507,18 @@ fn find_old_tags<'s, I: Iterator<Item = &'s Project>>(projects: I, prev_tag: &st
   let mut by_prefix = HashMap::new();
   let mut not_after = HashMap::new();
   let mut not_after_walk = HashMap::new();
-  for commit_oid in repo.commits_to_head(prev_tag)?.map(|c| c.map(|c| c.id())) {
+  // Search from prev_tag's parent, so that we can include any co-correspondent tags; the last run of versio may
+  // have put a bunch of tags (including prev_tag) on HEAD.
+  // TODO: make sure **all** of prev_tag's parents are hidden on the revwalk.
+  let prev_tag = format!("{}~", prev_tag);
+  for commit_oid in repo.commits_to_head(&prev_tag)?.map(|c| c.map(|c| c.id())) {
     let commit_oid = commit_oid?;
     for (prefix, by_id) in &mut by_prefix_oid {
       let not_after_walk = not_after_walk.entry(prefix.clone()).or_insert_with(Vec::new);
       not_after_walk.push(commit_oid.clone());
       if let Some(mut tags) = by_id.remove(&commit_oid) {
         // TODO: sort by timestamp (annotated `Tag.tagger().when()`), latest first instead?
+        tags_to_versions(&mut tags);
         tags.sort_unstable_by(tag_sort);
         let old_tags = by_prefix.entry(prefix.clone()).or_insert_with(Vec::new);
         let best_ind = old_tags.len();
@@ -537,7 +544,7 @@ fn tag_fnmatches(proj: &Project) -> impl Iterator<Item = String> + '_ {
   let majors = proj.tag_majors();
 
   let majors_v = if let Some(majors) = majors {
-    E2::A(majors.iter().map(|major| format!("v{}-*", major)))
+    E2::A(majors.iter().map(|major| format!("v{}.*", major)))
   } else {
     E2::B(once("v*".to_string()))
   };
@@ -550,13 +557,17 @@ fn tag_fnmatches(proj: &Project) -> impl Iterator<Item = String> + '_ {
   }
 }
 
+fn tags_to_versions(tags: &mut [String]) {
+  for tag in tags {
+    let v = tag.rfind('-').map(|d| d + 1).unwrap_or(0);
+    *tag = tag[v + 1 ..].to_string();
+  }
+}
+
 #[allow(clippy::ptr_arg)]
 fn tag_sort(a: &String, b: &String) -> Ordering {
-  let adash = a.rfind('-').unwrap();
-  let bdash = b.rfind('-').unwrap();
-
-  let p1 = Size::parts(&a[adash + 1 ..]);
-  let p2 = Size::parts(&b[bdash + 1 ..]);
+  let p1 = Size::parts(a);
+  let p2 = Size::parts(b);
 
   if let Ok(p1) = p1 {
     if let Ok(p2) = p2 {
