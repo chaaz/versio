@@ -35,8 +35,8 @@ ticket:
   variables; this is usually not good practice, but it happens. You
   might want to read through your environment and edit the personal
   info, passwords, and other stuff you don't want to send. For example,
-  if you change `MYSECRETPASS=abcde12345` to `MYSECRETPASS=****`, we'll
-  understand.)
+  if you change `MYSECRETPASS=abcde12345` to `MYSECRETPASS=****` before
+  sending it, we'll understand.)
 - Any other considerations that might be important. Are you running this
   on a 20-year old computer? Is this part of a CI/CD project you're
   putting together? Does the error only happen on Tuesdays with a full

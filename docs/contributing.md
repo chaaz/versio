@@ -16,17 +16,18 @@ versio
 ├─ LICENSE.md (TODO)
 ├─ README.md
 ├─ deploy
-│  └─ ...                . . . . .  deployment (TODO)
+│  └─ ...      . . . . . . . . . .  deployment (TODO ?)
 ├─ docs
-│  └─ contributing.md  . . . . . .  this document
-├─ Cargo.lock  . . . . . . . . . .  deps locking
+│  ├─ contributing.md  . . . . . .  this document
+│  └─ ...
 ├─ Cargo.toml  . . . . . . . . . .  project file
+├─ Cargo.lock  . . . . . . . . . .  deps locking
 ├─ rustfmt.toml  . . . . . . . . .  format config
 ├─ src
 │  └─ ...          . . . . . . . .  src and unit tests
 ├─ tests
 │  └─ ...          . . . . . . . .  integration tests (TODO)
-└─ builds (TODO)
+└─ builds (TODO ?)
    ├─ deploy
    │  ├─ build-app.sh  . . . . . .  deploy build script
    │  └─ ...       . . . . . . . .  deploy support
@@ -37,8 +38,8 @@ versio
 
 ## Running
 
-The `versio` app is very simple with minimal dependencies; you can run
-it locally as described in the [usage doc](./usage.md).
+The `versio` app is very simple with minimal runtime dependencies; you
+can run it locally as described in the [usage doc](./usage.md).
 
 ## Dev Guidelines
 
