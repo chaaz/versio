@@ -94,7 +94,12 @@ impl Repo {
     }
   }
 
-  pub fn revparse_oid(&self, spec: &str) -> Result<String> { Ok(self.repo()?.revparse_single(spec)?.id().to_string()) }
+  pub fn revparse_oid(&self, spec: &str) -> Result<String> {
+    let repo = self.repo()?;
+    verify_current(repo).chain_err(|| "Can't complete get.")?;
+    Ok(repo.revparse_single(spec)?.id().to_string())
+  }
+
   pub fn slice(&self, refspec: String) -> Slice { Slice { repo: self, refspec } }
 
   pub fn tag_names(&self, pattern: Option<&str>) -> Result<IterString> {
@@ -174,10 +179,14 @@ impl Repo {
 
   pub fn get_oid(&self, spec: &str) -> Result<AnnotatedCommit> {
     match &self.vcs {
-      GitVcsLevel::None { .. } => return err!("Can't get OID at `none`."),
-      GitVcsLevel::Local { repo, .. } => get_oid_local(repo, spec),
+      GitVcsLevel::None { .. } => bail!("Can't get OID at `none`."),
+      GitVcsLevel::Local { repo, .. } => {
+        verify_current(repo).chain_err(|| "Can't complete get.")?;
+        get_oid_local(repo, spec)
+      }
       GitVcsLevel::Remote { repo, branch_name, remote_name, fetches }
       | GitVcsLevel::Smart { repo, branch_name, remote_name, fetches } => {
+        verify_current(repo).chain_err(|| "Can't complete get.")?;
         get_oid_remote(repo, branch_name, spec, remote_name, fetches)
       }
     }
@@ -768,6 +777,8 @@ fn get_oid_remote<'r>(
 fn verified_fetch<'r>(
   repo: &'r Repository, remote_name: &str, fetches: &RefCell<HashMap<String, Oid>>, spec: &str
 ) -> Result<(AnnotatedCommit<'r>, bool)> {
+  verify_current(repo).chain_err(|| "Can't start fetch.")?;
+
   if let Some(oid) = fetches.borrow().get(spec).cloned() {
     info!("No fetch for \"{}\": already fetched.", spec);
     let fetch_commit = repo.find_annotated_commit(oid)?;
@@ -794,15 +805,26 @@ fn verified_fetch<'r>(
   let fetch_commit = repo.find_annotated_commit(oid)?;
   assert!(fetch_commit.id() == oid);
 
+  verify_current(repo).chain_err(|| "Can't complete fetch.")?;
+
+  Ok((fetch_commit, false))
+}
+
+fn verify_current(repo: &Repository) -> Result<()> {
+  let state = repo.state();
+  if state != RepositoryState::Clean {
+    // Don't bother if we're in the middle of a merge, rebase, etc.
+    bail!("Can't pull: repository {:?} isn't clean.", state);
+  }
+
   let mut status_opts = StatusOptions::new();
   status_opts.include_ignored(false);
   status_opts.include_untracked(true);
   status_opts.exclude_submodules(false);
   if repo.statuses(Some(&mut status_opts))?.iter().any(|s| s.status() != Status::CURRENT) {
-    bail!("Can't complete fetch: repository isn't current.");
+    bail!("Repository is not current");
   }
-
-  Ok((fetch_commit, false))
+  Ok(())
 }
 
 fn safe_fetch(repo: &Repository, remote_name: &str, specs: &[&str], all_tags: bool) -> Result<()> {
