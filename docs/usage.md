@@ -22,15 +22,16 @@ You also have a `.versio.yaml` at the root of your repository:
 ```yaml
 projects:
   - name: codebase
+    root: "codebase"
     id: 1
     located:
-      file: "codebase/package.json"
+      file: "package.json"
       json: "version"
 ```
 
-Versio has handlers for JSON, YAML, and TOML files, as well as plain
-files which contain only a version number, or any file which can be
-scanned for a version number via a regular expression.
+Versio has handlers for JSON, YAML, XML, and TOML files, as well as
+plain files which contain only a version number, or any file which can
+be scanned for a version number via a regular expression.
 
 ### Getting
 
@@ -68,6 +69,8 @@ manage multiple projects in the same repo.
 
 ## Git Integration
 
+### Conventional commits
+
 In a `git` repository, `versio` is even more useful. You can assign
 "includes" to your projects, and "sizes" to your repo:
 
@@ -75,9 +78,10 @@ In a `git` repository, `versio` is even more useful. You can assign
 projects:
   - name: codebase
     id: 1
-    includes: ["codebase/**/*"]
+    root: codebase
+    includes: ["**/*"]
     located:
-      file: "codebase/package.json"
+      file: "package.json"
       json: "version"
 
 sizes:
@@ -113,11 +117,15 @@ The "none" size indicates that a matched commit shouldn't trigger a
 version increment. The "fail" size indicates that the run process should
 plan to fail, rather than increment, if a matching type is encountered.
 
+### Prev tag
+
 Versio uses a tag named `versio-prev` to indicate where it should start
 scanning for commits. This bounds the work it has to do, and also allows
 incremental version changes over time. When you first commit the root
 `.versio.yaml` config file, you should tag that commit with the
 `versio-prev` tag, and make sure that tag is pushed to the remote.
+
+### Running
 
 For example, let's say you're using the above config, and have a single
 commit since the `versio-prev` tag:
@@ -148,41 +156,43 @@ The `run` command will:
 1. merge the current branch from the remote into the clean and current
    working directory
 1. scan through the git log for conventional commits since the
-   `versio-prev` tag
-1. find the size for each commit
+   `versio-prev` tag to generate a plan
+1. find the size for each commit according to the plan
+1. possibly update a changelog according to the plan
 1. increment each project version by the maximum size of commits
    it includes
-1. commit those version increments to git
-1. re-assign the `versio-prev` tag to that latest commit
-1. push both the commit and the tag to the remote
-
-The fetch, merge, and push steps are not performed if the repository
-doesn't have any remotes added.
+1. possibly generate a git tag for the new project version
+1. commit those version increments (and maybe changelog)
+1. re-assign the `versio-prev` tag (and maybe the new project tag) to
+   that latest commit
+1. push both the commit and the tag(s) to the remote
 
 ### Plans
 
-> TODO: the description here is unclear, and not entirely accurate.
+A *plan* is created by Versio by reading the current and previous
+versions of commits and configuration. It contains the size increment
+for each project and the changes that have occurred. A plan is used to
+generate a changelog for a project, and to determine what a project's
+target version number should be.
 
-Plans are built with respect to **previous** projects and includes. That
-is, Versio will read the `.versio.yaml` file as it existed in the past
-(at the `versio-prev` tag) to determine which projects need to be
-incremented, and what version they need to be incremented to. New
-projects that were added since then will not be incremented, nor will
-projects which have already been incremented by at least the correct
-amount.
+Plans are built according to their configuration at each commit. For
+example, if a commit lists a changed file `dir1/file.txt`, and if the
+version of `.versio.yaml` *on that commit* has project 1 that includes
+`"dir1/**/*"`, then that counts as a change to project 1, even if the
+current version of `versio.yaml` does not include that file.
 
-Of course, the `.versio.yaml` file might itself have gone through
-several iterations since `versio-prev`, corresponding to changes in the
-repo structure. Future releases of Versio will follow the evolution of
-`.versio.yaml`, making sure that project changes are identified
-correctly. (TODO: do this.)
+The consequence here is that you should always keep your `.versio.yaml`
+file in sync with your projects. If you move a project into a different
+directory, you should change the `root` property of that file in
+`.versio.yaml`; if you add files to a property that you don't want
+included/excluded, you should also change that projects
+`includes`/`excludes` properties; etc. Changes to your project structure
+should be committed on the same commit as matching changes to your
+`.versio.yaml` file.
 
-On the other hand, Versio will use the **current** version of
-`.versio.yaml` to determine what size a commit has, and will only
-attempt to increment projects that also exist in the current config.
-This is why each project needs a unique and unchanging ID: it makes it
-possible to change the name, coverage, etc of a project, but still
-correlate its present incarnation with its past self.
+On the other hand, only the current `.versio.yaml` will be considered to
+determine what sizes correspond to commit messages, and only currently
+listed projects can have their version number incremented.
 
 ## CI/CD Integration
 
@@ -198,3 +208,6 @@ You can use Versio as part of a pre-merge and post-merge process, too:
 before merging into a deployment branch, and they will output status
 messages that make it easy to track where changes to version numbers
 have occurred.
+
+See the Use Cases document to read more about various uses of `versio`
+in CI/CD pipelines. (TODO: do this)

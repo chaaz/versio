@@ -82,7 +82,7 @@ exits with an error&mdash;a causal chain and back trace to the source of
 the error. While the back trace is not useful to most users, it's
 extremely helpful to provide when filing a bug report to the dev team.
 
-You can read about [VCS Levels](./docs/vcs_levels.md) if your error has
+You can read about [VCS Levels](./vcs_levels.md) if your error has
 to do with VCS levels or ranges; some commands can't execute if the
 preferred or detected VCS Level is insufficient.
 
@@ -122,7 +122,7 @@ provide insight:
   need to trace through a failed execution, or if you want to preview an
   execution without commitment.
 
-The [VCS Level](./docs/vcs_levels.md) may affect version calculation.
+The [VCS Level](./vcs_levels.md) may affect version calculation.
 For example, if the level is "Local", changes that exist only on the
 remote will not be considered. Or, if the level is "Remote" instead of
 "Smart", then Versio will not perform PR unsquashing or PR grouping of
@@ -155,7 +155,7 @@ output all the write attempts that are made while executing. This is
 probably the best way to figure out why Versio might be behaving
 incorrectly.
 
-The [VCS Level](./docs/vcs_levels.md) may affect how things are written.
+The [VCS Level](./vcs_levels.md) may affect how things are written.
 For example, if the level is "Local", no changes to files or tags will
 be pushed to the remote. If the level is "None", nothing will even be
 committed! 

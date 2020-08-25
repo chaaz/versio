@@ -4,6 +4,7 @@ These are some of the common ways that you might want to use Versio in
 your own development. If you find a novel way to use Versio, please let
 us know!
 
+<!--
 ## Quick Start (Future)
 
 > The following assumes features that haven't yet been implemented
@@ -53,6 +54,7 @@ but Versio works with all kinds of projects.
     myproject : 1.0.1 -> 1.1.0
   Changes committed and pushed.
   ```
+-->
 
 ## Quick Start
 
@@ -125,6 +127,8 @@ can adjust your config easily to something else.
   ```
 
 ## Create / Update Configuration
+
+> TODO ?
 
 After you've started using Versio, you may want to create a
 `.versio.yaml` config file in your repo, to take advantage of more
