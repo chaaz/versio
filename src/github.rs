@@ -1,7 +1,7 @@
 //! Interactions with github API v4.
 
 use crate::errors::Result;
-use crate::git::{CommitInfoBuf, FullPr, GithubInfo, Repo, Span};
+use crate::git::{CommitInfoBuf, FullPr, GithubInfo, Repo, Span, FromTag, FromTagBuf};
 use chrono::{DateTime, FixedOffset, TimeZone, Utc};
 use git2::Time;
 use github_gql::{client::Github, IntoGithubRequest};
@@ -24,7 +24,7 @@ use std::fmt;
 /// rebase). The squash commit is excluded from all PRs: instead the PR's own commits are examined normally. In
 /// this way, the original type and size information from the PR is preserved.
 #[allow(clippy::map_entry)]
-pub fn changes(repo: &Repo, baseref: String, headref: String) -> Result<Changes> {
+pub fn changes(repo: &Repo, baseref: FromTagBuf, headref: String) -> Result<Changes> {
   let mut all_commits = HashSet::new();
   let mut all_prs = HashMap::new();
 
@@ -89,8 +89,8 @@ pub fn changes(repo: &Repo, baseref: String, headref: String) -> Result<Changes>
   Ok(Changes { commits: all_commits, groups: all_prs })
 }
 
-pub fn line_commits_head(repo: &Repo, base: &str) -> Result<Vec<CommitInfoBuf>> {
-  repo.commits_to_head(&base, false)?.map(|i| i?.buffer()).collect::<Result<_>>()
+pub fn line_commits_head(repo: &Repo, base: FromTag) -> Result<Vec<CommitInfoBuf>> {
+  repo.commits_to_head(base, false)?.map(|i| i?.buffer()).collect::<Result<_>>()
 }
 
 fn commits_from_v4_api(github_info: &GithubInfo, span: &Span) -> Result<Vec<ApiCommit>> {
@@ -145,7 +145,6 @@ fragment commitResult on Commit {
     github_info.repo_name()
   );
 
-  // TODO: actual API token
   let token = "f517363ac4a9fc04df72aeccba4765fa73d719c6";
   let mut github = Github::new(token)?;
   let query = QueryVars::new(query.to_string(), variables);
@@ -155,8 +154,9 @@ fragment commitResult on Commit {
   let changes = changes.data.repository.commit.history.nodes;
   let mut changes: HashMap<String, ApiCommit> = changes.into_iter().map(|c| (c.oid().to_string(), c)).collect();
 
+  // Remove anything reachable by span.begin()
   let mut remqueue = VecDeque::new();
-  remqueue.push_back(span.begin().to_string());
+  remqueue.push_back(span.begin().tag().to_string());
   while let Some(rem) = remqueue.pop_front() {
     if let Some(commit) = changes.remove(&rem) {
       for edge in commit.parents.edges {
@@ -270,7 +270,7 @@ impl PrEdgeNode {
   pub fn state(&self) -> &str { &self.state }
 
   pub fn lookup(self, repo: &Repo) -> Result<FullPr> {
-    FullPr::lookup(repo, self.base_ref_oid, self.head_ref_name, self.number, self.closed_at)
+    FullPr::lookup(repo, FromTagBuf::new(self.base_ref_oid, false), self.head_ref_name, self.number, self.closed_at)
   }
 }
 

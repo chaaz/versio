@@ -2,7 +2,7 @@
 
 use crate::config::ProjectId;
 use crate::errors::Result;
-use crate::git::{Repo, Slice};
+use crate::git::{Repo, Slice, FromTagBuf};
 use crate::mark::{NamedData, Picker};
 use log::{trace, warn};
 use regex::Regex;
@@ -54,8 +54,8 @@ impl StateRead for CurrentState {
 impl CurrentState {
   pub fn new(root: PathBuf, tags: OldTags) -> CurrentState { CurrentState { files: CurrentFiles::new(root), tags } }
 
-  pub fn slice<'r>(&self, spec: String, repo: &'r Repo) -> Result<PrevState<'r>> {
-    let commit_oid = repo.revparse_oid(&spec)?;
+  pub fn slice<'r>(&self, spec: FromTagBuf, repo: &'r Repo) -> Result<PrevState<'r>> {
+    let commit_oid = repo.revparse_oid(spec.as_from_tag())?;
     let old_tags = self.tags.slice_earlier(&commit_oid)?;
     Ok(PrevState::new(repo.slice(spec), commit_oid, old_tags))
   }
@@ -128,7 +128,7 @@ impl<'r> PrevFiles<'r> {
   }
 
   pub fn new(slice: Slice<'r>, commit_oid: String) -> PrevFiles { PrevFiles { slice, commit_oid } }
-  pub fn slice_to(&self, spec: String) -> Result<PrevFiles<'r>> { PrevFiles::from_slice(self.slice.slice(spec)) }
+  pub fn slice_to(&self, spec: FromTagBuf) -> Result<PrevFiles<'r>> { PrevFiles::from_slice(self.slice.slice(spec)) }
 }
 
 #[derive(Debug)]

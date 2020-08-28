@@ -9,7 +9,7 @@ project to use VCS tagging instead of a manifest file to track versions.
 
 ```yaml
 tag_prefix: "projname"
-located:
+version:
   tags:
     default: "0.0.0"
 ```
@@ -17,7 +17,7 @@ located:
 The `tag_prefix` property causes Versio to write out a new
 "[tag\_prefix]-v*x.y.z*" tag for the project when the version number is
 changed. The property is optional for most projects, but required for
-projects that use `located: tags`. The default value is used when no
+projects that use `version: tags`. The default value is used when no
 existing "projname-v*x.y.z*" tags currently exist.
 
 > Since `tag_prefix` is used to find older tags of a project, you should
@@ -25,7 +25,7 @@ existing "projname-v*x.y.z*" tags currently exist.
 > change the `tag_prefix`, you may need to manually re-tag your commit
 > history, or else Versio may be unable to locate past version numbers.
 
-> If a project uses `located: tags:`, you may want to use the
+> If a project uses `version: tags:`, you may want to use the
 > `--vcs-level=max` option while running the `versio set` command for
 > that project. This command normally runs at the `none` VCS level,
 > because it typically used to just update a file. However, for

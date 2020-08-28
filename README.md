@@ -79,7 +79,7 @@ Here's a simple project that might be found in the Versio config:
 - name: project
   id: 1
   includes: ["**/*"]
-  located:
+  version:
     file: "package.json"
     json: "version"
 ```

@@ -83,7 +83,7 @@ can adjust your config easily to something else.
     - name: project
       id: 1
       includes: ["**/*"]
-      located:
+      version:
         file: "package.json"
         json: "version"
 

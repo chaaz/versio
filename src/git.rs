@@ -11,7 +11,7 @@ use git2::string_array::StringArray;
 use git2::{
   AnnotatedCommit, AutotagOption, Blob, Commit, Cred, Diff, DiffOptions, FetchOptions, Index, Object, ObjectType, Oid,
   PushOptions, Reference, ReferenceType, Remote, RemoteCallbacks, Repository, RepositoryOpenFlags, RepositoryState,
-  ResetType, Signature, Status, StatusOptions, Time
+  ResetType, Signature, Status, StatusOptions, Time, Revwalk
 };
 use log::{error, info, trace, warn};
 use regex::Regex;
@@ -22,6 +22,7 @@ use std::ffi::OsStr;
 use std::io::{stdout, Write};
 use std::iter::empty;
 use std::path::{Path, PathBuf};
+use std::fmt;
 
 pub struct Repo {
   vcs: GitVcsLevel
@@ -94,13 +95,13 @@ impl Repo {
     }
   }
 
-  pub fn revparse_oid(&self, spec: &str) -> Result<String> {
+  pub fn revparse_oid(&self, spec: FromTag) -> Result<String> {
     let repo = self.repo()?;
     verify_current(repo).chain_err(|| "Can't complete get.")?;
-    Ok(repo.revparse_single(spec)?.id().to_string())
+    Ok(repo.revparse_single(spec.tag())?.id().to_string())
   }
 
-  pub fn slice(&self, refspec: String) -> Slice { Slice { repo: self, refspec } }
+  pub fn slice(&self, refspec: FromTagBuf) -> Slice { Slice { repo: self, refspec } }
 
   pub fn tag_names(&self, pattern: Option<&str>) -> Result<IterString> {
     match &self.vcs {
@@ -117,13 +118,13 @@ impl Repo {
 
   pub fn github_info(&self) -> Result<GithubInfo> { find_github_info(self.repo()?, self.remote_name()?) }
 
-  /// Return all commits as in `git rev-list from_sha..to_sha`, along with the earliest time in that range.
+  /// Return all commits as in `git rev-list from..to_sha`, along with the earliest time in that range.
   ///
   /// `from` may be any legal target of `rev-parse`.
-  pub fn commits_between_buf(&self, from_sha: &str, to_oid: Oid) -> Result<Option<(Vec<CommitInfoBuf>, Time)>> {
+  pub fn commits_between_buf(&self, from: FromTag, to_oid: Oid) -> Result<Option<(Vec<CommitInfoBuf>, Time)>> {
     let repo = self.repo()?;
     let mut revwalk = repo.revwalk()?;
-    revwalk.hide(repo.revparse_single(from_sha)?.id())?;
+    hide_from(repo, &mut revwalk, from)?;
     revwalk.push(to_oid)?;
 
     revwalk.try_fold::<_, _, Result<Option<(Vec<CommitInfoBuf>, Time)>>>(None, |v, oid| {
@@ -140,21 +141,18 @@ impl Repo {
     })
   }
 
-  /// Return all commits as in `git rev-list from_sha..to_sha`.
+  /// Return all commits as in `git rev-list from..to_sha`.
   ///
   /// `from` may be any legal target of `rev-parse`.
   pub fn commits_between(
-    &self, from: &str, to_oid: Oid, incl_from: bool
-  ) -> Result<impl Iterator<Item = Result<CommitInfo<'_>>> + '_> {
+    &self, from: FromTag, to_oid: Oid, incl_from: bool
+  ) -> Result<impl Iterator<Item = Result<CommitInfo>> + '_> {
     let repo = self.repo()?;
     let mut revwalk = repo.revwalk()?;
     if incl_from {
-      let commit = repo.revparse_single(from)?.peel_to_commit()?;
-      for pid in commit.parent_ids() {
-        revwalk.hide(pid)?;
-      }
+      hide_from_parents(repo, &mut revwalk, from)?;
     } else {
-      revwalk.hide(repo.revparse_single(from)?.id())?;
+      hide_from(repo, &mut revwalk, from)?;
     }
     revwalk.push(to_oid)?;
 
@@ -164,9 +162,9 @@ impl Repo {
   /// Return all commits as in `git rev-list from_sha..HEAD`.
   ///
   /// `from` may be any legal target of `rev-parse`.
-  pub fn commits_to_head(
-    &self, from: &str, incl_from: bool
-  ) -> Result<impl Iterator<Item = Result<CommitInfo<'_>>> + '_> {
+  pub fn commits_to_head<'r>(
+    &'r self, from: FromTag, incl_from: bool
+  ) -> Result<impl Iterator<Item = Result<CommitInfo<'r>>> + 'r> {
     let head_oid = match &self.vcs {
       GitVcsLevel::None { .. } => return Ok(E2::A(empty())),
       _ => self.get_oid_head()?.id()
@@ -316,13 +314,13 @@ impl Repo {
 #[derive(Clone)]
 pub struct Slice<'r> {
   repo: &'r Repo,
-  refspec: String
+  refspec: FromTagBuf
 }
 
 impl<'r> Slice<'r> {
   pub fn has_blob(&self, path: &str) -> Result<bool> { Ok(self.object(path).is_ok()) }
-  pub fn slice(&self, refspec: String) -> Slice<'r> { Slice { repo: self.repo, refspec } }
-  pub fn revparse_oid(&self) -> Result<String> { self.repo.revparse_oid(&self.refspec) }
+  pub fn slice(&self, refspec: FromTagBuf) -> Slice<'r> { Slice { repo: self.repo, refspec } }
+  pub fn revparse_oid(&self) -> Result<String> { self.repo.revparse_oid(self.refspec.as_from_tag()) }
 
   pub fn blob(&self, path: &str) -> Result<Blob> {
     let obj = self.object(path)?;
@@ -340,11 +338,11 @@ impl<'r> Slice<'r> {
   }
 
   fn object(&self, path: &str) -> Result<Object> {
-    Ok(self.repo.repo()?.revparse_single(&format!("{}:{}", &self.refspec, path))?)
+    Ok(self.repo.repo()?.revparse_single(&format!("{}:{}", self.refspec.tag(), path))?)
   }
 
   pub fn date(&self) -> Result<Time> {
-    let obj = self.repo.repo()?.revparse_single(&format!("{}^{{}}", self.refspec))?;
+    let obj = self.repo.repo()?.revparse_single(&format!("{}^{{}}", self.refspec.tag()))?;
     let commit = obj.into_commit().map_err(|o| bad!("\"{}\" isn't a commit.", o.id()))?;
     Ok(commit.time())
   }
@@ -472,7 +470,7 @@ pub struct FullPr {
   number: u32,
   head_ref: String,
   head_oid: Option<Oid>,
-  base_oid: String,
+  base_oid: FromTagBuf,
   base_time: Time,
   commits: Vec<CommitInfoBuf>,
   excludes: Vec<String>,
@@ -481,7 +479,7 @@ pub struct FullPr {
 
 impl FullPr {
   pub fn lookup(
-    repo: &Repo, base: String, headref: String, number: u32, closed_at: DateTime<FixedOffset>
+    repo: &Repo, base: FromTagBuf, headref: String, number: u32, closed_at: DateTime<FixedOffset>
   ) -> Result<FullPr> {
     let commit = repo.get_oid(&headref);
     match lookup_from_commit(repo, base.clone(), commit)? {
@@ -514,7 +512,7 @@ impl FullPr {
   pub fn number(&self) -> u32 { self.number }
   pub fn head_ref(&self) -> &str { &self.head_ref }
   pub fn head_oid(&self) -> &Option<Oid> { &self.head_oid }
-  pub fn base_oid(&self) -> &str { &self.base_oid }
+  pub fn base_oid(&self) -> FromTag { self.base_oid.as_from_tag() }
   pub fn commits(&self) -> &[CommitInfoBuf] { &self.commits }
   pub fn excludes(&self) -> &[String] { &self.excludes }
   pub fn best_guess(&self) -> bool { self.head_oid.is_none() }
@@ -548,15 +546,15 @@ pub struct Span {
   number: u32,
   end: Oid,
   since: Time,
-  begin: String
+  begin: FromTagBuf
 }
 
 impl Span {
-  pub fn new(number: u32, end: Oid, since: Time, begin: String) -> Span { Span { number, end, since, begin } }
+  pub fn new(number: u32, end: Oid, since: Time, begin: FromTagBuf) -> Span { Span { number, end, since, begin } }
 
   pub fn number(&self) -> u32 { self.number }
   pub fn end(&self) -> Oid { self.end }
-  pub fn begin(&self) -> &str { &self.begin }
+  pub fn begin(&self) -> FromTag { self.begin.as_from_tag() }
   pub fn since(&self) -> &Time { &self.since }
 }
 
@@ -592,6 +590,48 @@ impl GitVcsLevel {
       VcsLevel::Remote => GitVcsLevel::Remote { repo, branch_name, remote_name, fetches },
       VcsLevel::Smart => GitVcsLevel::Smart { repo, branch_name, remote_name, fetches }
     }
+  }
+}
+
+/// A git commit hash-like (hash, branch, tag, etc) to revwalk "from" (a.k.a. "hide"), or none if the hash-like
+/// couldn't be looked up.
+#[derive(Clone)]
+pub struct FromTag<'a> {
+  tag: &'a str,
+  else_none: bool
+}
+
+impl<'a> FromTag<'a> {
+  pub fn new(tag: &'a str, else_none: bool) -> FromTag<'a> { FromTag { tag, else_none } }
+  pub fn to_from_tag_buf(&self) -> FromTagBuf { FromTagBuf::new(self.tag.to_string(), self.else_none) }
+  pub fn tag(&self) -> &'a str { self.tag }
+}
+
+impl<'a> Into<FromTag<'a>> for &'a str {
+  fn into(self) -> FromTag<'a> { FromTag::new(self, false) }
+}
+
+impl<'a> fmt::Display for FromTag<'a> {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    write!(f, "[from {}{}]", self.tag, if self.else_none { " (else none)" } else { "" })
+  }
+}
+
+#[derive(Clone)]
+pub struct FromTagBuf {
+  tag: String,
+  else_none: bool
+}
+
+impl FromTagBuf {
+  pub fn new(tag: String, else_none: bool) -> FromTagBuf { FromTagBuf { tag, else_none } }
+  pub fn as_from_tag(&self) -> FromTag { FromTag::new(&self.tag, self.else_none) }
+  pub fn tag(&self) -> &str { &self.tag }
+}
+
+impl fmt::Display for FromTagBuf {
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    write!(f, "[from {}{}]", self.tag, if self.else_none { " (else none)" } else { "" })
   }
 }
 
@@ -649,6 +689,41 @@ fn find_github_info(repo: &Repository, remote_name: &str) -> Result<GithubInfo> 
   let slash = slash.ok_or_else(|| bad!("No slash found in github path \"{}\".", path))?;
 
   Ok(GithubInfo::new(path[0 .. slash].to_string(), path[slash + 1 ..].to_string()))
+}
+
+/// Hide ancestors of `from` from the revwalk, but don't hide anything if the commit-ish can't be found and
+/// `else_none` is true.
+fn hide_from<'r>(repo: &'r Repository, revwalk: &mut Revwalk<'r>, from: FromTag) -> Result<()> {
+  let FromTag { tag, else_none } = from;
+  match repo.revparse_single(&tag) {
+    Ok(oid) => Ok(revwalk.hide(oid.id())?),
+    Err(err) => {
+      if !else_none {
+        Err(err).chain_err(|| format!("Can't find commits start {}", tag))
+      } else {
+        Ok(())
+      }
+    }
+  }
+}
+
+fn hide_from_parents<'r>(repo: &'r Repository, revwalk: &mut Revwalk<'r>, from: FromTag) -> Result<()> {
+  let FromTag { tag, else_none } = from;
+  match repo.revparse_single(&tag).and_then(|obj| obj.peel_to_commit()) {
+    Ok(commit) => {
+      for pid in commit.parent_ids() {
+        revwalk.hide(pid)?;
+      }
+      Ok(())
+    }
+    Err(err) => {
+      if !else_none {
+        Err(err).chain_err(|| format!("Can't find inclusive commits start {}", tag))
+      } else {
+        Ok(())
+      }
+    }
+  }
 }
 
 /// Merge the given commit into the working directory, but only if it's fast-forward-able.
@@ -733,7 +808,7 @@ fn files_from_commit<'a>(repo: &'a Repository, commit: &Commit<'a>) -> Result<im
 }
 
 fn lookup_from_commit<'a>(
-  repo: &Repo, base: String, commit: Result<AnnotatedCommit<'a>>
+  repo: &Repo, base: FromTagBuf, commit: Result<AnnotatedCommit<'a>>
 ) -> Result<Result<(AnnotatedCommit<'a>, Vec<CommitInfoBuf>, Time)>> {
   let commit_id = commit.as_ref().map(|c| c.id().to_string()).unwrap_or_else(|_| "<err>".to_string());
   let result = match commit {
@@ -741,7 +816,7 @@ fn lookup_from_commit<'a>(
     Ok(commit) => {
       let base_time = repo.slice(base.clone()).date()?;
       let (commits, base_time) = repo
-        .commits_between_buf(&base, commit.id())?
+        .commits_between_buf(base.as_from_tag(), commit.id())?
         .map(|(commits, early)| (commits, min(base_time, early)))
         .unwrap_or_else(|| (Vec::new(), base_time));
       Ok(Ok((commit, commits, base_time)))

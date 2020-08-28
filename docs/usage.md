@@ -24,7 +24,7 @@ projects:
   - name: codebase
     root: "codebase"
     id: 1
-    located:
+    version:
       file: "package.json"
       json: "version"
 ```
@@ -64,7 +64,7 @@ This is a pretty simple example, but you can imagine how useful it is to
 manage multiple projects in the same repo.
 
 > TODO: describe how `set` has a default VCS runlevel of `none`, and can
-> be bumped to `--vcs-level=max` if you have a `located: tags:` that
+> be bumped to `--vcs-level=max` if you have a `version: tags:` that
 > needs to update local/remote tags. See [VCS Levels](./vcs_levels.md).
 
 ## Git Integration
@@ -80,7 +80,7 @@ projects:
     id: 1
     root: codebase
     includes: ["**/*"]
-    located:
+    version:
       file: "package.json"
       json: "version"
 

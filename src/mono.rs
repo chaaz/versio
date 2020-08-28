@@ -4,7 +4,7 @@ use crate::analyze::{analyze, Analysis};
 use crate::config::{Config, ConfigFile, FsConfig, Project, ProjectId, Size};
 use crate::either::{IterEither2 as E2, IterEither3 as E3};
 use crate::errors::Result;
-use crate::git::{CommitInfoBuf, FullPr, Repo};
+use crate::git::{CommitInfoBuf, FullPr, Repo, FromTag, FromTagBuf};
 use crate::github::{changes, line_commits_head, Changes};
 use crate::state::{CurrentState, OldTags, PrevFiles, StateRead, StateWrite};
 use crate::vcs::VcsLevel;
@@ -145,7 +145,7 @@ impl Mono {
   }
 
   pub fn changes(&self) -> Result<Changes> {
-    let base = self.current.prev_tag().to_string();
+    let base = FromTagBuf::new(self.current.prev_tag().to_string(), true);
     let head = self.repo.branch_name()?.to_string();
     changes(&self.repo, base, head)
   }
@@ -158,7 +158,7 @@ fn find_last_commits(current: &Config<CurrentState>, repo: &Repo) -> Result<Hash
   let mut last_commits = LastCommitBuilder::create(repo, &current)?;
 
   // Consider the in-line commits to determine the last commit (if any) for each project.
-  for commit in line_commits_head(repo, prev_spec)? {
+  for commit in line_commits_head(repo, FromTag::new(prev_spec, true))? {
     last_commits.start_line_commit(&commit)?;
     for file in commit.files() {
       last_commits.start_line_file(file)?;
@@ -322,7 +322,7 @@ impl<'s> PlanBuilder<'s> {
     let kind = commit.kind().to_string();
     let summary = commit.summary().to_string();
     self.on_commit = Some(commit);
-    self.prev.slice_to(id.clone())?;
+    self.prev.slice_to(FromTagBuf::new(id.clone(), false))?;
 
     for (proj_id, logged_pr) in &mut self.on_pr_sizes {
       if let Some(cur_project) = self.current.get_project(proj_id) {
@@ -441,7 +441,7 @@ impl<'s, C: StateRead> LastCommitBuilder<'s, C> {
   pub fn start_line_commit(&mut self, commit: &CommitInfoBuf) -> Result<()> {
     let id = commit.id().to_string();
     self.on_line_commit = Some(id.clone());
-    self.prev.slice_to(id)?;
+    self.prev.slice_to(FromTagBuf::new(id, false))?;
     Ok(())
   }
 
@@ -479,7 +479,7 @@ impl<'r> Slicer<'r> {
     }
   }
 
-  pub fn slice_to(&mut self, id: String) -> Result<()> {
+  pub fn slice_to(&mut self, id: FromTagBuf) -> Result<()> {
     *self = Slicer::Slice(match self {
       Slicer::Orig(repo) => FsConfig::from_slice(repo.slice(id))?,
       Slicer::Slice(fsc) => fsc.slice_to(id)?
@@ -495,7 +495,7 @@ fn find_old_tags<'s, I: Iterator<Item = &'s Project>>(projects: I, prev_tag: &st
     for fnmatch in tag_fnmatches(proj) {
       trace!("searching tags for proj {} matching {}", proj.id(), fnmatch);
       for tag in repo.tag_names(Some(fnmatch.as_str()))?.iter().filter_map(identity) {
-        let oid = repo.revparse_oid(&format!("{}^{{}}", tag))?;
+        let oid = repo.revparse_oid(FromTag::new(&format!("{}^{{}}", tag), false))?;
         trace!("  found proj {} tag {} at {}", proj.id(), tag, oid);
         let by_id = by_proj_oid.entry(proj.id().clone()).or_insert_with(HashMap::new);
         by_id.entry(oid).or_insert_with(Vec::new).push(tag.to_string());
@@ -506,9 +506,9 @@ fn find_old_tags<'s, I: Iterator<Item = &'s Project>>(projects: I, prev_tag: &st
   let mut by_proj = HashMap::new();
   let mut not_after = HashMap::new();
   let mut not_after_walk = HashMap::new();
-  // Search from prev_tag's parent, so that we can include any co-correspondent tags; the last run of versio may
-  // have put a bunch of tags (including prev_tag) on HEAD.
-  for commit_oid in repo.commits_to_head(prev_tag, true)?.map(|c| c.map(|c| c.id())) {
+  // TODO: ensure commits_to_head is ordered "head" to "from"
+  // TODO: in the case of missing prev_tag, handle huge walk ?
+  for commit_oid in repo.commits_to_head(FromTag::new(prev_tag, true), true)?.map(|c| c.map(|c| c.id())) {
     let commit_oid = commit_oid?;
     for (proj_id, by_id) in &mut by_proj_oid {
       let not_after_walk = not_after_walk.entry(proj_id.clone()).or_insert_with(Vec::new);
@@ -516,7 +516,7 @@ fn find_old_tags<'s, I: Iterator<Item = &'s Project>>(projects: I, prev_tag: &st
       if let Some(tags) = by_id.remove(&commit_oid) {
         // TODO: sort by timestamp (annotated `Tag.tagger().when()`), latest first instead?
         let mut versions = tags_to_versions(&tags);
-        versions.sort_unstable_by(tag_sort);
+        versions.sort_unstable_by(version_sort);
         let old_versions = by_proj.entry(proj_id.clone()).or_insert_with(Vec::new);
         let best_ind = old_versions.len();
         old_versions.extend_from_slice(&versions);
@@ -566,7 +566,7 @@ fn tags_to_versions(tags: &[String]) -> Vec<String> {
 }
 
 #[allow(clippy::ptr_arg)]
-fn tag_sort(a: &String, b: &String) -> Ordering {
+fn version_sort(a: &String, b: &String) -> Ordering {
   let p1 = Size::parts(a);
   let p2 = Size::parts(b);
 

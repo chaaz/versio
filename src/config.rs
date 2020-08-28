@@ -3,7 +3,7 @@
 use crate::analyze::AnnotatedMark;
 use crate::either::IterEither2 as E2;
 use crate::errors::{Result, ResultExt};
-use crate::git::{Repo, Slice};
+use crate::git::{Repo, Slice, FromTagBuf};
 use crate::mark::{FilePicker, LinePicker, Picker, ScanningPicker};
 use crate::mono::ChangeLog;
 use crate::scan::parts::{deserialize_parts, Part};
@@ -90,12 +90,12 @@ pub struct Config<S: StateRead> {
 impl Config<CurrentState> {
   pub fn prev_tag(&self) -> &str { self.file.prev_tag() }
 
-  pub fn slice<'r>(&self, spec: String, repo: &'r Repo) -> Result<Config<PrevState<'r>>> {
+  pub fn slice<'r>(&self, spec: FromTagBuf, repo: &'r Repo) -> Result<Config<PrevState<'r>>> {
     Config::from_state(self.state.slice(spec, repo)?)
   }
 
   pub fn slice_to_prev<'r>(&self, repo: &'r Repo) -> Result<Config<PrevState<'r>>> {
-    self.slice(self.prev_tag().to_string(), repo)
+    self.slice(FromTagBuf::new(self.prev_tag().to_string(), true), repo)
   }
 }
 
@@ -142,7 +142,7 @@ pub struct FsConfig<F: FilesRead> {
 }
 
 impl<'r> FsConfig<PrevFiles<'r>> {
-  pub fn slice_to(&self, spec: String) -> Result<FsConfig<PrevFiles<'r>>> {
+  pub fn slice_to(&self, spec: FromTagBuf) -> Result<FsConfig<PrevFiles<'r>>> {
     FsConfig::from_read(self.files.slice_to(spec)?)
   }
 
@@ -264,8 +264,8 @@ pub struct Project {
   #[serde(default)]
   depends: Vec<ProjectId>,
   change_log: Option<String>,
-  #[serde(deserialize_with = "deserialize_located")]
-  located: Location,
+  #[serde(deserialize_with = "deserialize_version")]
+  version: Location,
   tag_prefix: Option<String>,
   #[serde(default)]
   subs: Option<Subs>
@@ -304,7 +304,7 @@ impl Project {
   }
 
   pub fn tag_prefix(&self) -> &Option<String> { &self.tag_prefix }
-  pub fn tag_majors(&self) -> Option<&[u32]> { self.located.tag_majors() }
+  pub fn tag_majors(&self) -> Option<&[u32]> { self.version.tag_majors() }
 
   pub fn write_change_log(&self, write: &mut StateWrite, cl: &ChangeLog) -> Result<Option<PathBuf>> {
     if cl.is_empty() {
@@ -393,18 +393,18 @@ impl Project {
 
   /// Ensure that we don't have excludes without includes.
   fn check_prefix(&self) -> Result<()> {
-    if self.located.is_tag() && self.tag_prefix.is_none() {
-      bail!("Proj {} has located: tag without tag_prefix, self.id");
+    if self.version.is_tag() && self.tag_prefix.is_none() {
+      bail!("Proj {} has version: tag without tag_prefix, self.id");
     }
     Ok(())
   }
 
   pub fn get_value<S: StateRead>(&self, read: &S) -> Result<String> {
-    self.located.read_value(read, self.root(), self.id())
+    self.version.read_value(read, self.root(), self.id())
   }
 
   pub fn set_value(&self, write: &mut StateWrite, val: &str) -> Result<()> {
-    self.located.write_value(write, self.root(), val, &self.id)?;
+    self.version.write_value(write, self.root(), val, &self.id)?;
     self.forward_tag(write, val)
   }
 
@@ -438,7 +438,7 @@ impl Project {
         excludes: expand_excludes(&self.excludes, &sub),
         depends: expand_depends(&self.depends, &sub),
         change_log: self.change_log.clone(),
-        located: expand_located(&self.located, &sub),
+        version: expand_version(&self.version, &sub),
         tag_prefix: self.tag_prefix.clone(),
         subs: None
       })))
@@ -507,11 +507,11 @@ fn expand_depends(depends: &[ProjectId], sub: &SubExtent) -> Vec<ProjectId> {
   }
 }
 
-fn expand_located(located: &Location, sub: &SubExtent) -> Location {
-  if located.is_tags() {
+fn expand_version(version: &Location, sub: &SubExtent) -> Location {
+  if version.is_tags() {
     Location::Tag(TagLocation { tags: TagSpec::MajorTag(MajorTagSpec { majors: sub.majors().to_vec() }) })
   } else {
-    located.clone()
+    version.clone()
   }
 }
 
@@ -804,7 +804,7 @@ impl Ord for Size {
   }
 }
 
-fn deserialize_located<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<Location, D::Error> {
+fn deserialize_version<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<Location, D::Error> {
   struct VecPartSeed;
 
   impl<'de> DeserializeSeed<'de> for VecPartSeed {
@@ -999,7 +999,7 @@ projects:
   - name: everything
     id: 1
     includes: ["**/*"]
-    located:
+    version:
       tags:
         default: "1.0.0"
       file: "toplevel.json""#;
@@ -1014,34 +1014,34 @@ projects:
   - name: everything
     id: 1
     includes: ["**/*"]
-    located:
+    version:
       file: "toplevel.json"
       json: "version"
 
   - name: project1
     id: 2
     includes: ["project1/**/*"]
-    located:
+    version:
       file: "project1/Cargo.toml"
       toml: "version"
 
   - name: "combined a and b"
     id: 3
     includes: ["nested/project_a/**/*", "nested/project_b/**/*"]
-    located:
+    version:
       file: "nested/version.txt"
       pattern: "v([0-9]+\\.[0-9]+\\.[0-9]+) .*"
 
   - name: "build image"
     id: 4
     depends: [2, 3]
-    located:
+    version:
       file: "build/VERSION""#;
 
     let config = ConfigFile::read(data).unwrap();
 
     assert_eq!(config.projects[0].id, ProjectId::from_id(1));
-    assert_eq!("line", config.projects[2].located.picker().picker_type());
+    assert_eq!("line", config.projects[2].version.picker().picker_type());
   }
 
   #[test]
@@ -1051,12 +1051,12 @@ projects:
   - name: p1
     id: 1
     includes: ["**/*"]
-    located: { file: f1 }
+    version: { file: f1 }
 
   - name: project1
     id: 1
     includes: ["**/*"]
-    located: { file: f2 }
+    version: { file: f2 }
     "#;
 
     assert!(ConfigFile::read(config).is_err());
@@ -1069,12 +1069,12 @@ projects:
   - name: p1
     id: 1
     includes: ["**/*"]
-    located: { file: f1 }
+    version: { file: f1 }
 
   - name: p1
     id: 2
     includes: ["**/*"]
-    located: { file: f2 }
+    version: { file: f2 }
     "#;
 
     assert!(ConfigFile::read(config).is_err());
@@ -1088,7 +1088,7 @@ projects:
     id: 1
     tag_prefix: "ixth*&o"
     includes: ["**/*"]
-    located: { file: f1 }
+    version: { file: f1 }
     "#;
 
     assert!(ConfigFile::read(config).is_err());
@@ -1102,7 +1102,7 @@ projects:
     id: 1
     tag_prefix: "ixthïo"
     includes: ["**/*"]
-    located: { file: f1 }
+    version: { file: f1 }
     "#;
 
     assert!(ConfigFile::read(config).is_err());
@@ -1116,13 +1116,13 @@ projects:
     id: 1
     tag_prefix: proj
     includes: ["**/*"]
-    located: { file: f1 }
+    version: { file: f1 }
 
   - name: p2
     id: 2
     tag_prefix: proj
     includes: ["**/*"]
-    located: { file: f2 }
+    version: { file: f2 }
     "#;
 
     assert!(ConfigFile::read(config).is_err());
@@ -1136,13 +1136,13 @@ projects:
     id: 1
     tag_prefix: "_proj1-abc"
     includes: ["**/*"]
-    located: { file: f1 }
+    version: { file: f1 }
 
   - name: p2
     id: 2
     tag_prefix: proj2
     includes: ["**/*"]
-    located: { file: f2 }
+    version: { file: f2 }
     "#;
 
     assert!(ConfigFile::read(config).is_ok());
@@ -1191,11 +1191,12 @@ sizes:
       excludes: Vec::new(),
       depends: Vec::new(),
       change_log: None,
-      located: Location::File(FileLocation {
+      version: Location::File(FileLocation {
         file: "package.json".into(),
         picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())]))
       }),
-      tag_prefix: None
+      tag_prefix: None,
+      subs: None
     };
 
     assert!(proj.does_cover("base/somefile.txt").unwrap());
@@ -1212,11 +1213,12 @@ sizes:
       excludes: vec!["internal/**/*".into()],
       depends: Vec::new(),
       change_log: None,
-      located: Location::File(FileLocation {
+      version: Location::File(FileLocation {
         file: "package.json".into(),
         picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())]))
       }),
-      tag_prefix: None
+      tag_prefix: None,
+      subs: None
     };
 
     assert!(!proj.does_cover("base/internal/infile.txt").unwrap());
@@ -1232,11 +1234,12 @@ sizes:
       excludes: vec!["internal/**/*".into()],
       depends: Vec::new(),
       change_log: None,
-      located: Location::File(FileLocation {
+      version: Location::File(FileLocation {
         file: "package.json".into(),
         picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())]))
       }),
-      tag_prefix: None
+      tag_prefix: None,
+      subs: None
     };
 
     assert!(proj.check_excludes().is_err());
