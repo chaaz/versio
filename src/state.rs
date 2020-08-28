@@ -18,16 +18,12 @@ impl<S: StateRead> StateRead for &S {
 }
 
 pub trait FilesRead {
-  /// Find the commit hash it's reading from; returns `None` if it is located at the current state.
-  fn commit_oid(&self) -> Option<String>;
-
   fn has_file(&self, path: &Path) -> Result<bool>;
   fn read_file(&self, path: &Path) -> Result<String>;
   fn subdirs(&self, root: Option<&String>, regex: &str) -> Result<Vec<String>>;
 }
 
 impl<F: FilesRead> FilesRead for &F {
-  fn commit_oid(&self) -> Option<String> { <F as FilesRead>::commit_oid(*self) }
   fn has_file(&self, path: &Path) -> Result<bool> { <F as FilesRead>::has_file(*self, path) }
   fn read_file(&self, path: &Path) -> Result<String> { <F as FilesRead>::read_file(*self, path) }
   fn subdirs(&self, root: Option<&String>, regex: &str) -> Result<Vec<String>> {
@@ -41,7 +37,6 @@ pub struct CurrentState {
 }
 
 impl FilesRead for CurrentState {
-  fn commit_oid(&self) -> Option<String> { self.files.commit_oid() }
   fn has_file(&self, path: &Path) -> Result<bool> { self.files.has_file(path) }
   fn read_file(&self, path: &Path) -> Result<String> { self.files.read_file(path) }
   fn subdirs(&self, root: Option<&String>, regex: &str) -> Result<Vec<String>> { self.files.subdirs(root, regex) }
@@ -57,7 +52,7 @@ impl CurrentState {
   pub fn slice<'r>(&self, spec: FromTagBuf, repo: &'r Repo) -> Result<PrevState<'r>> {
     let commit_oid = repo.revparse_oid(spec.as_from_tag())?;
     let old_tags = self.tags.slice_earlier(&commit_oid)?;
-    Ok(PrevState::new(repo.slice(spec), commit_oid, old_tags))
+    Ok(PrevState::new(repo.slice(spec), old_tags))
   }
 }
 
@@ -66,7 +61,6 @@ pub struct CurrentFiles {
 }
 
 impl FilesRead for CurrentFiles {
-  fn commit_oid(&self) -> Option<String> { None }
   fn has_file(&self, path: &Path) -> Result<bool> { Ok(self.root.join(path).exists()) }
   fn read_file(&self, path: &Path) -> Result<String> { Ok(std::fs::read_to_string(&self.root.join(path))?) }
 
@@ -92,7 +86,6 @@ pub struct PrevState<'r> {
 }
 
 impl<'r> FilesRead for PrevState<'r> {
-  fn commit_oid(&self) -> Option<String> { self.files.commit_oid() }
   fn has_file(&self, path: &Path) -> Result<bool> { self.files.has_file(path) }
   fn read_file(&self, path: &Path) -> Result<String> { self.files.read_file(path) }
   fn subdirs(&self, root: Option<&String>, regex: &str) -> Result<Vec<String>> { self.files.subdirs(root, regex) }
@@ -103,18 +96,16 @@ impl<'r> StateRead for PrevState<'r> {
 }
 
 impl<'r> PrevState<'r> {
-  fn new(slice: Slice<'r>, commit_oid: String, tags: OldTags) -> PrevState {
-    PrevState { files: PrevFiles::new(slice, commit_oid), tags }
+  fn new(slice: Slice<'r>, tags: OldTags) -> PrevState {
+    PrevState { files: PrevFiles::new(slice), tags }
   }
 }
 
 pub struct PrevFiles<'r> {
   slice: Slice<'r>,
-  commit_oid: String
 }
 
 impl<'r> FilesRead for PrevFiles<'r> {
-  fn commit_oid(&self) -> Option<String> { Some(self.commit_oid.clone()) }
   fn has_file(&self, path: &Path) -> Result<bool> { self.slice.has_blob(&path.to_string_lossy().to_string()) }
   fn read_file(&self, path: &Path) -> Result<String> { read_from_slice(&self.slice, path) }
 
@@ -123,11 +114,10 @@ impl<'r> FilesRead for PrevFiles<'r> {
 
 impl<'r> PrevFiles<'r> {
   pub fn from_slice(slice: Slice<'r>) -> Result<PrevFiles> {
-    let commit_oid = slice.revparse_oid()?;
-    Ok(PrevFiles::new(slice, commit_oid))
+    Ok(PrevFiles::new(slice))
   }
 
-  pub fn new(slice: Slice<'r>, commit_oid: String) -> PrevFiles { PrevFiles { slice, commit_oid } }
+  pub fn new(slice: Slice<'r>) -> PrevFiles { PrevFiles { slice } }
   pub fn slice_to(&self, spec: FromTagBuf) -> Result<PrevFiles<'r>> { PrevFiles::from_slice(self.slice.slice(spec)) }
 }
 

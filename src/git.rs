@@ -320,7 +320,6 @@ pub struct Slice<'r> {
 impl<'r> Slice<'r> {
   pub fn has_blob(&self, path: &str) -> Result<bool> { Ok(self.object(path).is_ok()) }
   pub fn slice(&self, refspec: FromTagBuf) -> Slice<'r> { Slice { repo: self.repo, refspec } }
-  pub fn revparse_oid(&self) -> Result<String> { self.repo.revparse_oid(self.refspec.as_from_tag()) }
 
   pub fn blob(&self, path: &str) -> Result<Blob> {
     let obj = self.object(path)?;

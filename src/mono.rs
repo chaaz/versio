@@ -508,6 +508,7 @@ fn find_old_tags<'s, I: Iterator<Item = &'s Project>>(projects: I, prev_tag: &st
   let mut not_after_walk = HashMap::new();
   // TODO: ensure commits_to_head is ordered "head" to "from"
   // TODO: in the case of missing prev_tag, handle huge walk ?
+  // TODO: does this even work if there are divergent paths/branches? what happens to the walk order?
   for commit_oid in repo.commits_to_head(FromTag::new(prev_tag, true), true)?.map(|c| c.map(|c| c.id())) {
     let commit_oid = commit_oid?;
     for (proj_id, by_id) in &mut by_proj_oid {
