@@ -11,18 +11,18 @@ use git2::string_array::StringArray;
 use git2::{
   AnnotatedCommit, AutotagOption, Blob, Commit, Cred, Diff, DiffOptions, FetchOptions, Index, Object, ObjectType, Oid,
   PushOptions, Reference, ReferenceType, Remote, RemoteCallbacks, Repository, RepositoryOpenFlags, RepositoryState,
-  ResetType, Signature, Status, StatusOptions, Time, Revwalk
+  ResetType, Revwalk, Signature, Status, StatusOptions, Time
 };
 use log::{error, info, trace, warn};
 use regex::Regex;
 use std::cell::RefCell;
-use std::cmp::min;
+use std::cmp::{min, Ord};
 use std::collections::HashMap;
 use std::ffi::OsStr;
+use std::fmt;
 use std::io::{stdout, Write};
 use std::iter::empty;
 use std::path::{Path, PathBuf};
-use std::fmt;
 
 pub struct Repo {
   vcs: GitVcsLevel
@@ -340,10 +340,19 @@ impl<'r> Slice<'r> {
     Ok(self.repo.repo()?.revparse_single(&format!("{}:{}", self.refspec.tag(), path))?)
   }
 
-  pub fn date(&self) -> Result<Time> {
-    let obj = self.repo.repo()?.revparse_single(&format!("{}^{{}}", self.refspec.tag()))?;
+  pub fn date(&self) -> Result<Option<Time>> {
+    let obj = match self.repo.repo()?.revparse_single(&format!("{}^{{}}", self.refspec.tag())) {
+      Ok(obj) => obj,
+      Err(e) => {
+        if self.refspec.else_none {
+          return Ok(None);
+        } else {
+          return Err(e.into());
+        }
+      }
+    };
     let commit = obj.into_commit().map_err(|o| bad!("\"{}\" isn't a commit.", o.id()))?;
-    Ok(commit.time())
+    Ok(Some(commit.time()))
   }
 }
 
@@ -604,6 +613,7 @@ impl<'a> FromTag<'a> {
   pub fn new(tag: &'a str, else_none: bool) -> FromTag<'a> { FromTag { tag, else_none } }
   pub fn to_from_tag_buf(&self) -> FromTagBuf { FromTagBuf::new(self.tag.to_string(), self.else_none) }
   pub fn tag(&self) -> &'a str { self.tag }
+  pub fn is_else_none(&self) -> bool { self.else_none }
 }
 
 impl<'a> Into<FromTag<'a>> for &'a str {
@@ -626,6 +636,7 @@ impl FromTagBuf {
   pub fn new(tag: String, else_none: bool) -> FromTagBuf { FromTagBuf { tag, else_none } }
   pub fn as_from_tag(&self) -> FromTag { FromTag::new(&self.tag, self.else_none) }
   pub fn tag(&self) -> &str { &self.tag }
+  pub fn is_else_none(&self) -> bool { self.else_none }
 }
 
 impl fmt::Display for FromTagBuf {
@@ -816,8 +827,8 @@ fn lookup_from_commit<'a>(
       let base_time = repo.slice(base.clone()).date()?;
       let (commits, base_time) = repo
         .commits_between_buf(base.as_from_tag(), commit.id())?
-        .map(|(commits, early)| (commits, min(base_time, early)))
-        .unwrap_or_else(|| (Vec::new(), base_time));
+        .map(|(commits, early)| (commits, min_ok(base_time, early)))
+        .unwrap_or_else(|| (Vec::new(), base_time.unwrap_or_else(|| Time::new(0, 0))));
       Ok(Ok((commit, commits, base_time)))
     }
   };
@@ -828,6 +839,13 @@ fn lookup_from_commit<'a>(
     result.as_ref().map(|r| r.as_ref().map(|(_, list, _)| list.iter().map(|c| c.id().to_string()).collect::<Vec<_>>()))
   );
   result
+}
+
+fn min_ok<C: Ord>(c1: Option<C>, c0: C) -> C {
+  match c1 {
+    Some(c1) => min(c0, c1),
+    None => c0
+  }
 }
 
 fn get_oid_local<'r>(repo: &'r Repository, spec: &str) -> Result<AnnotatedCommit<'r>> {

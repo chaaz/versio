@@ -3,7 +3,7 @@
 use crate::analyze::AnnotatedMark;
 use crate::either::IterEither2 as E2;
 use crate::errors::{Result, ResultExt};
-use crate::git::{Repo, Slice, FromTagBuf};
+use crate::git::{FromTagBuf, Repo, Slice};
 use crate::mark::{FilePicker, LinePicker, Picker, ScanningPicker};
 use crate::mono::ChangeLog;
 use crate::scan::parts::{deserialize_parts, Part};
@@ -111,7 +111,6 @@ impl<S: StateRead> Config<S> {
   pub fn state_read(&self) -> &S { &self.state }
   pub fn projects(&self) -> &[Project] { &self.file.projects() }
   pub fn get_project(&self, id: &ProjectId) -> Option<&Project> { self.file.get_project(id) }
-  pub fn is_configured(&self) -> Result<bool> { self.state.has_file(CONFIG_FILENAME.as_ref()) }
 
   pub fn find_unique(&self, name: &str) -> Result<&ProjectId> {
     let mut iter = self.file.projects.iter().filter(|p| p.name.contains(name)).map(|p| p.id());
@@ -166,13 +165,27 @@ impl<F: FilesRead> FsConfig<F> {
 pub struct ConfigFile {
   #[serde(default)]
   options: Options,
+  #[serde(default)]
   projects: Vec<Project>,
   #[serde(deserialize_with = "deserialize_sizes", default)]
   sizes: HashMap<String, Size>
 }
 
+impl Default for ConfigFile {
+  fn default() -> ConfigFile {
+    let mut sizes = HashMap::new();
+    insert_angular(&mut sizes);
+    sizes.insert("*".into(), Size::Fail);
+
+    ConfigFile { options: Default::default(), projects: Default::default(), sizes }
+  }
+}
+
 impl ConfigFile {
   pub fn from_read<R: FilesRead>(read: &R) -> Result<ConfigFile> {
+    if !read.has_file(CONFIG_FILENAME.as_ref())? {
+      return Ok(Default::default());
+    }
     ConfigFile::read(&read.read_file(CONFIG_FILENAME.as_ref())?)?.expand(read)
   }
 
@@ -923,15 +936,7 @@ fn deserialize_sizes<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<
       // Based on the angular standard:
       // https://github.com/angular/angular.js/blob/main/DEVELOPERS.md#-git-commit-guidelines
       if using_angular {
-        insert_if_missing(&mut result, "feat", Size::Minor);
-        insert_if_missing(&mut result, "fix", Size::Patch);
-        insert_if_missing(&mut result, "docs", Size::None);
-        insert_if_missing(&mut result, "style", Size::None);
-        insert_if_missing(&mut result, "refactor", Size::None);
-        insert_if_missing(&mut result, "perf", Size::None);
-        insert_if_missing(&mut result, "test", Size::None);
-        insert_if_missing(&mut result, "chore", Size::None);
-        insert_if_missing(&mut result, "build", Size::None);
+        insert_angular(&mut result);
       }
 
       Ok(result)
@@ -939,6 +944,18 @@ fn deserialize_sizes<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<
   }
 
   desr.deserialize_map(MapVisitor)
+}
+
+fn insert_angular(result: &mut HashMap<String, Size>) {
+  insert_if_missing(result, "feat", Size::Minor);
+  insert_if_missing(result, "fix", Size::Patch);
+  insert_if_missing(result, "docs", Size::None);
+  insert_if_missing(result, "style", Size::None);
+  insert_if_missing(result, "refactor", Size::None);
+  insert_if_missing(result, "perf", Size::None);
+  insert_if_missing(result, "test", Size::None);
+  insert_if_missing(result, "chore", Size::None);
+  insert_if_missing(result, "build", Size::None);
 }
 
 fn insert_if_missing(result: &mut HashMap<String, Size>, key: &str, val: Size) {

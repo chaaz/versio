@@ -4,12 +4,11 @@ use crate::analyze::{analyze, Analysis};
 use crate::config::{Config, ConfigFile, FsConfig, Project, ProjectId, Size};
 use crate::either::{IterEither2 as E2, IterEither3 as E3};
 use crate::errors::Result;
-use crate::git::{CommitInfoBuf, FullPr, Repo, FromTag, FromTagBuf};
+use crate::git::{CommitInfoBuf, FromTag, FromTagBuf, FullPr, Repo};
 use crate::github::{changes, line_commits_head, Changes};
 use crate::state::{CurrentState, OldTags, PrevFiles, StateRead, StateWrite};
 use crate::vcs::VcsLevel;
 use chrono::{DateTime, FixedOffset};
-use error_chain::bail;
 use log::trace;
 use std::cmp::{max, Ordering};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -96,10 +95,6 @@ impl Mono {
   }
 
   pub fn check(&self) -> Result<()> {
-    if !self.current.is_configured()? {
-      bail!("Project is not configured.");
-    }
-
     for project in self.current.projects() {
       project.check(self.current.state_read())?;
     }

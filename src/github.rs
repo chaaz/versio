@@ -1,7 +1,7 @@
 //! Interactions with github API v4.
 
 use crate::errors::Result;
-use crate::git::{CommitInfoBuf, FullPr, GithubInfo, Repo, Span, FromTag, FromTagBuf};
+use crate::git::{CommitInfoBuf, FromTag, FromTagBuf, FullPr, GithubInfo, Repo, Span};
 use chrono::{DateTime, FixedOffset, TimeZone, Utc};
 use git2::Time;
 use github_gql::{client::Github, IntoGithubRequest};

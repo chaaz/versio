@@ -44,9 +44,11 @@ is expressed as a range (with an inclusive min and max level):
    if the user doesn't provide it.
 1. The _required_ range are the VCS levels in which the command can
    operate, and is provided by the command. Some commands can only act
-   if they can interact with the VCS system in certain ways.
+   if they can interact with the VCS system in certain ways. The max of
+   the required range is usually the highest value, "Smart".
 1. The _detected_ range is the VCS levels supported by the current
    working directory. Is it in a repo, does the repo have a remote, etc.
+   The min of the detected range is usually the lowest value, "None".
 
 In the presence of these three ranges, the final VCS level is calculated
 as the maximum in the intersection of all three ranges. For example, if
@@ -63,23 +65,25 @@ will immediately fail without any attempt to read or write anything.
 Normally, you don't have to do anything with VCS levels: the best level
 for a command is picked naturally. However, you can alter the min and
 maximum of the preferred range when you run Versio. There are three
-command-line options you can use:
+command-line options you can use to set the preferred range:
 
-- `vcs-level` (`-l`): This allow you specify both the max and min in one
-  shot. There are six possible arguments:
-  - The discreet levels `none`, `local`, `remote`, `smart`, which sets
-    both the min and max of the preferred range to the given value.
-  - `max`, which sets the minimum to `none` and the maximum to
-    `smart`. This runs the command at the maximum allowable level, even
-    if the default for a command is lower.
+- `vcs-level` (`-l`): This allow you specify both the max and min of the
+  preferred range in one shot. There are six possible arguments:
+  - The discreet levels `none`, `local`, `remote`, or `smart`, which
+    sets both the min and max of the preferred range to the given value.
+  - `max`, which sets the minimum to `none` and the maximum to `smart`.
+    This runs the command at the maximum allowable level, even if the
+    default for a command is lower.
   - `auto`, which declines to set a default range, and allows the
     command to set the default. This is the same as not providing any
     default at all.
 
 - `vcs-level-min` (`-m`) and `vcs-level-max` (`-x`): You must use these
   options together, and can't use them with `vcs-level`. These manually
-  set the minimum and maximum level to one of their four possible values
-  `none`, `local`, `remote`, or `smart`.
+  set the minimum and maximum level of the preferred range to one of
+  their four possible values `none`, `local`, `remote`, or `smart`. If
+  you set the max level below the min value, the preferred range is
+  considered empty, and the command will fail.
 
 ## Tips
 

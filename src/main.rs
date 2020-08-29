@@ -1,5 +1,7 @@
 //! Versio is a version management utility.
 
+mod cli;
+
 use versio::errors::Result;
 
 fn main() {
@@ -25,5 +27,5 @@ fn main() {
 
 fn run() -> Result<()> {
   env_logger::try_init()?;
-  versio::opts::execute()
+  cli::execute()
 }

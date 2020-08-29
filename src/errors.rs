@@ -32,11 +32,11 @@ impl<'a, T: ?Sized> From<std::sync::PoisonError<std::sync::MutexGuard<'a, T>>> f
 #[macro_export]
 macro_rules! err {
   ($($arg:tt)*) => (
-    std::result::Result::Err(crate::errors::Error::from_kind(crate::errors::ErrorKind::Msg(format!($($arg)*))))
+    std::result::Result::Err($crate::errors::Error::from_kind($crate::errors::ErrorKind::Msg(format!($($arg)*))))
   )
 }
 
 #[macro_export]
 macro_rules! bad {
-  ($($arg:tt)*) => (crate::errors::Error::from_kind(crate::errors::ErrorKind::Msg(format!($($arg)*))))
+  ($($arg:tt)*) => ($crate::errors::Error::from_kind($crate::errors::ErrorKind::Msg(format!($($arg)*))))
 }

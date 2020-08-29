@@ -2,7 +2,7 @@
 
 use crate::config::ProjectId;
 use crate::errors::Result;
-use crate::git::{Repo, Slice, FromTagBuf};
+use crate::git::{FromTagBuf, Repo, Slice};
 use crate::mark::{NamedData, Picker};
 use log::{trace, warn};
 use regex::Regex;
@@ -50,8 +50,17 @@ impl CurrentState {
   pub fn new(root: PathBuf, tags: OldTags) -> CurrentState { CurrentState { files: CurrentFiles::new(root), tags } }
 
   pub fn slice<'r>(&self, spec: FromTagBuf, repo: &'r Repo) -> Result<PrevState<'r>> {
-    let commit_oid = repo.revparse_oid(spec.as_from_tag())?;
-    let old_tags = self.tags.slice_earlier(&commit_oid)?;
+    let old_tags = match repo.revparse_oid(spec.as_from_tag()) {
+      Ok(commit_oid) => self.tags.slice_earlier(&commit_oid)?,
+      Err(e) => {
+        if spec.is_else_none() {
+          OldTags::empty()
+        } else {
+          return Err(e);
+        }
+      }
+    };
+
     Ok(PrevState::new(repo.slice(spec), old_tags))
   }
 }
@@ -96,13 +105,11 @@ impl<'r> StateRead for PrevState<'r> {
 }
 
 impl<'r> PrevState<'r> {
-  fn new(slice: Slice<'r>, tags: OldTags) -> PrevState {
-    PrevState { files: PrevFiles::new(slice), tags }
-  }
+  fn new(slice: Slice<'r>, tags: OldTags) -> PrevState { PrevState { files: PrevFiles::new(slice), tags } }
 }
 
 pub struct PrevFiles<'r> {
-  slice: Slice<'r>,
+  slice: Slice<'r>
 }
 
 impl<'r> FilesRead for PrevFiles<'r> {
@@ -113,9 +120,7 @@ impl<'r> FilesRead for PrevFiles<'r> {
 }
 
 impl<'r> PrevFiles<'r> {
-  pub fn from_slice(slice: Slice<'r>) -> Result<PrevFiles> {
-    Ok(PrevFiles::new(slice))
-  }
+  pub fn from_slice(slice: Slice<'r>) -> Result<PrevFiles> { Ok(PrevFiles::new(slice)) }
 
   pub fn new(slice: Slice<'r>) -> PrevFiles { PrevFiles { slice } }
   pub fn slice_to(&self, spec: FromTagBuf) -> Result<PrevFiles<'r>> { PrevFiles::from_slice(self.slice.slice(spec)) }
@@ -133,6 +138,8 @@ impl OldTags {
   ) -> OldTags {
     OldTags { by_proj, not_after }
   }
+
+  pub fn empty() -> OldTags { OldTags { by_proj: HashMap::new(), not_after: HashMap::new() } }
 
   fn latest(&self, proj: &ProjectId) -> Option<&String> { self.by_proj.get(proj).and_then(|p| p.first()) }
 

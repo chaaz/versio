@@ -4,7 +4,8 @@
 
 #[macro_use]
 pub mod errors;
-pub mod opts;
+pub mod commands;
+pub mod vcs;
 
 mod analyze;
 mod config;
@@ -16,4 +17,3 @@ mod mono;
 mod output;
 mod scan;
 mod state;
-mod vcs;
