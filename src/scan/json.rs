@@ -16,7 +16,6 @@ pub struct JsonScanner {
 }
 
 impl JsonScanner {
-  #[cfg(test)]
   pub fn new(target: &str) -> JsonScanner { JsonScanner { target: target.into_part_vec() } }
 
   #[cfg(test)]
@@ -38,7 +37,9 @@ fn scan_json<P: IntoPartVec>(data: &str, loc: P) -> Result<Mark> {
   let value = pop(parts, trace.clone()).deserialize(&mut serde_json::Deserializer::from_reader(reader))?;
   let index = trace.lock()?.find_start()?;
 
-  Ok(Mark::make(value, index)?)
+  let mark = Mark::new(value, index);
+  mark.validate_version()?;
+  Ok(mark)
 }
 
 fn pop(mut parts: Vec<Part>, trace: TraceRef) -> NthElement {

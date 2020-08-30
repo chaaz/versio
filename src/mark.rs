@@ -47,12 +47,12 @@ impl Picker {
 
   pub fn find(&self, data: &str) -> Result<Mark> {
     match self {
-      Picker::Json(p) => p.find(data),
-      Picker::Yaml(p) => p.find(data),
-      Picker::Toml(p) => p.find(data),
-      Picker::Xml(p) => p.find(data),
-      Picker::Line(p) => p.find(data),
-      Picker::File(p) => p.find(data)
+      Picker::Json(p) => p.find_version(data),
+      Picker::Yaml(p) => p.find_version(data),
+      Picker::Toml(p) => p.find_version(data),
+      Picker::Xml(p) => p.find_version(data),
+      Picker::Line(p) => p.find_version(data),
+      Picker::File(p) => p.find_version(data)
     }
   }
 }
@@ -74,7 +74,7 @@ impl<T: Scanner> fmt::Debug for ScanningPicker<T> {
 
 impl<T: Scanner> ScanningPicker<T> {
   pub fn new(parts: Vec<Part>) -> ScanningPicker<T> { ScanningPicker { parts, _scan: PhantomData } }
-  pub fn find(&self, data: &str) -> Result<Mark> { T::build(self.parts.clone()).find(data) }
+  pub fn find_version(&self, data: &str) -> Result<Mark> { T::build(self.parts.clone()).find_version(data) }
   pub fn scan(&self, data: NamedData) -> Result<MarkedData> { T::build(self.parts.clone()).scan(data) }
 }
 
@@ -86,6 +86,13 @@ pub struct LinePicker {
 impl LinePicker {
   pub fn new(pattern: String) -> LinePicker { LinePicker { pattern } }
   pub fn find(&self, data: &str) -> Result<Mark> { LinePicker::find_reg_data(data, &self.pattern) }
+
+  pub fn find_version(&self, data: &str) -> Result<Mark> {
+    let mark = self.find(data)?;
+    mark.validate_version()?;
+    Ok(mark)
+  }
+
   pub fn scan(&self, data: NamedData) -> Result<MarkedData> { LinePicker::scan_reg_data(data, &self.pattern) }
 
   fn find_reg_data(data: &str, pattern: &str) -> Result<Mark> {
@@ -94,7 +101,7 @@ impl LinePicker {
     let item = found.get(1).ok_or_else(|| bad!("No capture group in {}.", pattern))?;
     let value = item.as_str().to_string();
     let index = item.start();
-    Ok(Mark::make(value, index)?)
+    Ok(Mark::new(value, index))
   }
 
   fn scan_reg_data(data: NamedData, pattern: &str) -> Result<MarkedData> {
@@ -109,7 +116,13 @@ pub struct FilePicker {}
 impl FilePicker {
   pub fn find(&self, data: &str) -> Result<Mark> {
     let value = data.trim_end().to_string();
-    Ok(Mark::make(value, 0)?)
+    Ok(Mark::new(value, 0))
+  }
+
+  pub fn find_version(&self, data: &str) -> Result<Mark> {
+    let mark = self.find(data)?;
+    mark.validate_version()?;
+    Ok(mark)
   }
 
   pub fn scan(&self, data: NamedData) -> Result<MarkedData> {
@@ -172,13 +185,15 @@ pub struct Mark {
 }
 
 impl Mark {
-  pub fn make(value: String, byte_start: usize) -> Result<Mark> {
+  pub fn new(value: String, byte_start: usize) -> Mark { Mark { value, byte_start } }
+
+  pub fn validate_version(&self) -> Result<()> {
     let regex = Regex::new(r"\A\d+\.\d+\.\d+\z")?;
-    if !regex.is_match(&value) {
-      bail!("Value \"{}\" is not a version.", value);
+    if !regex.is_match(&self.value) {
+      bail!("Value \"{}\" is not a version.", self.value);
     }
 
-    Ok(Mark { value, byte_start })
+    Ok(())
   }
 
   pub fn value(&self) -> &str { &self.value }
@@ -204,7 +219,7 @@ impl CharMark {
 
   pub fn into_byte_mark(self, data: &str) -> Result<Mark> {
     let start = data.char_indices().nth(self.char_start).unwrap().0;
-    Mark::make(self.value, start)
+    Ok(Mark::new(self.value, start))
   }
 }
 

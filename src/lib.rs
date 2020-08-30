@@ -5,6 +5,8 @@
 #[macro_use]
 pub mod errors;
 pub mod commands;
+pub mod init;
+pub(crate) mod scan;
 pub mod vcs;
 
 mod analyze;
@@ -15,5 +17,4 @@ mod github;
 mod mark;
 mod mono;
 mod output;
-mod scan;
 mod state;

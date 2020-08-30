@@ -14,7 +14,6 @@ pub struct TomlScanner {
 }
 
 impl TomlScanner {
-  #[cfg(test)]
   pub fn new(target: &str) -> TomlScanner { TomlScanner { target: target.into_part_vec() } }
 
   #[cfg(test)]
@@ -34,7 +33,7 @@ fn scan_toml<P: IntoPartVec>(data: &str, loc: P) -> Result<Mark> {
   let index = value.span().0;
 
   // TODO: handle triple quotes
-  Ok(Mark::make(value.into_inner(), index + 1)?)
+  Ok(Mark::new(value.into_inner(), index + 1))
 }
 
 fn pop(mut parts: Vec<Part>) -> NthElement {

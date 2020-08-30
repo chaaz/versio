@@ -59,8 +59,8 @@ but Versio works with all kinds of projects.
 ## Quick Start
 
 Get up and running quickly with Versio, and get a brief introduction to
-what it does. This example assumes a standard Node.js layout, but you
-can adjust your config easily to something else.
+what it does. This example assumes a standard Node.js/NPM layout, but
+Versio can handle lots of different project types.
 
 - Install versio:
   ```
@@ -72,39 +72,22 @@ can adjust your config easily to something else.
 
   $ cat package.json
   ...
+    "name": "my-project"
     "version": "1.0.1",
   ...
   ```
-- Create a simple config file:
+- Create and commit simple config file:
   ```
   $ git pull
-  $ cat > .versio.yaml << END_OF_CFG
-  projects:
-    - name: project
-      id: 1
-      includes: ["**/*"]
-      version:
-        file: "package.json"
-        json: "version"
-
-  sizes:
-    use_angular: true
-    fail: [ "*" ]
-  END_OF_CFG
-  ```
-- Commit and tag your config file
-  ```
-  $ versio check
+  $ versio init
   $ git add .versio.yaml
   $ git commit -m "build: add versio management"
   $ git push
-  $ git tag -f versio-prev
-  $ git push -f origin versio-prev
   ```
 - Look at your current version:
   ```
   $ versio show
-  project : 1.0.1
+  my-project : 1.0.1
   ```
 - Change it (and change it back):
   ```
@@ -126,26 +109,21 @@ can adjust your config easily to something else.
   Changes committed and pushed.
   ```
 
-## Create / Update Configuration
+## Create Configuration
 
-> TODO ?
-
-After you've started using Versio, you may want to create a
-`.versio.yaml` config file in your repo, to take advantage of more
-features and improve performance. Use the following command to do so:
+To start using Versio, you should create a `.versio.yaml` config file in
+your repo. Use the following command to do so. Make sure you're in the
+top-level directory of your repository (or the top-level directory of
+your non-version-controlled monorepo) when you do so:
 
 ```
 $ versio init
 ```
 
 This will scan your repo for existing projects, and create a new config
-file with those projects. To add new projects to the repo, you can
-either add them manually to your `.versio.yaml` file, or re-scan your
-repo:
-
-```
-$ versio scan
-```
+file with each of those projects listed. If you change later add,
+remove, or change the location of your projects, you should edit this
+file by hand to keep it up-to-date.
 
 ## CI Premerge Checks
 
@@ -161,10 +139,10 @@ $ versio scan
 
 > TODO: talk about release branches
 
-> TODO: talk about timing : can't merge to release branch while `versio
-> run` is executing
+> TODO: talk about timing. TIMING IS KEY. can't merge to release branch
+> while `versio run` is executing
 
-`versio plan` (maybe), `versio run`
+`versio plan` maybe, `versio run`
 
 ## CD Deploy
 

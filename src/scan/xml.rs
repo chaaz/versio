@@ -60,7 +60,7 @@ fn scan_xml<P: IntoPartVec>(data: &str, loc: P) -> Result<Mark> {
       }
       Token::Text { text } => {
         if on_target {
-          return Mark::make(text.as_str().into(), text.start());
+          return Ok(Mark::new(text.as_str().into(), text.start()));
         }
       }
       _ => ()

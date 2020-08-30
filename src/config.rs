@@ -687,8 +687,6 @@ impl Subs {
   fn tops(&self) -> &[u32] { self.tops.as_deref().unwrap_or(&[0, 1]) }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
 /// The "size" of the commit is a measure of "how much" to increment a project's version number based on the
 /// significance of its changes. There are currently six sizes from smallest to largest:
 ///
@@ -706,6 +704,8 @@ impl Subs {
 /// drop-in replacement. The "major" part of the version number will be incremented, and other parts reset.
 /// - **Fail**: A change occured to the project that could not be understood. No changes will be made to any
 /// version numbers; in fact, the entire process is prematurely halted.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Size {
   Fail,
   Major,

@@ -4,6 +4,7 @@ use clap::{crate_version, App, AppSettings, Arg, ArgGroup, ArgMatches, SubComman
 use versio::commands::*;
 use versio::err;
 use versio::errors::Result;
+use versio::init::init;
 use versio::vcs::{VcsLevel, VcsRange};
 
 pub fn execute() -> Result<()> {
@@ -233,6 +234,21 @@ pub fn execute() -> Result<()> {
         )
         .display_order(1)
     )
+    .subcommand(
+      SubCommand::with_name("init")
+        .setting(AppSettings::UnifiedHelpMessage)
+        .about("Search for projects and write a config")
+        .arg(
+          Arg::with_name("maxdepth")
+            .short("d")
+            .long("max-depth")
+            .takes_value(true)
+            .value_name("depth")
+            .display_order(1)
+            .help("Max descent to search")
+        )
+        .display_order(1)
+    )
     .get_matches();
 
   parse_matches(m)
@@ -259,6 +275,7 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
     ("changes", Some(_)) => changes(pref_vcs)?,
     ("plan", Some(_)) => plan(pref_vcs)?,
     ("run", Some(m)) => run(pref_vcs, m.is_present("all"), m.is_present("dry"))?,
+    ("init", Some(m)) => init(m.value_of("maxdepth").map(|d| d.parse().unwrap()).unwrap_or(5))?,
     ("", _) => empty_cmd()?,
     (c, _) => unknown_cmd(c)?
   }
