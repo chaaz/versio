@@ -11,8 +11,6 @@ pub fn early_info() -> Result<EarlyInfo> {
   let vcs = VcsRange::detect()?.max();
   let repo = Repo::open(".", vcs)?;
   let root = repo.working_dir()?;
-
-  // A little dance to construct a state and config.
   let file = ConfigFile::from_dir(root)?;
   let project_count = file.projects().len();
 
@@ -24,7 +22,7 @@ pub struct EarlyInfo {
   project_count: usize
 }
 
-impl EarlyInfo {
+impl EarlyInfo { 
   pub fn new(project_count: usize) -> EarlyInfo { EarlyInfo { project_count } }
   pub fn project_count(&self) -> usize { self.project_count }
 }
