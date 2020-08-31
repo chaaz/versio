@@ -1,10 +1,33 @@
 //! The command-line options for the executable.
 
-use crate::config::Size;
+use crate::config::{ConfigFile, Size};
 use crate::errors::{Result, ResultExt};
+use crate::git::Repo;
 use crate::mono::Mono;
 use crate::output::{Output, ProjLine};
 use crate::vcs::{VcsLevel, VcsRange};
+
+pub fn early_info() -> Result<EarlyInfo> {
+  let vcs = VcsRange::detect()?.max();
+  let repo = Repo::open(".", vcs)?;
+  let root = repo.working_dir()?;
+
+  // A little dance to construct a state and config.
+  let file = ConfigFile::from_dir(root)?;
+  let project_count = file.projects().len();
+
+  Ok(EarlyInfo::new(project_count))
+}
+
+/// Environment information gathered even before we set the CLI options.
+pub struct EarlyInfo {
+  project_count: usize
+}
+
+impl EarlyInfo {
+  pub fn new(project_count: usize) -> EarlyInfo { EarlyInfo { project_count } }
+  pub fn project_count(&self) -> usize { self.project_count }
+}
 
 pub fn check(pref_vcs: Option<VcsRange>) -> Result<()> {
   let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Local, VcsLevel::None, VcsLevel::Smart)?;
@@ -30,8 +53,10 @@ pub fn get(
   if let Some(id) = id {
     let id = id.parse()?;
     output.write_project(ProjLine::from(mono.get_project(&id)?, reader)?)?;
+  } else if let Some(name) = name {
+    output.write_project(ProjLine::from(mono.get_named_project(name)?, reader)?)?;
   } else {
-    output.write_project(ProjLine::from(mono.get_named_project(name.unwrap())?, reader)?)?;
+    output.write_project(ProjLine::from(mono.get_only_project()?, reader)?)?;
   }
 
   output.commit()
@@ -52,8 +77,10 @@ pub fn set(pref_vcs: Option<VcsRange>, id: Option<&str>, name: Option<&str>, val
 
   if let Some(id) = id {
     mono.set_by_id(&id.parse()?, value)?;
+  } else if let Some(name) = name {
+    mono.set_by_name(name, value)?;
   } else {
-    mono.set_by_name(name.unwrap(), value)?;
+    mono.set_by_only(value)?;
   }
 
   mono.commit()

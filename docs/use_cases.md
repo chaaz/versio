@@ -32,7 +32,7 @@ but Versio works with all kinds of projects.
   ```
 - Look at your current version:
   ```
-  $ versio show
+  $ versio get
   myproject : 1.0.1
   ```
 - Change it (and change it back):
@@ -72,33 +72,33 @@ Versio can handle lots of different project types.
 
   $ cat package.json
   ...
-    "name": "my-project"
+    "name": "myproject"
     "version": "1.0.1",
   ...
   ```
-- Create and commit simple config file:
+- Create and commit a simple config file:
   ```
   $ git pull
-  $ versio init
+  $ versio init  # this creates .versio.yaml
   $ git add .versio.yaml
   $ git commit -m "build: add versio management"
   $ git push
   ```
 - Look at your current version:
   ```
-  $ versio show
-  my-project : 1.0.1
+  $ versio get
+  myproject : 1.0.1
   ```
 - Change it (and change it back):
   ```
-  $ versio set --id 1 --value 1.2.3
+  $ versio set --value 1.2.3
 
   $ cat package.json
   ...
     "version": "1.2.3",
   ...
 
-  $ versio set --id 1 --value 1.0.1
+  $ versio set --value 1.0.1
   ```
 - After a few [conventional
   commits](https://www.conventionalcommits.org/), update it:

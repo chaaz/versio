@@ -31,17 +31,18 @@ existing "projname-v*x.y.z*" tags currently exist.
 > because it typically used to just update a file. However, for
 > tags-based projects, you may want to instead update the VCS tags on
 > the local machine and/or the remote, which requires a higher VCS
-> level. See [VCS Levels](./docs/vcs_levels.md) and [Usage:
-> Set](./docs/usage.md#setting) for more info.
+> level. See [VCS Levels](./vcs_levels.md) and [Usage:
+> Set](./usage.md#setting) for more info.
 
 > If the tag prefix is *empty* (`tag_prefix: ""`), then tags for the
 > project take a non-prefixed form "v*a.b.c*", which is combatible with
 > most Go tools. Especially `go get` and `go mod`, which search for
 > version tags in that form. If you do use a prefix, you'll need to
 > reference your project with the fully-qualified tag: e.g. `go get
-> server.io/path/to/proj@projname-v1.2.3`. Failure to use a tag will
-> probably just get you the latest commit. If you need to also use a
-> major subdirectory (see below), you'll need to use a full path like
+> server.io/path/to/proj@projname-v1.2.3`. Failure to use a tag properly
+> will probably just get you the latest commit, which is probably not
+> what you want. If you need to also use a major subdirectory (see
+> below), you'll need to reference using a full path like
 > `server.io/path/to/proj/v3@projname-v3.2.1`.
 >
 > This problem is compounded in a monorepo with two or more Go projects:

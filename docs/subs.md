@@ -9,7 +9,7 @@ project
 ├─ v2
 │  └─ (files for v2)
 ├─ v3
-│  └─ (files for v2)
+│  └─ (files for v3)
 └─ ...
 ```
 
