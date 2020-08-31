@@ -4,24 +4,28 @@ use crate::analyze::{analyze, Analysis};
 use crate::config::{Config, ConfigFile, FsConfig, Project, ProjectId, Size};
 use crate::either::{IterEither2 as E2, IterEither3 as E3};
 use crate::errors::Result;
-use crate::git::{CommitInfoBuf, FromTag, FromTagBuf, FullPr, Repo};
+use crate::git::{Auth, CommitInfoBuf, FromTag, FromTagBuf, FullPr, Repo};
 use crate::github::{changes, line_commits_head, Changes};
 use crate::state::{CurrentState, OldTags, PrevFiles, StateRead, StateWrite};
 use crate::vcs::VcsLevel;
 use chrono::{DateTime, FixedOffset};
 use error_chain::bail;
 use log::trace;
+use serde::Deserialize;
 use std::cmp::{max, Ordering};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::identity;
 use std::iter::{empty, once};
 use std::path::{Path, PathBuf};
 
+const USER_CONFIG_FILE: &str = ".versio.rc.toml";
+
 pub struct Mono {
   current: Config<CurrentState>,
   next: StateWrite,
   last_commits: HashMap<ProjectId, String>,
-  repo: Repo
+  repo: Repo,
+  user_config: UserConfig
 }
 
 impl Mono {
@@ -41,7 +45,9 @@ impl Mono {
     let last_commits = find_last_commits(&current, &repo)?;
     let next = StateWrite::new();
 
-    Ok(Mono { current, next, last_commits, repo })
+    let user_config = read_user_config()?;
+
+    Ok(Mono { user_config, current, next, last_commits, repo })
   }
 
   pub fn commit(&mut self) -> Result<()> { self.next.commit(&self.repo, self.current.prev_tag(), &self.last_commits) }
@@ -159,8 +165,34 @@ impl Mono {
   pub fn changes(&self) -> Result<Changes> {
     let base = FromTagBuf::new(self.current.prev_tag().to_string(), true);
     let head = self.repo.branch_name()?.to_string();
-    changes(&self.repo, base, head)
+    changes(&self.user_config.auth, &self.repo, base, head)
   }
+}
+
+pub fn read_user_config() -> Result<UserConfig> {
+  // fn has_file(&self, path: &Path) -> Result<bool> { Ok(self.root.join(path).exists()) }
+  // fn read_file(&self, path: &Path) -> Result<String> { Ok(std::fs::read_to_string(&self.root.join(path))?) }
+
+  let homefile = dirs::home_dir().map(|h| h.join(USER_CONFIG_FILE));
+  let homefile = match homefile {
+    Some(f) => f,
+    None => return Ok(Default::default())
+  };
+  if !homefile.exists() {
+    return Ok(Default::default());
+  }
+
+  let user_config: UserConfig = toml::from_str(&std::fs::read_to_string(homefile)?)?;
+  Ok(user_config)
+}
+
+#[derive(Deserialize, Debug)]
+pub struct UserConfig {
+  auth: Auth
+}
+
+impl Default for UserConfig {
+  fn default() -> UserConfig { UserConfig { auth: Default::default() } }
 }
 
 /// Find the last covering commit ID, if any, for each current project.

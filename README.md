@@ -29,7 +29,15 @@ making sure that it's in your PATH.
 > TODO: link to binaries / installers
 
 See the [Quick Start](./docs/use_cases.md#quick-start) use case to get
-up and running quickly with Versio.
+up and running quickly with Versio. Or, try this and see what happens:
+
+```
+$ versio init  # this creates .versio.yaml
+$ git add .versio.yaml
+$ git commit -m "build: add versio management"
+$ git push
+$ versio run
+```
 
 ## Background
 
@@ -64,26 +72,9 @@ manifest file. Node/NPM projects have a "package.json" file, Rust/Cargo
 uses "Cargo.toml", Java/Maven has "pom.xml", Python/pip has "setup.py",
 Ruby/gem has gemspec files, and so forth. Go projects and Terraform
 modules, among others, opt to keep version numbers in VCS tags instead
-of a file.
-
-However your project is structured, you can list the location of your
-projects' version numbers in a Versio config file, and thenceforth
-Versio will be able to manage them.
-
-Here's a simple top-level project that might be found in the Versio
-config: it has a name, unique ID, a list of all files that are
-considered to be "included" in the project, and the location of the
-project version (in this case, in the "version" property of JSON in the
-file "package.json").
-
-```
-- name: project
-  id: 1
-  includes: ["**/*"]
-  version:
-    file: "package.json"
-    json: "version"
-```
+of a file. However your project is structured, you can list the location
+of your projects' version numbers in a Versio config file, and
+thenceforth Versio will be able to manage them.
 
 ## How It Works
 
@@ -112,9 +103,7 @@ command-line options and the format of the `.versio.yaml` config file.
 [Use Cases](./docs/use_cases.md) lists specific use cases that might
 meet a need in your project or organization. The
 [Publishing](./docs/publishing.md) page shows specifically how Versio
-can publish your software. **VCS Levels** is an important concept when
-running Versio, and is described in its own
-[document](./docs/vcs_levels.md).
+can publish your software.
 
 ## Features
 
@@ -145,6 +134,13 @@ keep track of multiple, sometimes vastly different application
 structures at the same time. You can utilize this feature by providing a
 `subs` property in your project configuration. See the [Major
 Subdirectories](./docs/subs.md) page for a description.
+
+### VCS Levels
+
+VCS Levels allow you to control the way Versio interacts with a Git
+repository: you can have interact only locally, with a remote, or not at
+all. See the description in its [document](./docs/vcs_levels.md) for
+more information.
 
 ## Troubleshooting
 

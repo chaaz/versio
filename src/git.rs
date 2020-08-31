@@ -15,6 +15,7 @@ use git2::{
 };
 use log::{error, info, trace, warn};
 use regex::Regex;
+use serde::Deserialize;
 use std::cell::RefCell;
 use std::cmp::{min, Ord};
 use std::collections::HashMap;
@@ -55,7 +56,7 @@ impl Repo {
 
     let branch_name = find_branch_name(&repo)?;
     if let Ok(remote_name) = find_remote_name(&repo, &branch_name) {
-      if find_github_info(&repo, &remote_name).is_ok() {
+      if find_github_info(&repo, &remote_name, &Default::default()).is_ok() {
         Ok(VcsLevel::Smart)
       } else {
         Ok(VcsLevel::Remote)
@@ -116,7 +117,9 @@ impl Repo {
     }
   }
 
-  pub fn github_info(&self) -> Result<GithubInfo> { find_github_info(self.repo()?, self.remote_name()?) }
+  pub fn github_info(&self, auth: &Auth) -> Result<GithubInfo> {
+    find_github_info(self.repo()?, self.remote_name()?, auth)
+  }
 
   /// Return all commits as in `git rev-list from..to_sha`, along with the earliest time in that range.
   ///
@@ -358,13 +361,18 @@ impl<'r> Slice<'r> {
 
 pub struct GithubInfo {
   owner_name: String,
-  repo_name: String
+  repo_name: String,
+  token: Option<String>
 }
 
 impl GithubInfo {
-  pub fn new(owner_name: String, repo_name: String) -> GithubInfo { GithubInfo { owner_name, repo_name } }
+  pub fn new(owner_name: String, repo_name: String, token: Option<String>) -> GithubInfo {
+    GithubInfo { owner_name, repo_name, token }
+  }
+
   pub fn owner_name(&self) -> &str { &self.owner_name }
   pub fn repo_name(&self) -> &str { &self.repo_name }
+  pub fn token(&self) -> &Option<String> { &self.token }
 }
 
 #[derive(Clone)]
@@ -645,6 +653,19 @@ impl fmt::Display for FromTagBuf {
   }
 }
 
+#[derive(Deserialize, Debug)]
+pub struct Auth {
+  github_token: Option<String>
+}
+
+impl Default for Auth {
+  fn default() -> Auth { Auth { github_token: None } }
+}
+
+impl Auth {
+  pub fn github_token(&self) -> &Option<String> { &self.github_token }
+}
+
 fn find_root_blind<P: AsRef<Path>>(path: P) -> Result<PathBuf> {
   let path = path.as_ref();
   if path.join(CONFIG_FILENAME).exists() {
@@ -681,7 +702,7 @@ fn find_branch_name(repo: &Repository) -> Result<String> {
   }
 }
 
-fn find_github_info(repo: &Repository, remote_name: &str) -> Result<GithubInfo> {
+fn find_github_info(repo: &Repository, remote_name: &str, auth: &Auth) -> Result<GithubInfo> {
   let remote = repo.find_remote(remote_name)?;
 
   let url = remote.url().ok_or_else(|| bad!("Invalid utf8 remote url."))?;
@@ -698,7 +719,7 @@ fn find_github_info(repo: &Repository, remote_name: &str) -> Result<GithubInfo> 
   let slash = path.char_indices().find(|(_, c)| *c == '/').map(|(i, _)| i);
   let slash = slash.ok_or_else(|| bad!("No slash found in github path \"{}\".", path))?;
 
-  Ok(GithubInfo::new(path[0 .. slash].to_string(), path[slash + 1 ..].to_string()))
+  Ok(GithubInfo::new(path[0 .. slash].to_string(), path[slash + 1 ..].to_string(), auth.github_token().clone()))
 }
 
 /// Hide ancestors of `from` from the revwalk, but don't hide anything if the commit-ish can't be found and

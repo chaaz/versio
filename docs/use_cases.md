@@ -4,58 +4,6 @@ These are some of the common ways that you might want to use Versio in
 your own development. If you find a novel way to use Versio, please let
 us know!
 
-<!--
-## Quick Start (Future)
-
-> The following assumes features that haven't yet been implemented
-> (auto-projects, assumed-config, missing-prev\_tag, single-proj-elide).
-> See the `Quick Start` section below for getting started without these
-> features.
-
-Get up and running quickly with Versio, and get a brief introduction to
-what it does. This example uses a Node.js layout with `package.json`,
-but Versio works with all kinds of projects.
-
-- Install Versio:
-  ```
-  $ cargo install versio  # or download a pre-built binary to your PATH
-  ```
-- Take a look at your project:
-  ```
-  $ cd ${project_root_dir}
-
-  $ cat package.json
-  ...
-    "version": "1.0.1",
-    "name": "myproject",
-  ...
-  ```
-- Look at your current version:
-  ```
-  $ versio get
-  myproject : 1.0.1
-  ```
-- Change it (and change it back):
-  ```
-  $ versio set --value 1.2.3
-
-  $ cat package.json
-  ...
-    "version": "1.2.3",
-  ...
-
-  $ versio set --value 1.0.1
-  ```
-- After a few [conventional
-  commits](https://www.conventionalcommits.org/), update it:
-  ```
-  $ versio run
-  Executing plan:
-    myproject : 1.0.1 -> 1.1.0
-  Changes committed and pushed.
-  ```
--->
-
 ## Quick Start
 
 Get up and running quickly with Versio, and get a brief introduction to
@@ -66,6 +14,31 @@ Versio can handle lots of different project types.
   ```
   $ cargo install versio  # or download a pre-built binary to your PATH
   ```
+- Create and commit a simple config file:
+  ```
+  $ git pull
+  $ versio init  # this creates .versio.yaml
+  $ git add .versio.yaml
+  $ git commit -m "build: add versio management"
+  $ git push
+  ```
+- If you want to use the GitHub API for [PR scanning](./pr_scanning.md), you'll need to
+  update your `~/.versio.rc.toml` file: See the
+  [Reference](./reference.md#github-api).
+- After some [conventional
+  commits](https://www.conventionalcommits.org/), update it:
+  ```
+  $ versio run
+  Executing plan:
+    project : 1.0.1 -> 1.1.0
+  Changes committed and pushed.
+  ```
+
+## Manual Changes (solo project)
+
+If you have a single project configured, and you want to manually view
+and set its version:
+
 - Take a look at your project:
   ```
   $ cd ${project_root_dir}
@@ -76,20 +49,12 @@ Versio can handle lots of different project types.
     "version": "1.0.1",
   ...
   ```
-- Create and commit a simple config file:
-  ```
-  $ git pull
-  $ versio init  # this creates .versio.yaml
-  $ git add .versio.yaml
-  $ git commit -m "build: add versio management"
-  $ git push
-  ```
-- Look at your current version:
+- View your current version:
   ```
   $ versio get
   myproject : 1.0.1
   ```
-- Change it (and change it back):
+- Change it
   ```
   $ versio set --value 1.2.3
 
@@ -97,16 +62,36 @@ Versio can handle lots of different project types.
   ...
     "version": "1.2.3",
   ...
+  ```
 
-  $ versio set --value 1.0.1
+## Manual Changes (multiple projects)
+
+If you have more than one project configured, and you want to manually
+view and set the version of one of them. You must know the ID or the
+name of the project you want to affect:
+
+- Take a look at your project:
   ```
-- After a few [conventional
-  commits](https://www.conventionalcommits.org/), update it:
+  $ cd ${project_root_dir}
+
+  $ cat proj_1/package.json
+  ...
+    "version": "1.0.1",
+  ...
   ```
-  $ versio run
-  Executing plan:
-    project : 1.0.1 -> 1.1.0
-  Changes committed and pushed.
+- View the current version:
+  ```
+  $ versio get --id 1
+  myproject : 1.0.1
+  ```
+- Change it
+  ```
+  $ versio set --id 1 --value 1.2.3
+
+  $ cat proj_1/package.json
+  ...
+    "version": "1.2.3",
+  ...
   ```
 
 ## Create Configuration

@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 chrono = "0.4"
+dirs = "3.0"
 env_logger = "0.7"
 error-chain = "0.12"
 git2 = "0.12"

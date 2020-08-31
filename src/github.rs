@@ -1,7 +1,7 @@
 //! Interactions with github API v4.
 
 use crate::errors::Result;
-use crate::git::{CommitInfoBuf, FromTag, FromTagBuf, FullPr, GithubInfo, Repo, Span};
+use crate::git::{Auth, CommitInfoBuf, FromTag, FromTagBuf, FullPr, GithubInfo, Repo, Span};
 use chrono::{DateTime, FixedOffset, TimeZone, Utc};
 use git2::Time;
 use github_gql::{client::Github, IntoGithubRequest};
@@ -24,7 +24,7 @@ use std::fmt;
 /// rebase). The squash commit is excluded from all PRs: instead the PR's own commits are examined normally. In
 /// this way, the original type and size information from the PR is preserved.
 #[allow(clippy::map_entry)]
-pub fn changes(repo: &Repo, baseref: FromTagBuf, headref: String) -> Result<Changes> {
+pub fn changes(auth: &Auth, repo: &Repo, baseref: FromTagBuf, headref: String) -> Result<Changes> {
   let mut all_commits = HashSet::new();
   let mut all_prs = HashMap::new();
 
@@ -34,7 +34,7 @@ pub fn changes(repo: &Repo, baseref: FromTagBuf, headref: String) -> Result<Chan
   queue.push_back(pr_zero.span().ok_or_else(|| bad!("Unable to get oid for seed ref \"{}\".", headref))?);
   all_prs.insert(pr_zero.number(), pr_zero);
 
-  let github_info = match repo.github_info() {
+  let github_info = match repo.github_info(auth) {
     Ok(github_info) => github_info,
     Err(_) => return Ok(Changes { groups: all_prs, commits: all_commits })
   };
@@ -145,7 +145,7 @@ fragment commitResult on Commit {
     github_info.repo_name()
   );
 
-  let token = "f517363ac4a9fc04df72aeccba4765fa73d719c6";
+  let token = github_info.token().as_deref().unwrap_or("");
   let mut github = Github::new(token)?;
   let query = QueryVars::new(query.to_string(), variables);
   let (_headers, _status, resp) = github.run::<ChangesResponse, _>(&query)?;

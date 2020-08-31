@@ -1,5 +1,44 @@
 # Versio Reference Doc
 
+## Authorization
+
+Versio uses authorization options to connect to both Git remote
+repositories, and the GitHub API. You may need to provide credentials to
+Versio if you need to use these services with authorization.
+
+### Git remotes
+
+Versio will attempt to use an underlying credentials helper agent in
+order to provide the correct SSH key to GitHub remote servers.
+Instructions to set this up are outside the scope of this document, but
+once you set this up, you should be able to see something like this
+(example output on macOS):
+
+```
+$ git config credential.helper
+osxkeychain
+```
+
+You'll need authorization to push to and pull from the remote if you
+expect Versio to keep your remote in sync. Make sure that commands like
+e.g. `git fetch` work from the command-line if versio is having trouble.
+
+### GitHub API
+
+For GitHub remotes, Versio is capable of scanning through the PRs
+associated with commits: see [PR Scanning](./pr_scanning.md). In order
+to do this, though, it may need an authorization token. You can generate
+a new personal access token for this purpose via the GitHub web UI in
+your user's Settings -> Developer settings.
+
+Once you have the new token, you can add it to your user configuration
+in `~/.versio.rc.toml`. Here's an example of such a file:
+
+```
+[auth]
+github_token = "thisisa40charactertokeniamnotevenjokingg"
+```
+
 ## Command-line options
 
 Versio, like many comprehensive command-line applications, has a number
