@@ -90,7 +90,7 @@ command-line options you can use to set the preferred range:
 - Use `vcs-level-max=local` to avoid incurring any network traffic.
 
 - Use `vcs-level-max=remote` to avoid using the GitHub API. All commands
-  can run at operate at this level, although your changelogs and sizing
+  can operate at this level, although your changelogs and sizing
   calculation might suffer because of the lack of PRs/unsquash.
 
 > TODO: Have commands warn when the VCS level is usable, but of limited

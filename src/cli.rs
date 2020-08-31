@@ -8,6 +8,9 @@ use versio::init::init;
 use versio::vcs::{VcsLevel, VcsRange};
 
 pub fn execute() -> Result<()> {
+  let info = early_info()?;
+  let id_required = info.project_count() != 1;
+
   let m = App::new("versio")
     .setting(AppSettings::UnifiedHelpMessage)
     .author("Charlie Ozinga, ozchaz@gmail.com")
@@ -72,15 +75,12 @@ pub fn execute() -> Result<()> {
             .display_order(1)
             .help("Wide output shows IDs")
         )
-        .arg(
-          Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
-        )
         .display_order(1)
     )
     .subcommand(
       SubCommand::with_name("get")
         .setting(AppSettings::UnifiedHelpMessage)
-        .about("Show one or more versions")
+        .about("Get one or more versions")
         .arg(
           Arg::with_name("prev")
             .short("p")
@@ -88,9 +88,6 @@ pub fn execute() -> Result<()> {
             .takes_value(false)
             .display_order(1)
             .help("Whether to show prev versions")
-        )
-        .arg(
-          Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
         )
         .arg(
           Arg::with_name("versiononly")
@@ -124,9 +121,15 @@ pub fn execute() -> Result<()> {
             .takes_value(true)
             .value_name("id")
             .display_order(1)
-            .help("The id to get")
+            .help({
+              if id_required {
+                "The id to get"
+              } else {
+                "The id to get (only project assumed)"
+              }
+            })
         )
-        .group(ArgGroup::with_name("ident").args(&["id", "name"]).required(true))
+        .group(ArgGroup::with_name("ident").args(&["id", "name"]).required(id_required))
         .display_order(1)
     )
     .subcommand(
@@ -149,9 +152,15 @@ pub fn execute() -> Result<()> {
             .takes_value(true)
             .value_name("id")
             .display_order(1)
-            .help("The id to set")
+            .help({
+              if id_required {
+                "The id to set"
+              } else {
+                "The id to get (only project assumed)"
+              }
+            })
         )
-        .group(ArgGroup::with_name("ident").args(&["id", "name"]).required(true))
+        .group(ArgGroup::with_name("ident").args(&["id", "name"]).required(id_required))
         .arg(
           Arg::with_name("value")
             .short("v")
@@ -168,45 +177,30 @@ pub fn execute() -> Result<()> {
       SubCommand::with_name("diff")
         .setting(AppSettings::UnifiedHelpMessage)
         .about("See changes from previous")
-        .arg(
-          Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
-        )
         .display_order(1)
     )
     .subcommand(
       SubCommand::with_name("files")
         .setting(AppSettings::UnifiedHelpMessage)
         .about("Stream changed files")
-        .arg(
-          Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
-        )
         .display_order(1)
     )
     .subcommand(
       SubCommand::with_name("plan")
         .setting(AppSettings::UnifiedHelpMessage)
         .about("Find versions that need to change")
-        .arg(
-          Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
-        )
         .display_order(1)
     )
     .subcommand(
       SubCommand::with_name("log")
         .setting(AppSettings::UnifiedHelpMessage)
         .about("Write plans to change logs")
-        .arg(
-          Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
-        )
         .display_order(1)
     )
     .subcommand(
       SubCommand::with_name("run")
         .setting(AppSettings::UnifiedHelpMessage)
         .about("Change and commit version numbers")
-        .arg(
-          Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
-        )
         .arg(
           Arg::with_name("all")
             .short("a")
@@ -229,9 +223,6 @@ pub fn execute() -> Result<()> {
       SubCommand::with_name("changes")
         .setting(AppSettings::UnifiedHelpMessage)
         .about("Print true changes")
-        .arg(
-          Arg::with_name("nofetch").short("F").long("no-fetch").takes_value(false).display_order(1).help("Don't fetch")
-        )
         .display_order(1)
     )
     .subcommand(

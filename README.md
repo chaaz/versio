@@ -70,10 +70,11 @@ However your project is structured, you can list the location of your
 projects' version numbers in a Versio config file, and thenceforth
 Versio will be able to manage them.
 
-> TODO: future versions of Versio will be able to automatically detect
-> existing projects
-
-Here's a simple project that might be found in the Versio config:
+Here's a simple top-level project that might be found in the Versio
+config: it has a name, unique ID, a list of all files that are
+considered to be "included" in the project, and the location of the
+project version (in this case, in the "version" property of JSON in the
+file "package.json").
 
 ```
 - name: project
@@ -105,19 +106,20 @@ Here's a simple project that might be found in the Versio config:
 
 ## Running
 
-Check out the [Using Versio](./docs/usage.md) page for details on
-running Versio, including all command-line options and the format of the
-`.versio.yaml` config file. [Use Cases](./docs/use_cases.md) lists
-specific use cases that might meet a need in your project or
-organization. The [Publishing](./docs/publishing.md) page shows
-specifically how Versio can publish your software. **VCS Levels** is an
-important concept when running Versio, and is described in its own
+Check out the [Using Versio](./docs/usage.md) page to learn how to use
+Versio, or the [Versio Reference](./docs/reference.md) for all
+command-line options and the format of the `.versio.yaml` config file.
+[Use Cases](./docs/use_cases.md) lists specific use cases that might
+meet a need in your project or organization. The
+[Publishing](./docs/publishing.md) page shows specifically how Versio
+can publish your software. **VCS Levels** is an important concept when
+running Versio, and is described in its own
 [document](./docs/vcs_levels.md).
 
 ## Features
 
 Versio has some nice features that make it easy to use in your projects;
-here are just a few of the more significant ones.
+here are just a few.
 
 ### Pull Request Scanning
 

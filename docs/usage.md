@@ -60,6 +60,9 @@ Which would modify your `codebase/package.json` file:
 }
 ```
 
+If you only have one project, you don't need to supply the `--id`
+option.
+
 This is a pretty simple example, but you can imagine how useful it is to
 manage multiple projects in the same repo.
 
@@ -68,6 +71,24 @@ manage multiple projects in the same repo.
 > needs to update local/remote tags. See [VCS Levels](./vcs_levels.md).
 
 ## Git Integration
+
+### The "prev" tag
+
+Versio sometimes scans your commit history, and uses a tag named
+`versio-prev` to indicate where it should start. This bounds the work it
+has to do, and also allows incremental version changes over time. If
+there is no such tag present, Versio will scan through your entire
+commit history; if you don't want to do this, you should manually create
+a `versio-prev` tag to point at the last commit where any version number
+has changed.
+
+### Clean and current
+
+When operating on a repository, many commands won't work unless the
+local repo is "clean" (not in the middle of a merge, rebase, conflict
+resolution, etc) and "current" (all local files have been staged and
+committed). If you get an error about being "not current", take steps in
+your local repo to get yourself up-to-date, and try again.
 
 ### Conventional commits
 
@@ -101,31 +122,7 @@ _size_ of a commit is determined by the type of its [conventional
 commit](https://www.conventionalcommits.org/en/v1.0.0/) message, as it
 maps to the "sizes" property in the Versio config.
 
-If you include the `use_angular: true` key in your sizes, then the
-following angular conventions will be added to your sizes unless you
-override them: `minor: [ feat ]`, `patch: [ fix ]`, and `none: [ docs,
-style, refactor, perf, test, chore, build ]`.
-
-"-" is a special type which matches all non-conventional commits. "\*"
-is a special type which matches all commit types that are not matched
-elsewhere (including non-conventional commits, if "-" is not listed
-elsewhere). If you don't provide a "\*" type in your sizes config,
-versio will exit in error as soon as an unmatched commit message is
-encountered.
-
-The "none" size indicates that a matched commit shouldn't trigger a
-version increment. The "fail" size indicates that the run process should
-plan to fail, rather than increment, if a matching type is encountered.
-
-### Prev tag
-
-Versio uses a tag named `versio-prev` to indicate where it should start
-scanning for commits. This bounds the work it has to do, and also allows
-incremental version changes over time. When you first commit the root
-`.versio.yaml` config file, you should tag that commit with the
-`versio-prev` tag, and make sure that tag is pushed to the remote.
-
-### Running
+### Running with Git
 
 For example, let's say you're using the above config, and have a single
 commit since the `versio-prev` tag:

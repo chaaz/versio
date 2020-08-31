@@ -15,6 +15,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::identity;
 use std::iter::{empty, once};
 use std::path::{Path, PathBuf};
+use error_chain::bail;
 
 pub struct Mono {
   current: Config<CurrentState>,
@@ -56,6 +57,14 @@ impl Mono {
     self.get_project(id)
   }
 
+  pub fn get_only_project(&self) -> Result<&Project> {
+    if self.current.projects().len() != 1 {
+      bail!("No solo project.");
+    }
+    let id = self.current.projects().get(0).unwrap().id();
+    self.get_project(id)
+  }
+
   pub fn diff(&self) -> Result<Analysis> {
     let prev_config = self.current.slice_to_prev(&self.repo)?;
 
@@ -75,6 +84,14 @@ impl Mono {
 
   pub fn set_by_name(&mut self, name: &str, val: &str) -> Result<()> {
     let id = self.current.find_unique(name)?.clone();
+    self.set_by_id(&id, val)
+  }
+
+  pub fn set_by_only(&mut self, val: &str) -> Result<()> {
+    if self.current.projects().len() != 1 {
+      bail!("No solo project.");
+    }
+    let id = self.current.projects().get(0).unwrap().id().clone();
     self.set_by_id(&id, val)
   }
 
