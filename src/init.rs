@@ -112,7 +112,7 @@ fn generate_yaml(projs: &[ProjSummary]) -> String {
     if let Some(root) = proj.root() {
       yaml.push_str(&format!("    root: \"{}\"\n", root));
     }
-    yaml.push_str(&format!("    id: \"{}\"\n", id));
+    yaml.push_str(&format!("    id: {}\n", id));
     yaml.push_str("    includes: [\"**/*\"]\n");
     yaml.push_str(&format!("    tag_prefix: \"{}\"\n", proj.tag_prefix(projs.len(), &mut prefixes)));
     yaml.push_str("    version:\n");

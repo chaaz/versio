@@ -22,7 +22,7 @@ pub struct EarlyInfo {
   project_count: usize
 }
 
-impl EarlyInfo { 
+impl EarlyInfo {
   pub fn new(project_count: usize) -> EarlyInfo { EarlyInfo { project_count } }
   pub fn project_count(&self) -> usize { self.project_count }
 }
