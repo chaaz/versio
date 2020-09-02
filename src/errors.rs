@@ -3,9 +3,8 @@
 use error_chain::error_chain;
 
 error_chain! {
-  // links {
-  //   Gql(github_gql::errors::Error, github_gql::errors::ErrorKind);
-  // }
+  links {
+  }
 
   foreign_links {
     Num(std::num::ParseIntError);

@@ -150,14 +150,15 @@ impl OldTags {
     let mut not_after = HashMap::new();
 
     for (proj_id, afts) in &self.not_after {
-      let ind: usize = *afts.get(new_oid).ok_or_else(|| bad!("Bad new_oid {}", new_oid))?;
-      let list = self.by_proj.get(proj_id).ok_or_else(|| bad!("Illegal proj {} oid for {}", proj_id, new_oid))?;
-      let list = list[ind ..].to_vec();
-      by_proj.insert(proj_id.clone(), list);
+      if let Some(&ind) = afts.get(new_oid) {
+        let list = self.by_proj.get(proj_id).ok_or_else(|| bad!("Illegal proj {} oid for {}", proj_id, new_oid))?;
+        let list = list[ind ..].to_vec();
+        by_proj.insert(proj_id.clone(), list);
 
-      let new_afts =
-        afts.iter().filter_map(|(oid, i)| if i >= &ind { Some((oid.clone(), i - ind)) } else { None }).collect();
-      not_after.insert(proj_id.clone(), new_afts);
+        let new_afts =
+          afts.iter().filter_map(|(oid, i)| if i >= &ind { Some((oid.clone(), i - ind)) } else { None }).collect();
+        not_after.insert(proj_id.clone(), new_afts);
+      }
     }
 
     Ok(OldTags::new(by_proj, not_after))

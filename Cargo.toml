@@ -32,13 +32,9 @@ tokio = "0.2"
 version = "1.0"
 features = ["derive"]
 
-# [dependencies.github-gql-rs]
-# version = "0.0.1"
-# git = "https://github.com/chaaz/github-rs"
-
 [dependencies.clap]
 version = "2.33"
-features = [ "wrap_help" ]
+features = ["wrap_help"]
 
 [lib]
 name = "versio"

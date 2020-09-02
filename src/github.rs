@@ -4,9 +4,6 @@ use crate::errors::Result;
 use crate::git::{Auth, CommitInfoBuf, FromTag, FromTagBuf, FullPr, GithubInfo, Repo, Span};
 use chrono::{DateTime, FixedOffset, TimeZone, Utc};
 use git2::Time;
-// use github_gql::IntoGithubRequest;
-// use hyper::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
-// use hyper::Request;
 use octocrab::Octocrab;
 use serde::de::{self, Deserializer, Visitor};
 use serde::Deserialize;
@@ -146,19 +143,13 @@ fragment commitResult on Commit {
   );
 
   let octo = Octocrab::builder();
-  let octo = if let Some(token) = github_info.token().clone() { octo.personal_token(token) } else { octo };
+  let token = github_info.token().clone();
+  let octo = if let Some(token) = token { octo.personal_token(token) } else { octo };
   let octo = octo.build()?;
-  let full_query = format!("{{ \"query\": \"{}\", \"variables\": \"{}\" }}", escape(&query), escape(&variables));
-  let value = octo.graphql(&full_query);
+  let full_query = serde_json::json!({"query": &query, "variables": &variables});
+  let value = octo.post("/graphql", Some(&full_query));
   let mut rt = tokio::runtime::Runtime::new()?;
-  let value = rt.block_on(value)?;
-  let changes = value_to_changes(value)?;
-
-  // let token = github_info.token().as_deref().unwrap_or("");
-  // let mut github = Github::new(token)?;
-  // let query = QueryVars::new(query.to_string(), variables);
-  // let (_headers, _status, resp) = github.run::<ChangesResponse, _>(&query)?;
-  // let changes = resp.ok_or_else(|| bad!("Couldn't find commits."))?;
+  let changes: ChangesResponse = rt.block_on(value)?;
 
   let changes = changes.data.repository.commit.history.nodes;
   let mut changes: HashMap<String, ApiCommit> = changes.into_iter().map(|c| (c.oid().to_string(), c)).collect();
@@ -176,8 +167,6 @@ fragment commitResult on Commit {
 
   Ok(changes.into_iter().map(|(_, v)| v).collect())
 }
-
-fn value_to_changes(_value: serde_json::Value) -> Result<ChangesResponse> { unimplemented!() }
 
 fn time_to_datetime(time: &Time) -> DateTime<FixedOffset> {
   const MINUTES: i32 = 60;
@@ -283,55 +272,6 @@ impl PrEdgeNode {
   pub fn lookup(self, repo: &Repo) -> Result<FullPr> {
     FullPr::lookup(repo, FromTagBuf::new(self.base_ref_oid, false), self.head_ref_name, self.number, self.closed_at)
   }
-}
-
-// #[derive(Default)]
-// struct QueryVars {
-//   query: String,
-//   variables: String
-// }
-//
-// impl QueryVars {
-//   pub fn new(query: String, variables: String) -> QueryVars { QueryVars { query, variables } }
-// }
-//
-// impl IntoGithubRequest for QueryVars {
-//   fn into_github_req(&self, token: &str) -> github_gql::errors::Result<Request<hyper::Body>> {
-//     use github_gql::errors::ResultExt;
-//
-//     // escaping new lines and quotation marks for json
-//     let query = escape(&self.query);
-//     let variables = escape(&self.variables);
-//
-//     let mut q = String::from("{ \"query\": \"");
-//     q.push_str(&query);
-//     q.push_str("\", \"variables\": \"");
-//     q.push_str(&variables);
-//     q.push_str("\" }");
-//     let mut req = Request::builder()
-//       .method("POST")
-//       .uri("https://api.github.com/graphql")
-//       .body(q.into())
-//       .chain_err(|| "Unable for URL to make the request")?;
-//
-//     let token = String::from("token ") + token;
-//     {
-//       let headers = req.headers_mut();
-//       headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-//       headers.insert(USER_AGENT, HeaderValue::from_static("github-rs"));
-//       headers.insert(AUTHORIZATION, HeaderValue::from_str(&token).chain_err(|| "token parse")?);
-//     }
-//
-//     Ok(req)
-//   }
-// }
-
-fn escape(val: &str) -> String {
-  let mut escaped = val.to_string();
-  escaped = escaped.replace("\n", "\\n");
-  escaped = escaped.replace("\"", "\\\"");
-
-  escaped
 }
 
 fn deserialize_datetime<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<DateTime<FixedOffset>, D::Error> {
