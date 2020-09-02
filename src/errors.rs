@@ -3,9 +3,9 @@
 use error_chain::error_chain;
 
 error_chain! {
-  links {
-    Gql(github_gql::errors::Error, github_gql::errors::ErrorKind);
-  }
+  // links {
+  //   Gql(github_gql::errors::Error, github_gql::errors::ErrorKind);
+  // }
 
   foreign_links {
     Num(std::num::ParseIntError);
@@ -20,6 +20,7 @@ error_chain! {
     Glob(glob::PatternError);
     Xml(xmlparser::Error);
     Log(log::SetLoggerError);
+    Octo(octocrab::Error);
   }
 }
 
