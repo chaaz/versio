@@ -21,8 +21,6 @@ Rust](https://www.rust-lang.org/tools/install), you can do this:
 $ cargo install versio
 ```
 
-> TODO: actually make this available
-
 Or, you can download one of the pre-built binaries for your platform,
 making sure that it's in your PATH.
 
