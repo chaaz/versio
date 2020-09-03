@@ -13,10 +13,8 @@ Here is the structure of "versio":
 
 ```
 versio
-├─ LICENSE.md (TODO)
+├─ LICENSE.md
 ├─ README.md
-├─ deploy
-│  └─ ...      . . . . . . . . . .  deployment (TODO ?)
 ├─ docs
 │  ├─ contributing.md  . . . . . .  this document
 │  └─ ...
@@ -26,15 +24,20 @@ versio
 ├─ src
 │  └─ ...          . . . . . . . .  src and unit tests
 ├─ tests
-│  └─ ...          . . . . . . . .  integration tests (TODO)
-└─ builds (TODO ?)
+│  └─ ...          . . . . . . . .  integration tests
+```
+
+<!-- 
+Further work:
+
+└─ builds
    ├─ deploy
    │  ├─ build-app.sh  . . . . . .  deploy build script
    │  └─ ...       . . . . . . . .  deploy support
    └─ test
       ├─ service-tests.sh  . . . .  test run script
       └─ docker-compose.yml  . . .  test run config
-```
+-->
 
 ## Running
 

@@ -1,6 +1,4 @@
 //! Utilities to find a mark in a XML file.
-//!
-//! TODO: versions in CDATA, attributes
 
 use crate::errors::Result;
 use crate::mark::Mark;

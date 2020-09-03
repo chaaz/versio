@@ -86,8 +86,6 @@ You can read about [VCS Levels](./vcs_levels.md) if your error has
 to do with VCS levels or ranges; some commands can't execute if the
 preferred or detected VCS Level is insufficient.
 
-> TODO: other common errors
-
 ## Bad Calculations
 
 Sometimes, `versio` will run just fine, but will incorrectly calculate
@@ -140,8 +138,6 @@ incorrectly. If this is the case, you should manually move and push the
 previous version tag (which is `versio-prev` by default) to a more
 suitable location.
 
-> TODO: other reasons for bad calculations
-
 ## Bad or Incomplete Operations
 
 Occasionally, Versio might improperly write to the filesystem, repo, or
@@ -169,9 +165,7 @@ which prevents any writing being done at all: either to the file system,
 or to the local or remote VCS.
 
 It's possible that Versio is running in an environment where it does not
-have the permissions to write, commit, and/or push its changes. (TODO:
-describe what permissions Versio needs, and how to set up authorization
-for different levels)
+have the permissions to write, commit, and/or push its changes.
 
 A similar problem is when Versio only performs some operations, but not
 others. For example, if Versio might successfully write a file, but then

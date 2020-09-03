@@ -92,7 +92,3 @@ command-line options you can use to set the preferred range:
 - Use `vcs-level-max=remote` to avoid using the GitHub API. All commands
   can operate at this level, although your changelogs and sizing
   calculation might suffer because of the lack of PRs/unsquash.
-
-> TODO: Have commands warn when the VCS level is usable, but of limited
-> value: e.g. `set` will warn if it runs at `none` on a tags project
-> (e.g. "warning: nothing actually done").

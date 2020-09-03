@@ -20,16 +20,16 @@ example is an empty map value:
 ```yaml
 - name: project
   root: "proj_main"
-  ...
   subs: {}
+  ...
 ```
 
-> While the `root` property is never required (it defaults to ".", the
-> repository working directory), it is especially useful to have on
-> "subs" projects, since it dictates the top-level directory of the
-> project where subdirectories are searched for. Conveniently, `root` is
-> also the base directory for other project properties, such as
-> `change_log`, `version` files, and `includes`/`excludes`.
+While the `root` property is never required (it defaults to ".", the
+repository working directory), it is especially useful to have on "subs"
+projects, since it is also the directory where subdirectories are
+searched for. (Conveniently, `root` is also the base directory for other
+project properties, such as `change_log`, `version` files, and
+`includes`/`excludes`.)
 
 This uses the default configuration, where subdirectories are named
 "v&lt;&gt;", and the top-level project is expected to hold the *0* and

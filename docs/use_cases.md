@@ -110,6 +110,8 @@ file with each of those projects listed. If you change later add,
 remove, or change the location of your projects, you should edit this
 file by hand to keep it up-to-date.
 
+<!--
+
 ## CI Premerge Checks
 
 > TODO
@@ -134,3 +136,5 @@ file by hand to keep it up-to-date.
 > TODO
 
 `versio publish`
+
+-->

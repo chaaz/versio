@@ -45,8 +45,6 @@ pub fn get(
   let output = Output::new();
   let mut output = output.projects(wide, versonly);
 
-  // TODO: prev
-
   let reader = mono.reader();
   if let Some(id) = id {
     let id = id.parse()?;

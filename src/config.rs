@@ -240,8 +240,6 @@ impl ConfigFile {
       }
     }
 
-    // TODO: no circular deps
-
     Ok(())
   }
 }
@@ -1010,7 +1008,6 @@ mod test {
 
   #[test]
   fn test_both_file_and_tags() {
-    // TODO: more tests like this
     let data = r#"
 projects:
   - name: everything

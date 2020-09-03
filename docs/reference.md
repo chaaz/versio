@@ -108,8 +108,8 @@ along with their options and flags. You can always use `versio help` or
 
 ## The config file
 
-A config file named `.versio.yaml` must be located at the root of your
-VCS repository. Here's an example:
+A config file named `.versio.yaml` must be located at the base directory
+of your repository. Here's an example:
 
 ```yaml
 options:
@@ -139,8 +139,6 @@ sizes:
   use_angular: true
   fail: ["*"]
 ```
-
-Here's what these properties mean:
 
 - `options`
 
@@ -325,5 +323,3 @@ sizes:
   use_angular: true
   fail: ["*"]
 ```
-
-> TODO: command-line option to use a different file ?

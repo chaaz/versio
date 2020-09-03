@@ -81,9 +81,6 @@ pub fn changes(auth: &Auth, repo: &Repo, baseref: FromTagBuf, headref: String) -
     all_commits.extend(commit_list.into_iter());
   }
 
-  // TODO: remove non-orphans from commits ?
-  // TODO: include files in commits ?
-
   Ok(Changes { commits: all_commits, groups: all_prs })
 }
 
@@ -92,9 +89,6 @@ pub fn line_commits_head(repo: &Repo, base: FromTag) -> Result<Vec<CommitInfoBuf
 }
 
 fn commits_from_v4_api(github_info: &GithubInfo, span: &Span) -> Result<Vec<ApiCommit>> {
-  // TODO : respect "hasNextPage" and endCursor by using history(after:)
-  // TODO : also get PR's headRepository / baseRepository to (try to) look at other repos.
-
   let query = r#"query associatedPRs($since:GitTimestamp!, $sha:String!, $repo:String!, $owner:String!){
   repository(name:$repo, owner:$owner){
     commit:object(expression: $sha){

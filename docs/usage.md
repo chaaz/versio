@@ -66,9 +66,16 @@ option.
 This is a pretty simple example, but you can imagine how useful it is to
 manage multiple projects in the same repo.
 
-> TODO: describe how `set` has a default VCS runlevel of `none`, and can
-> be bumped to `--vcs-level=max` if you have a `version: tags:` that
-> needs to update local/remote tags. See [VCS Levels](./vcs_levels.md).
+By default, `set` has a default VCS level of `none` (see [VCS
+Levels](./vcs_levels.md)), which means that it won't commit, tag, or
+push your new version to a remote. This can be vexing for "version:
+tags" types of projects, which keeps its version numbers only in tags.
+To change a version in the VCS, you can use force a different level,
+like this:
+
+```
+$ versio -l remote set --id 2 --value 1.2.3
+```
 
 ## Git Integration
 
@@ -205,6 +212,3 @@ You can use Versio as part of a pre-merge and post-merge process, too:
 before merging into a deployment branch, and they will output status
 messages that make it easy to track where changes to version numbers
 have occurred.
-
-See the Use Cases document to read more about various uses of `versio`
-in CI/CD pipelines. (TODO: do this)

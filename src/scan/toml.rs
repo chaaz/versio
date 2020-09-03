@@ -32,7 +32,6 @@ fn scan_toml<P: IntoPartVec>(data: &str, loc: P) -> Result<Mark> {
   let value = pop(parts).deserialize(&mut toml::Deserializer::new(data))?;
   let index = value.span().0;
 
-  // TODO: handle triple quotes
   Ok(Mark::new(value.into_inner(), index + 1))
 }
 

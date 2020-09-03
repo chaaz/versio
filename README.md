@@ -3,8 +3,8 @@
 Versio (pronounced _vir_-zhee-oh) is a tool that manages your project's
 advancement. It intelligently updates version numbers based on
 [conventional commits](https://www.conventionalcommits.org/), generates
-changelogs, tags your code, and publishes your project to a variety of
-distribution targets.
+changelogs, and tags your code. Future version will publish your project
+to a variety of distribution targets.
 
 Versio is especially intelligent when dealing with
 [monorepos](https://en.wikipedia.org/wiki/Monorepo), allowing not only
@@ -21,10 +21,12 @@ Rust](https://www.rust-lang.org/tools/install), you can do this:
 $ cargo install versio
 ```
 
+<!--
 Or, you can download one of the pre-built binaries for your platform,
 making sure that it's in your PATH.
 
 > TODO: link to binaries / installers
+-->
 
 See the [Quick Start](./docs/use_cases.md#quick-start) use case to get
 up and running quickly with Versio. Or, try this and see what happens:
@@ -63,7 +65,7 @@ improvements are applied, so a single piece of software can incur many
 releases over its lifetime. Versio can help automate the release
 process, by updating version numbers automatically from [conventional
 commits](https://www.conventionalcommits.org/), generating a changelog,
-and publishing the software to a wide array of distribution targets.
+and (in the future) publishing the software to distribution targets.
 
 Many software projects declare their version number in some sort of
 manifest file. Node/NPM projects have a "package.json" file, Rust/Cargo
@@ -90,8 +92,6 @@ thenceforth Versio will be able to manage them.
 - Versio can also create or update per-project version tags.
 - Versio can generate or update a changelog based on the pull requests
   and commits that have been made since the last release.
-- Finally, Versio can publish each project to appropriate distribution
-  targets.
 
 ## Running
 
@@ -99,9 +99,7 @@ Check out the [Using Versio](./docs/usage.md) page to learn how to use
 Versio, or the [Versio Reference](./docs/reference.md) for all
 command-line options and the format of the `.versio.yaml` config file.
 [Use Cases](./docs/use_cases.md) lists specific use cases that might
-meet a need in your project or organization. The
-[Publishing](./docs/publishing.md) page shows specifically how Versio
-can publish your software.
+meet a need in your project or organization.
 
 ## Features
 

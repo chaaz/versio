@@ -550,16 +550,12 @@ fn find_old_tags<'s, I: Iterator<Item = &'s Project>>(projects: I, prev_tag: &st
   let mut by_proj = HashMap::new();
   let mut not_after = HashMap::new();
   let mut not_after_walk = HashMap::new();
-  // TODO: ensure commits_to_head is ordered "head" to "from"
-  // TODO: in the case of missing prev_tag, handle huge walk ?
-  // TODO: does this even work if there are divergent paths/branches? what happens to the walk order?
   for commit_oid in repo.commits_to_head(FromTag::new(prev_tag, true), true)?.map(|c| c.map(|c| c.id())) {
     let commit_oid = commit_oid?;
     for (proj_id, by_id) in &mut by_proj_oid {
       let not_after_walk = not_after_walk.entry(proj_id.clone()).or_insert_with(Vec::new);
       not_after_walk.push(commit_oid.clone());
       if let Some(tags) = by_id.remove(&commit_oid) {
-        // TODO: sort by timestamp (annotated `Tag.tagger().when()`), latest first instead?
         let mut versions = tags_to_versions(&tags);
         versions.sort_unstable_by(version_sort);
         let old_versions = by_proj.entry(proj_id.clone()).or_insert_with(Vec::new);

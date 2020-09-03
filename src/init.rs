@@ -41,7 +41,6 @@ fn find_projects_under(dir: &Path, depth: u16, max_depth: u16) -> impl Iterator<
     Err(e) => return E2::A(once(Err(e.into())))
   };
 
-  // TODO: skip hidden, .gitignored files (ripgrep's approach?)
   E2::B(
     dir
       .filter_map(|e| e.ok())
@@ -85,8 +84,6 @@ fn find_projects_in(dir: &Path) -> impl Iterator<Item = Result<ProjSummary>> {
     let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("project");
     summs.push(Ok(ProjSummary::new_tags_subs(name, dir.to_string_lossy())));
   }
-
-  // TODO: other project types
 
   E2::B(summs.into_iter())
 }
