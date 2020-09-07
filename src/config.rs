@@ -45,7 +45,13 @@ impl FromStr for ProjectId {
 }
 
 impl fmt::Display for ProjectId {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "[{} {:?}]", self.id, self.majors) }
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    if self.majors.is_empty() {
+      write!(f, "{}", self.id)
+    } else {
+      write!(f, "{} {:?}", self.id, self.majors)
+    }
+  }
 }
 
 impl<'de> Deserialize<'de> for ProjectId {
@@ -111,6 +117,7 @@ impl<S: StateRead> Config<S> {
   pub fn state_read(&self) -> &S { &self.state }
   pub fn projects(&self) -> &[Project] { &self.file.projects() }
   pub fn get_project(&self, id: &ProjectId) -> Option<&Project> { self.file.get_project(id) }
+  pub fn branch(&self) -> &Option<String> { self.file.branch() }
 
   pub fn find_unique(&self, name: &str) -> Result<&ProjectId> {
     let mut iter = self.file.projects.iter().filter(|p| p.name.contains(name)).map(|p| p.id());
@@ -211,6 +218,7 @@ impl ConfigFile {
   pub fn projects(&self) -> &[Project] { &self.projects }
   pub fn get_project(&self, id: &ProjectId) -> Option<&Project> { self.projects.iter().find(|p| p.id() == id) }
   pub fn sizes(&self) -> &HashMap<String, Size> { &self.sizes }
+  pub fn branch(&self) -> &Option<String> { self.options.branch() }
 
   /// Check that IDs are unique, etc.
   fn validate(&self) -> Result<()> {
@@ -246,15 +254,21 @@ impl ConfigFile {
 
 #[derive(Deserialize, Debug)]
 struct Options {
-  prev_tag: String
+  #[serde(default = "default_prev_tag")]
+  prev_tag: String,
+  #[serde(default = "default_branch")]
+  branch: Option<String>
 }
 
 impl Default for Options {
-  fn default() -> Options { Options { prev_tag: "versio-prev".into() } }
+  fn default() -> Options {
+    Options { prev_tag: default_prev_tag(), branch: default_branch() }
+  }
 }
 
 impl Options {
   pub fn prev_tag(&self) -> &str { &self.prev_tag }
+  pub fn branch(&self) -> &Option<String> { &self.branch }
 }
 
 fn legal_tag(prefix: &str) -> bool {
@@ -268,7 +282,7 @@ pub struct Project {
   name: String,
   id: ProjectId,
   root: Option<String>,
-  #[serde(default)]
+  #[serde(default = "default_includes")]
   includes: Vec<String>,
   #[serde(default)]
   excludes: Vec<String>,
@@ -337,9 +351,6 @@ impl Project {
 
   pub fn size(&self, parent_sizes: &HashMap<String, Size>, kind: &str) -> Result<Size> {
     let kind = kind.trim();
-    if kind.ends_with('!') {
-      return Ok(Size::Major);
-    }
     parent_sizes
       .get(kind)
       .copied()
@@ -815,6 +826,10 @@ impl Ord for Size {
   }
 }
 
+fn default_includes() -> Vec<String> { vec!["**/*".into()] }
+fn default_prev_tag() -> String { "versio-prev".into() }
+fn default_branch() -> Option<String> { None }
+
 fn deserialize_version<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<Location, D::Error> {
   struct VecPartSeed;
 
@@ -918,6 +933,7 @@ fn deserialize_sizes<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<
             let size = Size::from_str(val).unwrap();
             let keys: Vec<String> = map.next_value()?;
             for key in keys {
+              let key = key.to_lowercase();
               if result.contains_key(&key) {
                 return Err(de::Error::custom(format!("Duplicated kind \"{}\".", key)));
               }
@@ -945,6 +961,7 @@ fn deserialize_sizes<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<
 }
 
 fn insert_angular(result: &mut HashMap<String, Size>) {
+  insert_if_missing(result, "!", Size::Major);
   insert_if_missing(result, "feat", Size::Minor);
   insert_if_missing(result, "fix", Size::Patch);
   insert_if_missing(result, "docs", Size::None);
@@ -1167,15 +1184,16 @@ projects:
     let config = r#"
 projects: []
 sizes:
-  major: [ break ]
+  major: [ break, "!" ]
   minor: [ feat ]
   patch: [ fix, "-" ]
   none: [ none ]
 "#;
 
     let config = ConfigFile::read(config).unwrap();
-    assert_eq!(&Size::Minor, config.sizes.get("feat").unwrap());
     assert_eq!(&Size::Major, config.sizes.get("break").unwrap());
+    assert_eq!(&Size::Major, config.sizes.get("!").unwrap());
+    assert_eq!(&Size::Minor, config.sizes.get("feat").unwrap());
     assert_eq!(&Size::Patch, config.sizes.get("fix").unwrap());
     assert_eq!(&Size::Patch, config.sizes.get("-").unwrap());
     assert_eq!(&Size::None, config.sizes.get("none").unwrap());

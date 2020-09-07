@@ -128,24 +128,22 @@ impl<'r> PrevFiles<'r> {
 
 #[derive(Debug)]
 pub struct OldTags {
-  by_proj: HashMap<ProjectId, Vec<String>>,
-  not_after: HashMap<ProjectId, HashMap<String, usize>>
+  current: HashMap<ProjectId, String>,
+  prev: HashMap<ProjectId, String>
 }
 
 impl OldTags {
-  pub fn new(
-    by_proj: HashMap<ProjectId, Vec<String>>, not_after: HashMap<ProjectId, HashMap<String, usize>>
-  ) -> OldTags {
-    OldTags { by_proj, not_after }
+  pub fn new(current: HashMap<ProjectId, String>, prev: HashMap<ProjectId, String>) -> OldTags {
+    OldTags { current, prev }
   }
 
-  pub fn empty() -> OldTags { OldTags { by_proj: HashMap::new(), not_after: HashMap::new() } }
+  pub fn empty() -> OldTags { OldTags { current: HashMap::new(), prev: HashMap::new() } }
 
-  fn latest(&self, proj: &ProjectId) -> Option<&String> { self.by_proj.get(proj).and_then(|p| p.first()) }
+  fn latest(&self, proj: &ProjectId) -> Option<&String> { self.current.get(proj) }
 
   /// Construct a tags index for an earlier commit; a `latest` call on the returned index will match the
   /// `not_after(new_oid)` on this index.
-  pub fn slice_earlier(&self, new_oid: &str) -> Result<OldTags> {
+  pub fn slice_to_prev(&self) -> Result<OldTags> {
     let mut by_proj = HashMap::new();
     let mut not_after = HashMap::new();
 

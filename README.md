@@ -21,12 +21,9 @@ Rust](https://www.rust-lang.org/tools/install), you can do this:
 $ cargo install versio
 ```
 
-<!--
-Or, you can download one of the pre-built binaries for your platform,
-making sure that it's in your PATH.
-
-> TODO: link to binaries / installers
--->
+Or, you can download one of the pre-built binaries for your platform
+from the [Releases
+page](https://github.com/chaaz/versio/releases).
 
 See the [Quick Start](./docs/use_cases.md#quick-start) use case to get
 up and running quickly with Versio. Or, try this and see what happens:

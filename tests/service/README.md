@@ -47,11 +47,11 @@ git commit -m "fix: bug fix proj_2"
 
 versio_capture run
 
-grep -q -x '  proj_1: 0.0.1 -> 0.1.0' ${versio_stdout}
-grep -q -x '  proj_2: 0.0.1 -> 0.0.2' ${versio_stdout}
+grep -F -q -x '  proj_1: 0.0.1 -> 0.1.0' ${versio_stdout}
+grep -F -q -x '  proj_2: 0.0.1 -> 0.0.2' ${versio_stdout}
 
-grep -q '"version": "0.1.0"'  proj_1/package.json
-grep -q 'version = "0.0.2"'   proj_2/Cargo.toml
+grep -F -q '"version": "0.1.0"'  proj_1/package.json
+grep -F -q 'version = "0.0.2"'   proj_2/Cargo.toml
 ```
 
 Service tests are run in a simple Git repository, whose initial

@@ -54,7 +54,11 @@ impl Repo {
       Ok(repo) => repo
     };
 
-    let branch_name = find_branch_name(&repo)?;
+    let branch_name = match find_branch_name(&repo) {
+      Err(_) => return Ok(VcsLevel::None),
+      Ok(branch_name) => branch_name
+    };
+
     if let Ok(remote_name) = find_remote_name(&repo, &branch_name) {
       if find_github_info(&repo, &remote_name, &Default::default()).is_ok() {
         Ok(VcsLevel::Smart)
@@ -64,6 +68,25 @@ impl Repo {
     } else {
       Ok(VcsLevel::Local)
     }
+  }
+
+  pub fn find_working_dir<P: AsRef<Path>>(path: P, vcs: VcsLevel, allow_cwd: bool) -> Result<PathBuf> {
+    if vcs == VcsLevel::None {
+      match find_root_blind(path.as_ref()) {
+        Ok(path) => return Ok(path),
+        Err(e) => {
+          if allow_cwd {
+            return Ok(path.as_ref().to_path_buf());
+          } else {
+            return Err(e);
+          }
+        }
+      }
+    }
+
+    let flags = RepositoryOpenFlags::empty();
+    let repo = Repository::open_ext(path, flags, empty::<&OsStr>())?;
+    Ok(repo.workdir().ok_or_else(|| bad!("Repo has no working dir"))?.to_path_buf())
   }
 
   pub fn open<P: AsRef<Path>>(path: P, vcs: VcsLevel) -> Result<Repo> {
@@ -236,7 +259,7 @@ impl Repo {
     let parent_commit = self.find_last_commit()?;
     let sig = Signature::now("Versio", "github.com/chaaz/versio")?;
     let head = Some("HEAD");
-    let msg = "chore(deploy): update versions";
+    let msg = "build(deploy): Versio update versions";
 
     let commit_oid = repo.commit(head, &sig, &sig, msg, &tree, &[&parent_commit])?;
     repo.reset(&repo.find_object(commit_oid, Some(ObjectType::Commit))?, ResetType::Mixed, None)?;
@@ -384,18 +407,18 @@ pub struct CommitInfoBuf {
 }
 
 impl CommitInfoBuf {
-  pub fn new(id: String, summary: String, files: Vec<String>) -> CommitInfoBuf {
-    let kind = extract_kind(&summary);
+  pub fn new(id: String, kind: String, summary: String, files: Vec<String>) -> CommitInfoBuf {
     CommitInfoBuf { id, summary, kind, files }
   }
 
-  pub fn guess(id: String) -> CommitInfoBuf { CommitInfoBuf::new(id, "".into(), Vec::new()) }
+  pub fn guess(id: String) -> CommitInfoBuf { CommitInfoBuf::new(id, "-".into(), "".into(), Vec::new()) }
 
   pub fn extract<'a>(repo: &'a Repository, commit: &Commit<'a>) -> Result<CommitInfoBuf> {
     let id = commit.id().to_string();
     let summary = commit.summary().unwrap_or("-").to_string();
+    let kind = extract_kind(commit.message().unwrap_or("-"));
     let files = files_from_commit(repo, commit)?.collect();
-    Ok(CommitInfoBuf::new(id, summary, files))
+    Ok(CommitInfoBuf::new(id, kind, summary, files))
   }
 
   pub fn id(&self) -> &str { &self.id }
@@ -414,11 +437,12 @@ impl<'a> CommitInfo<'a> {
 
   pub fn id(&self) -> String { self.commit.id().to_string() }
   pub fn summary(&self) -> &str { self.commit.summary().unwrap_or("-") }
-  pub fn kind(&self) -> String { extract_kind(self.summary()) }
+  pub fn message(&self) -> &str { self.commit.message().unwrap_or("-") }
+  pub fn kind(&self) -> String { extract_kind(self.message()) }
   pub fn files(&self) -> Result<impl Iterator<Item = String> + 'a> { files_from_commit(&self.repo, &self.commit) }
 
   pub fn buffer(self) -> Result<CommitInfoBuf> {
-    Ok(CommitInfoBuf::new(self.id(), self.summary().to_string(), self.files()?.collect()))
+    Ok(CommitInfoBuf::new(self.id(), self.kind(), self.summary().to_string(), self.files()?.collect()))
   }
 }
 
@@ -804,21 +828,34 @@ fn fast_forward(repo: &Repository, rfrnc: &mut Reference, rc: &AnnotatedCommit) 
   Ok(())
 }
 
-fn extract_kind(summary: &str) -> String {
-  match summary.char_indices().find(|(_, c)| *c == ':' || *c == '\n') {
+/// Finds a conventional commit "type" from a commit message.
+///
+/// The type can be one of the special characters "-" (no type found) or "!" ("BREAKING CHANGE:" or
+/// "BREAKING-CHANGE:" starting footer, or "!" after type/scope)
+fn extract_kind(message: &str) -> String {
+  let breaking_pattern =
+    Regex::new("^(?s).*?\\n\\n((BREAKING CHANGE|BREAKING-CHANGE):|.*\n(BREAKING CHANGE|BREAKING-CHANGE):)")
+      .unwrap();
+  if breaking_pattern.is_match(message) {
+    return "!".into();
+  }
+
+  match message.char_indices().find(|(_, c)| *c == ':' || *c == '\n') {
     Some((i, c)) if c == ':' => {
-      let kind = &summary[0 .. i].trim();
-      let bang = kind.ends_with('!');
+      let kind = &message[.. i].trim();
+      if kind.ends_with('!') {
+        return "!".into();
+      }
       match kind.char_indices().find(|(_, c)| *c == '(').map(|(i, _)| i) {
         Some(i) => {
           let kind = &kind[0 .. i].trim();
-          if bang && !kind.ends_with('!') {
-            format!("{}!", kind)
+          if kind.ends_with('!') {
+            "!".into()
           } else {
-            (*kind).to_string()
+            (*kind).to_lowercase()
           }
         }
-        None => (*kind).to_string()
+        None => (*kind).to_lowercase()
       }
     }
     _ => "-".to_string()
@@ -935,7 +972,7 @@ fn verify_current(repo: &Repository) -> Result<()> {
   status_opts.include_untracked(true);
   status_opts.exclude_submodules(false);
   if repo.statuses(Some(&mut status_opts))?.iter().any(|s| s.status() != Status::CURRENT) {
-    bail!("Repository is not current");
+    bail!("Repository is not current.");
   }
   Ok(())
 }
@@ -1047,7 +1084,7 @@ mod test {
 
   #[test]
   fn test_kind_bang() {
-    assert_eq!(&extract_kind("thing! : this is thing"), "thing!");
+    assert_eq!(&extract_kind("thing! : this is thing"), "!");
   }
 
   #[test]
@@ -1057,11 +1094,51 @@ mod test {
 
   #[test]
   fn test_kind_complex() {
-    assert_eq!(&extract_kind("thing(scope)!: this is thing"), "thing!");
+    assert_eq!(&extract_kind("thing(scope)!: this is thing"), "!");
   }
 
   #[test]
   fn test_kind_backwards() {
-    assert_eq!(&extract_kind("thing!(scope): this is thing"), "thing!");
+    assert_eq!(&extract_kind("thing!(scope): this is thing"), "!");
+  }
+
+  #[test]
+  fn test_kind_breaking() {
+    assert_eq!(&extract_kind("thing(scope): this is thing\n\nbody\n\nBREAKING CHANGE: yup"), "!");
+  }
+
+  #[test]
+  fn test_kind_breaking_no_body() {
+    assert_eq!(&extract_kind("thing(scope): this is thing\n\nBREAKING CHANGE: yup"), "!");
+  }
+
+  #[test]
+  fn test_kind_breaking_later() {
+    assert_eq!(&extract_kind("thing(scope): this is thing\n\nbody\n\nfoot: 1\nBREAKING CHANGE: yup"), "!");
+  }
+
+  #[test]
+  fn test_kind_breaking_both() {
+    assert_eq!(&extract_kind("thing(scope)!: this is thing\n\nbody\n\nBREAKING CHANGE: yup"), "!");
+  }
+
+  #[test]
+  fn test_kind_breaking_dash() {
+    assert_eq!(&extract_kind("thing(scope): this is thing\n\nbody\n\nBREAKING-CHANGE: yup"), "!");
+  }
+
+  #[test]
+  fn test_empty() {
+    assert_eq!(&extract_kind(""), "-");
+  }
+
+  #[test]
+  fn test_unconventional() {
+    assert_eq!(&extract_kind("-"), "-");
+  }
+
+  #[test]
+  fn test_uncertain() {
+    assert_eq!(&extract_kind("ENG-123: I forgot to conventinal commit"), "eng-123");
   }
 }

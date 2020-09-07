@@ -67,7 +67,7 @@ impl ProjOutput {
       if self.vers_only {
         println!("{}", line.version);
       } else if self.wide {
-        println!("{:>4}. {:width$} : {}", line.id, line.name, line.version, width = name_width);
+        println!("{:>6}. {:width$} : {}", line.id, line.name, line.version, width = name_width);
       } else {
         println!("{:width$} : {}", line.name, line.version, width = name_width);
       }

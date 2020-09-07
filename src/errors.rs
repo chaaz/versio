@@ -40,3 +40,25 @@ macro_rules! err {
 macro_rules! bad {
   ($($arg:tt)*) => ($crate::errors::Error::from_kind($crate::errors::ErrorKind::Msg(format!($($arg)*))))
 }
+
+#[macro_export]
+macro_rules! try_iter {
+  ($arg:expr) => {
+    match $arg {
+      Ok(x) => x,
+      Err(e) => return E2::A(once(Err(e.into())))
+    }
+  };
+}
+
+//   if dir.join("package.json").exists() {
+//     let data = match std::fs::read_to_string(&dir.join("package.json")) {
+//       Ok(data) => data,
+//       Err(e) => return E2::A(once(Err(e.into())))
+//     };
+//     let name = match JsonScanner::new("name").find(&data) {
+//       Ok(name) => name.value().to_string(),
+//       Err(e) => return E2::A(once(Err(e)))
+//     };
+//     summs.push(Ok(ProjSummary::new_file(name, dir.to_string_lossy(), "package.json", "json", "version")));
+//   }

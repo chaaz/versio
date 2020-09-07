@@ -7,8 +7,7 @@ use versio::errors::Result;
 use versio::init::init;
 use versio::vcs::{VcsLevel, VcsRange};
 
-pub fn execute() -> Result<()> {
-  let info = early_info()?;
+pub fn execute(info: &EarlyInfo) -> Result<()> {
   let id_required = info.project_count() != 1;
 
   let m = App::new("versio")
@@ -87,6 +86,7 @@ pub fn execute() -> Result<()> {
             .long("prev")
             .takes_value(false)
             .display_order(1)
+            .requires("ident")
             .help("Whether to show prev versions")
         )
         .arg(
@@ -114,13 +114,15 @@ pub fn execute() -> Result<()> {
             .display_order(1)
             .help("The name to get")
         )
-        .arg(Arg::with_name("id").short("i").long("id").takes_value(true).value_name("id").display_order(1).help({
-          if id_required {
-            "The id to get"
-          } else {
-            "The id to get (only project assumed)"
-          }
-        }))
+        .arg(
+          Arg::with_name("id")
+            .short("i")
+            .long("id")
+            .takes_value(true)
+            .value_name("id")
+            .display_order(1)
+            .help("The id to get")
+        )
         .group(ArgGroup::with_name("ident").args(&["id", "name"]).required(id_required))
         .display_order(1)
     )
@@ -137,13 +139,15 @@ pub fn execute() -> Result<()> {
             .display_order(1)
             .help("The name to set")
         )
-        .arg(Arg::with_name("id").short("i").long("id").takes_value(true).value_name("id").display_order(1).help({
-          if id_required {
-            "The id to set"
-          } else {
-            "The id to get (only project assumed)"
-          }
-        }))
+        .arg(
+          Arg::with_name("id")
+            .short("i")
+            .long("id")
+            .takes_value(true)
+            .value_name("id")
+            .display_order(1)
+            .help("The id to set")
+        )
         .group(ArgGroup::with_name("ident").args(&["id", "name"]).required(id_required))
         .arg(
           Arg::with_name("value")
@@ -242,7 +246,7 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
       m.value_of("id"),
       m.value_of("name")
     )?,
-    ("show", Some(m)) => show(pref_vcs, m.is_present("wide"))?,
+    ("show", Some(m)) => show(pref_vcs, m.is_present("wide"), m.is_present("prev"))?,
     ("set", Some(m)) => set(pref_vcs, m.value_of("id"), m.value_of("name"), m.value_of("value").unwrap())?,
     ("diff", Some(_)) => diff(pref_vcs)?,
     ("files", Some(_)) => files(pref_vcs)?,

@@ -1,14 +1,18 @@
 # Common Use Cases
 
 These are some of the common ways that you might want to use Versio in
-your own development. If you find a novel way to use Versio, please let
-us know!
+your own development. If you find a new or novel way to use Versio,
+please let us know!
 
 ## Quick Start
 
 Get up and running quickly with Versio, and get a brief introduction to
 what it does. This example assumes a standard Node.js/NPM layout, but
 Versio can handle lots of different project types.
+
+If you don't have rust installed, you can't use `cargo install`.
+Instead, download a binary for your platform directly from the [Releases
+page](https://github.com/chaaz/versio/releases).
 
 - Install versio:
   ```
@@ -34,65 +38,85 @@ Versio can handle lots of different project types.
   Changes committed and pushed.
   ```
 
-## Manual Changes (solo project)
+## View Project Versions
 
-If you have a single project configured, and you want to manually view
-and set its version:
+Since Versio knows where all your project versions are stored, it can
+output them for you. It can even tell you the versions of projects as
+they were set by the last execution of `versio run`.
 
-- Take a look at your project:
+- View current versions in "wide" format (which shows project IDs):
   ```
-  $ cd ${project_root_dir}
-
-  $ cat package.json
-  ...
-    "name": "myproject"
-    "version": "1.0.1",
-  ...
+  $ versio show -w
+  1. myproject    : 1.0.1
+  2. otherproject : 1.0.1
   ```
-- View your current version:
-  ```
-  $ versio get
-  myproject : 1.0.1
-  ```
-- Change it
-  ```
-  $ versio set --value 1.2.3
-
-  $ cat package.json
-  ...
-    "version": "1.2.3",
-  ...
-  ```
-
-## Manual Changes (multiple projects)
-
-If you have more than one project configured, and you want to manually
-view and set the version of one of them. You must know the ID or the
-name of the project you want to affect:
-
-- Take a look at your project:
-  ```
-  $ cd ${project_root_dir}
-
-  $ cat proj_1/package.json
-  ...
-    "version": "1.0.1",
-  ...
-  ```
-- View the current version:
+- View a specific project version
   ```
   $ versio get --id 1
   myproject : 1.0.1
   ```
-- Change it
+- Print just the version number
+  ```
+  $ versio get --id 1 -v
+  1.0.1
+  ```
+- Show the latest-released versions:
+  ```
+  $ versio show --prev
+  myproject    : 1.0.1
+  otherproject : 1.0.1
+  ```
+
+  If you rely solely on Versio to update project numbers for you, then
+  the last-released version will usually match the current version.
+
+## Change a Project Version (solo project)
+
+If you have a single project configured, and you want to manually view
+and set its version.
+
+- Change the version of the only project:
+  ```
+  $ versio set --value 1.2.3
+  ```
+
+By default, `set` has a default VCS level of `none` (see [VCS
+Levels](./vcs_levels.md)), which means that it won't commit, tag, or
+push your new version to a remote. This can be vexing for "version:
+tags" types of projects, which keeps their version numbers only in tags.
+To change a version in the VCS, you can use force a different level,
+like this:
+
+```
+$ versio -l remote set --value 1.2.3
+```
+
+This will not only change the tags in the VCS, but also commit and push
+any version changes in files (both locally and on the remote).
+
+## Change a Project Version (multiple projects)
+
+If you have more than one project configured, and you must know the ID
+or the name of the project you want to change.
+
+- Change the version of a specified project:
   ```
   $ versio set --id 1 --value 1.2.3
-
-  $ cat proj_1/package.json
-  ...
-    "version": "1.2.3",
-  ...
   ```
+
+By default, `set` has a default VCS level of `none` (see [VCS
+Levels](./vcs_levels.md)), which means that it won't commit, tag, or
+push your new version to a remote. This can be vexing for "version:
+tags" types of projects, which keeps their version numbers only in tags.
+To change a version in the VCS, you can use force a different level,
+like this:
+
+```
+$ versio -l remote set --id 1 --value 1.2.3
+```
+
+This will not only change the tags in the VCS, but also commit and push
+any version changes in files (both locally and on the remote).
 
 ## Create Configuration
 
@@ -110,27 +134,31 @@ file with each of those projects listed. If you change later add,
 remove, or change the location of your projects, you should edit this
 file by hand to keep it up-to-date.
 
-<!--
+## CI Premerge
 
-## CI Premerge Checks
-
-> TODO
-
-`versio check`, `versio plan` maybe?
-
-> TODO supply CI orbs, github actions ?
+You can use Versio to check that a branch is ready to be merged to your
+deployment branch. Your CI pipeline can run `versio check` to ensure
+that the `.versio.yaml` file is properly configured, and can `versio
+plan` to log the version changes which will be applied once merged.
 
 ## CI Merge
 
-> TODO
+As part of your CI/CD pipeline, you can create an action to execute
+`versio run`, which will update the version numbers, generate
+changelogs, and commit and push all changes. You can set this action to
+run automatically when a branch has been merged to a release branch, or
+at any other time you want your software to be released.
 
-> TODO: talk about release branches
+It's important to note that nothing can be pushed to the release branch
+during the short time that Versio is running, or `versio run` will fail.
+There are a number of ways you can deal with this: from locking the
+branch while Versio is running; to creating a pre-release branch to
+separate merges from the release process; to simply ignoring the problem
+and manually re-running the CI action if it gets stuck; and more. The
+strategy you use is dependent on the specifics of your organization and
+CI/CD process.
 
-> TODO: talk about timing. TIMING IS KEY. can't merge to release branch
-> while `versio run` is executing
-
-`versio plan` maybe, `versio run`
-
+<!--
 ## CD Deploy
 
 > TODO

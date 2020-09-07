@@ -50,25 +50,26 @@ impl Mono {
     Ok(Mono { user_config, current, next, last_commits, repo })
   }
 
-  pub fn commit(&mut self) -> Result<()> { self.next.commit(&self.repo, self.current.prev_tag(), &self.last_commits) }
+  pub fn check_branch(&self) -> std::result::Result<(), (String, String)> {
+    if let Ok(branch_name) = self.repo.branch_name() {
+      if let Some(cfg_name) = self.current.branch() {
+        if branch_name != cfg_name {
+          Err((cfg_name.clone(), branch_name.clone()))
+        } else {
+          Ok(())
+        }
+      } else {
+        Ok(())
+      }
+    } else {
+      Ok(())
+    }
+  }
 
-  pub fn projects(&self) -> &[Project] { self.current.projects() }
+  pub fn commit(&mut self) -> Result<()> { self.next.commit(&self.repo, self.current.prev_tag(), &self.last_commits) }
 
   pub fn get_project(&self, id: &ProjectId) -> Result<&Project> {
     self.current.get_project(id).ok_or_else(|| bad!("No such project {}", id))
-  }
-
-  pub fn get_named_project(&self, name: &str) -> Result<&Project> {
-    let id = self.current.find_unique(name)?;
-    self.get_project(id)
-  }
-
-  pub fn get_only_project(&self) -> Result<&Project> {
-    if self.current.projects().len() != 1 {
-      bail!("No solo project.");
-    }
-    let id = self.current.projects().get(0).unwrap().id();
-    self.get_project(id)
   }
 
   pub fn diff(&self) -> Result<Analysis> {
@@ -80,7 +81,6 @@ impl Mono {
     Ok(analyze(prev_annotate, curt_annotate))
   }
 
-  pub fn reader(&self) -> &CurrentState { self.current.state_read() }
   pub fn config(&self) -> &Config<CurrentState> { &self.current }
   pub fn repo(&self) -> &Repo { &self.repo }
 

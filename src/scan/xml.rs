@@ -14,7 +14,6 @@ pub struct XmlScanner {
 }
 
 impl XmlScanner {
-  #[cfg(test)]
   pub fn new(target: &str) -> XmlScanner { XmlScanner { target: target.into_part_vec() } }
 
   #[cfg(test)]
