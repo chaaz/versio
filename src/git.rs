@@ -11,7 +11,7 @@ use git2::string_array::StringArray;
 use git2::{
   AnnotatedCommit, AutotagOption, Blob, Commit, Cred, Diff, DiffOptions, FetchOptions, Index, Object, ObjectType, Oid,
   PushOptions, Reference, ReferenceType, Remote, RemoteCallbacks, Repository, RepositoryOpenFlags, RepositoryState,
-  ResetType, Revwalk, Signature, Status, StatusOptions, Time
+  ResetType, Revwalk, Signature, Sort, Status, StatusOptions, Time
 };
 use log::{error, info, trace, warn};
 use regex::Regex;
@@ -150,6 +150,7 @@ impl Repo {
   pub fn commits_between_buf(&self, from: FromTag, to_oid: Oid) -> Result<Option<(Vec<CommitInfoBuf>, Time)>> {
     let repo = self.repo()?;
     let mut revwalk = repo.revwalk()?;
+    revwalk.set_sorting(Sort::TOPOLOGICAL)?;
     hide_from(repo, &mut revwalk, from)?;
     revwalk.push(to_oid)?;
 
@@ -175,6 +176,7 @@ impl Repo {
   ) -> Result<impl Iterator<Item = Result<CommitInfo>> + '_> {
     let repo = self.repo()?;
     let mut revwalk = repo.revwalk()?;
+    revwalk.set_sorting(Sort::TOPOLOGICAL)?;
     if incl_from {
       hide_from_parents(repo, &mut revwalk, from)?;
     } else {
@@ -214,6 +216,19 @@ impl Repo {
         get_oid_remote(repo, branch_name, spec, remote_name, fetches)
       }
     }
+  }
+
+  pub fn annotation_of(&self, tag: &str) -> Option<String> {
+    let repo = match &self.vcs {
+      GitVcsLevel::None { .. } => return None,
+      GitVcsLevel::Local { repo, .. } | GitVcsLevel::Remote { repo, .. } | GitVcsLevel::Smart { repo, .. } => repo
+    };
+
+    repo
+      .refname_to_id(&format!("refs/tags/{}", tag))
+      .and_then(|oid| repo.find_tag(oid))
+      .ok()
+      .and_then(|tag| tag.message().map(|m| m.to_string()))
   }
 
   pub fn commit(&self) -> Result<bool> {
@@ -275,6 +290,8 @@ impl Repo {
 
   pub fn update_tag_head(&self, tag: &str) -> Result<()> { self.update_tag(tag, "HEAD") }
 
+  pub fn update_tag_head_anno(&self, tag: &str, msg: &str) -> Result<()> { self.update_tag_anno(tag, "HEAD", msg) }
+
   pub fn update_tag(&self, tag: &str, spec: &str) -> Result<()> {
     if let GitVcsLevel::None { .. } = self.vcs {
       return Ok(());
@@ -283,6 +300,19 @@ impl Repo {
     let repo = self.repo()?;
     let obj = repo.revparse_single(spec)?;
     repo.tag_lightweight(tag, &obj, true)?;
+    self.push_tag(tag)?;
+    Ok(())
+  }
+
+  pub fn update_tag_anno(&self, tag: &str, spec: &str, msg: &str) -> Result<()> {
+    if let GitVcsLevel::None { .. } = self.vcs {
+      return Ok(());
+    }
+
+    let repo = self.repo()?;
+    let obj = repo.revparse_single(spec)?;
+    let tagger = Signature::now("Versio", "github.com/chaaz/versio")?;
+    repo.tag(tag, &obj, &tagger, msg, true)?;
     self.push_tag(tag)?;
     Ok(())
   }
@@ -834,8 +864,7 @@ fn fast_forward(repo: &Repository, rfrnc: &mut Reference, rc: &AnnotatedCommit) 
 /// "BREAKING-CHANGE:" starting footer, or "!" after type/scope)
 fn extract_kind(message: &str) -> String {
   let breaking_pattern =
-    Regex::new("^(?s).*?\\n\\n((BREAKING CHANGE|BREAKING-CHANGE):|.*\n(BREAKING CHANGE|BREAKING-CHANGE):)")
-      .unwrap();
+    Regex::new("^(?s).*?\\n\\n((BREAKING CHANGE|BREAKING-CHANGE):|.*\n(BREAKING CHANGE|BREAKING-CHANGE):)").unwrap();
   if breaking_pattern.is_match(message) {
     return "!".into();
   }

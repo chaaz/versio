@@ -143,13 +143,7 @@ fn add_gemspecs(dir: &Path, summaries: &mut Vec<Result<ProjSummary>>) -> Result<
         )));
       } else {
         warn!("Couldn't find VERSION file \"{}\". Please edit the .versio.yaml file.", vers_file.to_string_lossy());
-        summaries.push(Ok(ProjSummary::new_file(
-          name,
-          dir.to_string_lossy(),
-          "EDIT_ME",
-          "pattern",
-          "EDIT_ME"
-        )));
+        summaries.push(Ok(ProjSummary::new_file(name, dir.to_string_lossy(), "EDIT_ME", "pattern", "EDIT_ME")));
       }
     } else {
       // Still other times, it's too tough to find.

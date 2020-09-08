@@ -7,13 +7,16 @@ use crate::git::{FromTagBuf, Repo, Slice};
 use crate::mark::{FilePicker, LinePicker, Picker, ScanningPicker};
 use crate::mono::ChangeLog;
 use crate::scan::parts::{deserialize_parts, Part};
-use crate::state::{CurrentFiles, CurrentState, FilesRead, PickPath, PrevFiles, PrevState, StateRead, StateWrite};
+use crate::state::{
+  CurrentFiles, CurrentState, FilesRead, OldTags, PickPath, PrevFiles, PrevState, StateRead, StateWrite
+};
 use error_chain::bail;
 use glob::{glob_with, MatchOptions, Pattern};
 use log::trace;
 use regex::{escape, Regex};
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, Unexpected, Visitor};
-use serde::Deserialize;
+use serde::ser::Serializer;
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cmp::{Ord, Ordering};
 use std::collections::{HashMap, HashSet};
@@ -31,6 +34,7 @@ pub struct ProjectId {
 }
 
 impl ProjectId {
+  pub fn new(id: u32, majors: Vec<u32>) -> ProjectId { ProjectId { id, majors } }
   pub fn from_id(id: u32) -> ProjectId { ProjectId { id, majors: Vec::new() } }
 
   fn expand(&self, sub: &SubExtent) -> ProjectId {
@@ -50,6 +54,19 @@ impl fmt::Display for ProjectId {
       write!(f, "{}", self.id)
     } else {
       write!(f, "{} {:?}", self.id, self.majors)
+    }
+  }
+}
+
+impl Serialize for ProjectId {
+  fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+  where
+    S: Serializer
+  {
+    if self.majors.is_empty() {
+      serializer.serialize_u32(self.id)
+    } else {
+      serializer.serialize_str(&format!("{} {:?}", self.id, self.majors))
     }
   }
 }
@@ -79,8 +96,20 @@ impl<'de> Deserialize<'de> for ProjectId {
       fn visit_f64<E: de::Error>(self, v: f64) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
 
       fn visit_str<E: de::Error>(self, v: &str) -> DeResult<E> {
-        let v = v.parse().map_err(|_| E::invalid_value(Unexpected::Str(v), &self))?;
-        Ok(ProjectId::from_id(v))
+        let id_majors: Vec<&str> = v.splitn(2, ' ').collect();
+        if id_majors.len() > 1 {
+          let v = id_majors[0].parse().map_err(|_| E::invalid_value(Unexpected::Str(v), &self))?;
+          let maj = id_majors[1];
+          let maj = maj[1 .. id_majors[1].len() - 1]
+            .split(", ")
+            .map(|m| m.parse())
+            .collect::<std::result::Result<Vec<u32>, std::num::ParseIntError>>()
+            .map_err(|_| E::invalid_value(Unexpected::Str(maj), &self))?;
+          Ok(ProjectId::new(v, maj))
+        } else {
+          let v = id_majors[0].parse().map_err(|_| E::invalid_value(Unexpected::Str(v), &self))?;
+          Ok(ProjectId::from_id(v))
+        }
       }
     }
 
@@ -96,13 +125,14 @@ pub struct Config<S: StateRead> {
 impl Config<CurrentState> {
   pub fn prev_tag(&self) -> &str { self.file.prev_tag() }
 
-  pub fn slice<'r>(&self, spec: FromTagBuf, repo: &'r Repo) -> Result<Config<PrevState<'r>>> {
-    Config::from_state(self.state.slice(spec, repo)?)
+  pub fn slice_to_prev<'r>(&self, repo: &'r Repo) -> Result<Config<PrevState<'r>>> {
+    let spec = FromTagBuf::new(self.prev_tag().to_string(), true);
+    let old_tags = self.state.old_tags().slice_to_prev()?;
+    let prev_state = PrevState::new(repo.slice(spec), old_tags);
+    Config::from_state(prev_state)
   }
 
-  pub fn slice_to_prev<'r>(&self, repo: &'r Repo) -> Result<Config<PrevState<'r>>> {
-    self.slice(FromTagBuf::new(self.prev_tag().to_string(), true), repo)
-  }
+  pub fn old_tags(&self) -> &OldTags { self.state.old_tags() }
 }
 
 impl<S: StateRead> Config<S> {
@@ -261,9 +291,7 @@ struct Options {
 }
 
 impl Default for Options {
-  fn default() -> Options {
-    Options { prev_tag: default_prev_tag(), branch: default_branch() }
-  }
+  fn default() -> Options { Options { prev_tag: default_prev_tag(), branch: default_branch() } }
 }
 
 impl Options {
@@ -425,15 +453,15 @@ impl Project {
     self.version.read_value(read, self.root(), self.id())
   }
 
-  pub fn set_value(&self, write: &mut StateWrite, val: &str) -> Result<()> {
-    self.version.write_value(write, self.root(), val, &self.id)?;
-    self.forward_tag(write, val)
+  pub fn set_value(&self, write: &mut StateWrite, vers: &str) -> Result<()> {
+    self.version.write_value(write, self.root(), vers, &self.id)?;
+    self.forward_tag(write, vers)
   }
 
-  pub fn forward_tag(&self, write: &mut StateWrite, val: &str) -> Result<()> {
+  pub fn forward_tag(&self, write: &mut StateWrite, vers: &str) -> Result<()> {
     if let Some(tag_prefix) = &self.tag_prefix {
-      let tag = if tag_prefix.is_empty() { format!("v{}", val) } else { format!("{}-v{}", tag_prefix, val) };
-      write.tag_head_or_last(tag, &self.id)?;
+      let tag = if tag_prefix.is_empty() { format!("v{}", vers) } else { format!("{}-v{}", tag_prefix, vers) };
+      write.tag_head_or_last(vers, tag, &self.id)?;
     }
     Ok(())
   }
@@ -487,9 +515,9 @@ impl Project {
       let excludes = dirs.iter().map(|d| format!("{}/**/*", d)).collect();
       let majors = subs.tops().to_vec();
 
-      let list = once(SubExtent { dir: ".".to_string(), majors, largest: dirs.is_empty(), excludes })
+      let list = once(SubExtent { dir: None, majors, largest: dirs.is_empty(), excludes })
         .chain(extents.into_iter().map(|(dir, major)| SubExtent {
-          dir,
+          dir: Some(dir),
           majors: vec![major],
           largest: major == *largest.as_ref().unwrap(),
           excludes: Vec::new()
@@ -503,14 +531,22 @@ impl Project {
   }
 }
 
-fn expand_name(name: &str, sub: &SubExtent) -> String { format!("{}/{}", name, sub.dir()) }
+fn expand_name(name: &str, sub: &SubExtent) -> String {
+  match sub.dir() {
+    Some(subdir) => format!("{}/{}", name, subdir),
+    None => name.to_string()
+  }
+}
 
 fn expand_root(root: Option<&String>, sub: &SubExtent) -> Option<String> {
   match root {
-    Some(root) => Some(Path::new(root).join(sub.dir()).to_string_lossy().into_owned()),
+    Some(root) => match sub.dir() {
+      Some(subdir) => Some(Path::new(root).join(subdir).to_string_lossy().into_owned()),
+      None => Some(Path::new(root).to_string_lossy().into_owned())
+    },
     None => match sub.dir() {
-      "." => None,
-      other => Some(Path::new(other).to_string_lossy().into_owned())
+      Some(subdir) => Some(Path::new(subdir).to_string_lossy().into_owned()),
+      None => None
     }
   }
 }
@@ -538,14 +574,14 @@ fn expand_version(version: &Location, sub: &SubExtent) -> Location {
 }
 
 struct SubExtent {
-  dir: String,
+  dir: Option<String>,
   majors: Vec<u32>,
   largest: bool,
   excludes: Vec<String>
 }
 
 impl SubExtent {
-  pub fn dir(&self) -> &str { &self.dir }
+  pub fn dir(&self) -> &Option<String> { &self.dir }
   pub fn excludes(&self) -> &[String] { &self.excludes }
   pub fn is_largest(&self) -> bool { self.largest }
   pub fn majors(&self) -> &[u32] { &self.majors }
@@ -573,9 +609,9 @@ impl Location {
     }
   }
 
-  pub fn write_value(&self, write: &mut StateWrite, root: Option<&String>, val: &str, id: &ProjectId) -> Result<()> {
+  pub fn write_value(&self, write: &mut StateWrite, root: Option<&String>, vers: &str, id: &ProjectId) -> Result<()> {
     match self {
-      Location::File(l) => l.write_value(write, root, val, id),
+      Location::File(l) => l.write_value(write, root, vers, id),
       Location::Tag(_) => Ok(())
     }
   }
@@ -664,9 +700,9 @@ struct FileLocation {
 }
 
 impl FileLocation {
-  pub fn write_value(&self, write: &mut StateWrite, root: Option<&String>, val: &str, id: &ProjectId) -> Result<()> {
+  pub fn write_value(&self, write: &mut StateWrite, root: Option<&String>, vers: &str, id: &ProjectId) -> Result<()> {
     let file = self.rooted(root);
-    write.update_mark(PickPath::new(file, self.picker.clone()), val.to_string(), id)
+    write.update_mark(PickPath::new(file, self.picker.clone()), vers.to_string(), id)
   }
 
   pub fn read_value<S: StateRead>(&self, read: &S, root: Option<&String>) -> Result<String> {

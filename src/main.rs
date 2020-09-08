@@ -2,9 +2,9 @@
 
 mod cli;
 
-use versio::errors::Result;
-use versio::commands::early_info;
 use env_logger::{Builder, Env};
+use versio::commands::early_info;
+use versio::errors::Result;
 
 fn main() {
   if let Err(e) = run() {

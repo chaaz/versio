@@ -6,6 +6,7 @@ use crate::git::{FromTagBuf, Repo, Slice};
 use crate::mark::{NamedData, Picker};
 use log::{trace, warn};
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -48,21 +49,7 @@ impl StateRead for CurrentState {
 
 impl CurrentState {
   pub fn new(root: PathBuf, tags: OldTags) -> CurrentState { CurrentState { files: CurrentFiles::new(root), tags } }
-
-  pub fn slice<'r>(&self, spec: FromTagBuf, repo: &'r Repo) -> Result<PrevState<'r>> {
-    let old_tags = match repo.revparse_oid(spec.as_from_tag()) {
-      Ok(commit_oid) => self.tags.slice_earlier(&commit_oid)?,
-      Err(e) => {
-        if spec.is_else_none() {
-          OldTags::empty()
-        } else {
-          return Err(e);
-        }
-      }
-    };
-
-    Ok(PrevState::new(repo.slice(spec), old_tags))
-  }
+  pub fn old_tags(&self) -> &OldTags { &self.tags }
 }
 
 pub struct CurrentFiles {
@@ -105,7 +92,7 @@ impl<'r> StateRead for PrevState<'r> {
 }
 
 impl<'r> PrevState<'r> {
-  fn new(slice: Slice<'r>, tags: OldTags) -> PrevState { PrevState { files: PrevFiles::new(slice), tags } }
+  pub fn new(slice: Slice<'r>, tags: OldTags) -> PrevState { PrevState { files: PrevFiles::new(slice), tags } }
 }
 
 pub struct PrevFiles<'r> {
@@ -137,30 +124,10 @@ impl OldTags {
     OldTags { current, prev }
   }
 
-  pub fn empty() -> OldTags { OldTags { current: HashMap::new(), prev: HashMap::new() } }
+  pub fn latest(&self, proj: &ProjectId) -> Option<&String> { self.current.get(proj) }
+  pub fn current(&self) -> &HashMap<ProjectId, String> { &self.current }
 
-  fn latest(&self, proj: &ProjectId) -> Option<&String> { self.current.get(proj) }
-
-  /// Construct a tags index for an earlier commit; a `latest` call on the returned index will match the
-  /// `not_after(new_oid)` on this index.
-  pub fn slice_to_prev(&self) -> Result<OldTags> {
-    let mut by_proj = HashMap::new();
-    let mut not_after = HashMap::new();
-
-    for (proj_id, afts) in &self.not_after {
-      if let Some(&ind) = afts.get(new_oid) {
-        let list = self.by_proj.get(proj_id).ok_or_else(|| bad!("Illegal proj {} oid for {}", proj_id, new_oid))?;
-        let list = list[ind ..].to_vec();
-        by_proj.insert(proj_id.clone(), list);
-
-        let new_afts =
-          afts.iter().filter_map(|(oid, i)| if i >= &ind { Some((oid.clone(), i - ind)) } else { None }).collect();
-        not_after.insert(proj_id.clone(), new_afts);
-      }
-    }
-
-    Ok(OldTags::new(by_proj, not_after))
-  }
+  pub fn slice_to_prev(&self) -> Result<OldTags> { Ok(OldTags::new(self.prev.clone(), HashMap::new())) }
 }
 
 pub struct StateWrite {
@@ -168,7 +135,8 @@ pub struct StateWrite {
   proj_writes: HashSet<ProjectId>,
   tag_head: Vec<String>,
   tag_commit: HashMap<String, String>,
-  tag_head_or_last: Vec<(String, ProjectId)>
+  tag_head_or_last: Vec<(String, ProjectId)>,
+  new_tags: HashMap<ProjectId, String>
 }
 
 impl Default for StateWrite {
@@ -182,7 +150,8 @@ impl StateWrite {
       tag_head: Vec::new(),
       tag_commit: HashMap::new(),
       tag_head_or_last: Vec::new(),
-      proj_writes: HashSet::new()
+      proj_writes: HashSet::new(),
+      new_tags: HashMap::new()
     }
   }
 
@@ -198,14 +167,18 @@ impl StateWrite {
     Ok(())
   }
 
-  pub fn tag_head_or_last<T: ToString>(&mut self, tag: T, proj: &ProjectId) -> Result<()> {
+  pub fn tag_head_or_last<T: ToString>(&mut self, vers: &str, tag: T, proj: &ProjectId) -> Result<()> {
     let tag = tag.to_string();
     trace!("head_or_last on {} tagged with {}.", proj, tag);
     self.tag_head_or_last.push((tag, proj.clone()));
+    self.new_tags.insert(proj.clone(), vers.to_string());
     Ok(())
   }
 
-  pub fn commit(&mut self, repo: &Repo, prev_tag: &str, last_commits: &HashMap<ProjectId, String>) -> Result<()> {
+  pub fn commit(
+    &mut self, repo: &Repo, prev_tag: &str, last_commits: &HashMap<ProjectId, String>,
+    old_tags: &HashMap<ProjectId, String>
+  ) -> Result<()> {
     for write in &self.writes {
       write.write()?;
     }
@@ -239,10 +212,35 @@ impl StateWrite {
     }
     self.tag_commit.clear();
 
-    repo.update_tag_head(prev_tag)?;
+    fill_from_current(old_tags, &mut self.new_tags)?;
+    let msg = serde_json::to_string(&PrevTagMessage::new(std::mem::replace(&mut self.new_tags, HashMap::new())))?;
+    repo.update_tag_head_anno(prev_tag, &msg)?;
 
     Ok(())
   }
+}
+
+fn fill_from_current(current: &HashMap<ProjectId, String>, new_tags: &mut HashMap<ProjectId, String>) -> Result<()> {
+  for (proj_id, tag) in current {
+    if !new_tags.contains_key(proj_id) {
+      new_tags.insert(proj_id.clone(), tag.clone());
+    }
+  }
+  Ok(())
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct PrevTagMessage {
+  versions: HashMap<ProjectId, String>
+}
+
+impl Default for PrevTagMessage {
+  fn default() -> PrevTagMessage { PrevTagMessage { versions: HashMap::new() } }
+}
+
+impl PrevTagMessage {
+  pub fn new(versions: HashMap<ProjectId, String>) -> PrevTagMessage { PrevTagMessage { versions } }
+  pub fn into_versions(self) -> HashMap<ProjectId, String> { self.versions }
 }
 
 enum FileWrite {

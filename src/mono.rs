@@ -6,7 +6,7 @@ use crate::either::{IterEither2 as E2, IterEither3 as E3};
 use crate::errors::Result;
 use crate::git::{Auth, CommitInfoBuf, FromTag, FromTagBuf, FullPr, Repo};
 use crate::github::{changes, line_commits_head, Changes};
-use crate::state::{CurrentState, OldTags, PrevFiles, StateRead, StateWrite};
+use crate::state::{CurrentState, OldTags, PrevFiles, PrevTagMessage, StateRead, StateWrite};
 use crate::vcs::VcsLevel;
 use chrono::{DateTime, FixedOffset};
 use error_chain::bail;
@@ -66,7 +66,9 @@ impl Mono {
     }
   }
 
-  pub fn commit(&mut self) -> Result<()> { self.next.commit(&self.repo, self.current.prev_tag(), &self.last_commits) }
+  pub fn commit(&mut self) -> Result<()> {
+    self.next.commit(&self.repo, self.current.prev_tag(), &self.last_commits, &self.current.old_tags().current())
+  }
 
   pub fn get_project(&self, id: &ProjectId) -> Result<&Project> {
     self.current.get_project(id).ok_or_else(|| bad!("No such project {}", id))
@@ -198,7 +200,6 @@ impl Default for UserConfig {
 /// Find the last covering commit ID, if any, for each current project.
 fn find_last_commits(current: &Config<CurrentState>, repo: &Repo) -> Result<HashMap<ProjectId, String>> {
   let prev_spec = current.prev_tag();
-
   let mut last_commits = LastCommitBuilder::create(repo, &current)?;
 
   // Consider the in-line commits to determine the last commit (if any) for each project.
@@ -496,7 +497,10 @@ impl<'s, C: StateRead> LastCommitBuilder<'s, C> {
 
     for prev_project in self.prev.file()?.projects() {
       let proj_id = prev_project.id();
-      if self.current.get_project(proj_id).is_some() && prev_project.does_cover(path)? {
+      if self.current.get_project(proj_id).is_some()
+        && prev_project.does_cover(path)?
+        && !self.last_commits.contains_key(proj_id)
+      {
         self.last_commits.insert(proj_id.clone(), commit_id.clone());
       }
     }
@@ -534,44 +538,64 @@ impl<'r> Slicer<'r> {
 
 fn find_old_tags<'s, I: Iterator<Item = &'s Project>>(projects: I, prev_tag: &str, repo: &Repo) -> Result<OldTags> {
   let mut by_proj_oid = HashMap::new(); // Map<proj_id, Map<oid, Vec<tag>>>
+  let mut proj_ids = HashSet::new();
 
   for proj in projects {
+    proj_ids.insert(proj.id().clone());
     for fnmatch in tag_fnmatches(proj) {
-      trace!("searching tags for proj {} matching {}", proj.id(), fnmatch);
+      trace!("Searching tags for proj {} matching \"{}\".", proj.id(), fnmatch);
       for tag in repo.tag_names(Some(fnmatch.as_str()))?.iter().filter_map(identity) {
         let oid = repo.revparse_oid(FromTag::new(&format!("{}^{{}}", tag), false))?;
-        trace!("  found proj {} tag {} at {}", proj.id(), tag, oid);
+        trace!("Found proj {} tag {} at {}.", proj.id(), tag, oid);
         let by_id = by_proj_oid.entry(proj.id().clone()).or_insert_with(HashMap::new);
         by_id.entry(oid).or_insert_with(Vec::new).push(tag.to_string());
       }
     }
   }
 
-  let mut by_proj = HashMap::new();
-  let mut not_after = HashMap::new();
-  let mut not_after_walk = HashMap::new();
-  for commit_oid in repo.commits_to_head(FromTag::new(prev_tag, true), true)?.map(|c| c.map(|c| c.id())) {
+  let mut current = HashMap::new();
+  for commit_oid in repo.commits_to_head(FromTag::new(prev_tag, true), false)?.map(|c| c.map(|c| c.id())) {
     let commit_oid = commit_oid?;
-    for (proj_id, by_id) in &mut by_proj_oid {
-      let not_after_walk = not_after_walk.entry(proj_id.clone()).or_insert_with(Vec::new);
-      not_after_walk.push(commit_oid.clone());
+    by_proj_oid.retain(|proj_id, by_id| {
       if let Some(tags) = by_id.remove(&commit_oid) {
         let mut versions = tags_to_versions(&tags);
         versions.sort_unstable_by(version_sort);
-        let old_versions = by_proj.entry(proj_id.clone()).or_insert_with(Vec::new);
-        let best_ind = old_versions.len();
-        old_versions.extend_from_slice(&versions);
-        let not_after_by_oid = not_after.entry(proj_id.clone()).or_insert_with(HashMap::new);
-        for later_commit_oid in not_after_walk.drain(..) {
-          not_after_by_oid.insert(later_commit_oid, best_ind);
-        }
+        current.insert(proj_id.clone(), versions[0].clone());
+        false
+      } else {
+        true
+      }
+    });
+  }
+
+  let prev = pull_from_annotation(repo, prev_tag)?;
+  fill_from_prev(&prev, &proj_ids, &mut current)?;
+
+  let old_tags = OldTags::new(current, prev);
+  trace!("Found old tags: {:?}", old_tags);
+  Ok(old_tags)
+}
+
+fn pull_from_annotation(repo: &Repo, prev_tag: &str) -> Result<HashMap<ProjectId, String>> {
+  repo
+    .annotation_of(prev_tag)
+    .map(|anno| serde_json::from_str::<PrevTagMessage>(&anno))
+    .transpose()
+    .map_err(|e| e.into())
+    .map(|o| o.unwrap_or_default().into_versions())
+}
+
+fn fill_from_prev(
+  prev: &HashMap<ProjectId, String>, proj_ids: &HashSet<ProjectId>, current: &mut HashMap<ProjectId, String>
+) -> Result<()> {
+  for id in proj_ids {
+    if !current.contains_key(id) {
+      if let Some(tag) = prev.get(id) {
+        current.insert(id.clone(), tag.clone());
       }
     }
   }
-
-  let old_tags = OldTags::new(by_proj, not_after);
-  trace!("Found old tags: {:?}", old_tags);
-  Ok(old_tags)
+  Ok(())
 }
 
 /// Construct a fnmatch pattern for a project that can be used to retrieve the project's tags.
