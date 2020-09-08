@@ -33,7 +33,7 @@ $ versio init  # this creates .versio.yaml
 $ git add .versio.yaml
 $ git commit -m "build: add versio management"
 $ git push
-$ versio run
+$ versio release
 ```
 
 ## Background
@@ -92,11 +92,10 @@ thenceforth Versio will be able to manage them.
 
 ## Running
 
-Check out the [Using Versio](./docs/usage.md) page to learn how to use
-Versio, or the [Versio Reference](./docs/reference.md) for all
+Check out the [Use Cases](./docs/use_cases.md) to learn how to use
+Versio via specific use cases that you or your organization might be
+interested in, or the [Versio Reference](./docs/reference.md) for all
 command-line options and the format of the `.versio.yaml` config file.
-[Use Cases](./docs/use_cases.md) lists specific use cases that might
-meet a need in your project or organization.
 
 ## Features
 

@@ -1065,7 +1065,6 @@ mod test {
 projects:
   - name: everything
     id: 1
-    includes: ["**/*"]
     version:
       tags:
         default: "1.0.0"
@@ -1080,23 +1079,23 @@ projects:
 projects:
   - name: everything
     id: 1
-    includes: ["**/*"]
     version:
       file: "toplevel.json"
       json: "version"
 
   - name: project1
     id: 2
-    includes: ["project1/**/*"]
+    root: "project1"
     version:
-      file: "project1/Cargo.toml"
+      file: "Cargo.toml"
       toml: "version"
 
   - name: "combined a and b"
     id: 3
-    includes: ["nested/project_a/**/*", "nested/project_b/**/*"]
+    root: "nested"
+    includes: ["project_a/**/*", "project_b/**/*"]
     version:
-      file: "nested/version.txt"
+      file: "version.txt"
       pattern: "v([0-9]+\\.[0-9]+\\.[0-9]+) .*"
 
   - name: "build image"
@@ -1117,12 +1116,10 @@ projects:
 projects:
   - name: p1
     id: 1
-    includes: ["**/*"]
     version: { file: f1 }
 
   - name: project1
     id: 1
-    includes: ["**/*"]
     version: { file: f2 }
     "#;
 
@@ -1135,12 +1132,10 @@ projects:
 projects:
   - name: p1
     id: 1
-    includes: ["**/*"]
     version: { file: f1 }
 
   - name: p1
     id: 2
-    includes: ["**/*"]
     version: { file: f2 }
     "#;
 
@@ -1154,7 +1149,6 @@ projects:
   - name: p1
     id: 1
     tag_prefix: "ixth*&o"
-    includes: ["**/*"]
     version: { file: f1 }
     "#;
 
@@ -1168,7 +1162,6 @@ projects:
   - name: p1
     id: 1
     tag_prefix: "ixthïo"
-    includes: ["**/*"]
     version: { file: f1 }
     "#;
 
@@ -1182,13 +1175,11 @@ projects:
   - name: p1
     id: 1
     tag_prefix: proj
-    includes: ["**/*"]
     version: { file: f1 }
 
   - name: p2
     id: 2
     tag_prefix: proj
-    includes: ["**/*"]
     version: { file: f2 }
     "#;
 
@@ -1202,13 +1193,11 @@ projects:
   - name: p1
     id: 1
     tag_prefix: "_proj1-abc"
-    includes: ["**/*"]
     version: { file: f1 }
 
   - name: p2
     id: 2
     tag_prefix: proj2
-    includes: ["**/*"]
     version: { file: f2 }
     "#;
 

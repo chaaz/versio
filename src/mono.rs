@@ -18,7 +18,8 @@ use std::convert::identity;
 use std::iter::{empty, once};
 use std::path::{Path, PathBuf};
 
-const USER_CONFIG_FILE: &str = ".versio.rc.toml";
+const USER_PREFS_DIR: &str = ".versio";
+const USER_PREFS_FILE: &str = "prefs.toml";
 
 pub struct Mono {
   current: Config<CurrentState>,
@@ -172,10 +173,7 @@ impl Mono {
 }
 
 pub fn read_user_config() -> Result<UserConfig> {
-  // fn has_file(&self, path: &Path) -> Result<bool> { Ok(self.root.join(path).exists()) }
-  // fn read_file(&self, path: &Path) -> Result<String> { Ok(std::fs::read_to_string(&self.root.join(path))?) }
-
-  let homefile = dirs::home_dir().map(|h| h.join(USER_CONFIG_FILE));
+  let homefile = dirs::home_dir().map(|h| h.join(USER_PREFS_DIR).join(USER_PREFS_FILE));
   let homefile = match homefile {
     Some(f) => f,
     None => return Ok(Default::default())

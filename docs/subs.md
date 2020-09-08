@@ -56,7 +56,7 @@ various subdirectories; it's expected that you still do that yourself.
 However, Versio's command will error instead of assigning a version
 number where it doesn't belong. For example, a major commit that would
 upgrade a version number from "2.1.3" to "3.0.0" would cause the next
-`versio run` to fail if that commit included files in a `v2`
+`versio release` to fail if that commit included files in a `v2`
 subdirectory. Additionally, the `versio plan` output will warn of all
 such illegal version changes. If you see such warnings, you probably
 need to restructure your commits to create a new subdirectory.

@@ -42,7 +42,7 @@ Further work:
 ## Running
 
 The `versio` app is very simple with minimal runtime dependencies; you
-can run it locally as described in the [usage doc](./usage.md).
+can run it locally as described in the [use cases doc](./use_cases.md).
 
 ## Dev Guidelines
 

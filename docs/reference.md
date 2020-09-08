@@ -53,7 +53,7 @@ a new personal access token for this purpose via the GitHub web UI in
 your user's Settings -> Developer settings.
 
 Once you have the new token, you can add it to your user configuration
-in `~/.versio.rc.toml`. Here's an example of such a file:
+in `~/.versio/prefs.toml`. Here's an example of such a file:
 
 ```
 [auth]
@@ -123,8 +123,8 @@ along with their options and flags. You can always use `versio help` or
 - `files`: See all files that have changed since the previous version.
 - `plan`: View the update plan.
 - `log`: Create/update all project changelogs.
-- `run`: Apply the update plan: update version numbers, create/update
-  changelogs, and commit/tag/push all changes.
+- `release`: Apply the update plan: update version numbers,
+  create/update changelogs, and commit/tag/push all changes.
   - `--dry-run` (`-d`): Don't actually commit, push, tag, or change any
     files, but otherwise run as if you would.
   - `--show-all` (`-a`): Show the run results for all projects, even
@@ -176,7 +176,6 @@ projects:
   - name: proj_1
     id: 1
     root: "proj_1"
-    includes: ["**/*"]
     tag_prefix: "proj1"
     version:
       file: "package.json"
@@ -185,7 +184,6 @@ projects:
   - name: proj_2
     id: 2
     root: "proj_2"
-    includes: ["**/*"]
     tag_prefix: ""
     version:
       tags:
@@ -201,7 +199,7 @@ sizes:
 
   These are general project options. Currently the only option is
   `prev_tag`, which specifies the tag used to locate the latest run of
-  `versio run`. It has a default value of "versio-prev".
+  `versio release`. It has a default value of "versio-prev".
 
 - `projects`
 

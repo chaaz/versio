@@ -23,7 +23,7 @@ impl Output {
   pub fn log(&self) -> LogOutput { LogOutput::new() }
   pub fn changes(&self) -> ChangesOutput { ChangesOutput::new() }
   pub fn plan(&self) -> PlanOutput { PlanOutput::new() }
-  pub fn run(&self) -> RunOutput { RunOutput::new() }
+  pub fn release(&self) -> ReleaseOutput { ReleaseOutput::new() }
 }
 
 pub struct CheckOutput {}
@@ -420,19 +420,19 @@ fn println_plan_ineff(plan: &Plan) -> Result<()> {
   Ok(())
 }
 
-pub struct RunOutput {
-  result: RunResult
+pub struct ReleaseOutput {
+  result: ReleaseResult
 }
 
-impl Default for RunOutput {
-  fn default() -> RunOutput { RunOutput::new() }
+impl Default for ReleaseOutput {
+  fn default() -> ReleaseOutput { ReleaseOutput::new() }
 }
 
-impl RunOutput {
-  pub fn new() -> RunOutput { RunOutput { result: RunResult::Empty } }
+impl ReleaseOutput {
+  pub fn new() -> ReleaseOutput { ReleaseOutput { result: ReleaseResult::Empty } }
 
   pub fn write_empty(&mut self) -> Result<()> {
-    self.result = RunResult::Empty;
+    self.result = ReleaseResult::Empty;
     Ok(())
   }
 
@@ -460,42 +460,42 @@ impl RunOutput {
   pub fn commit(&mut self) -> Result<()> { self.result.commit() }
 }
 
-enum RunResult {
+enum ReleaseResult {
   Empty,
-  Wrote(WroteRuns)
+  Wrote(WroteReleases)
 }
 
-impl RunResult {
-  fn append_logged(&mut self, path: PathBuf) -> Result<()> { self.append(RunEvent::Logged(path)) }
-  fn append_done(&mut self) -> Result<()> { self.append(RunEvent::Done) }
-  fn append_commit(&mut self) -> Result<()> { self.append(RunEvent::Commit) }
-  fn append_dry(&mut self) -> Result<()> { self.append(RunEvent::Dry) }
+impl ReleaseResult {
+  fn append_logged(&mut self, path: PathBuf) -> Result<()> { self.append(ReleaseEvent::Logged(path)) }
+  fn append_done(&mut self) -> Result<()> { self.append(ReleaseEvent::Done) }
+  fn append_commit(&mut self) -> Result<()> { self.append(ReleaseEvent::Commit) }
+  fn append_dry(&mut self) -> Result<()> { self.append(ReleaseEvent::Dry) }
 
   fn append_changed(&mut self, name: String, prev: String, curt: String, targ: String) -> Result<()> {
-    self.append(RunEvent::Changed(name, prev, curt, targ))
+    self.append(ReleaseEvent::Changed(name, prev, curt, targ))
   }
 
   fn append_forward(&mut self, all: bool, name: String, prev: String, curt: String, targ: String) -> Result<()> {
-    self.append(RunEvent::Forward(all, name, prev, curt, targ))
+    self.append(ReleaseEvent::Forward(all, name, prev, curt, targ))
   }
 
   fn append_no_change(&mut self, all: bool, name: String, prev: Option<String>, curt: String) -> Result<()> {
-    self.append(RunEvent::NoChange(all, name, prev, curt))
+    self.append(ReleaseEvent::NoChange(all, name, prev, curt))
   }
 
   fn append_new(&mut self, all: bool, name: String, curt: String) -> Result<()> {
-    self.append(RunEvent::New(all, name, curt))
+    self.append(ReleaseEvent::New(all, name, curt))
   }
 
-  fn append(&mut self, ev: RunEvent) -> Result<()> {
+  fn append(&mut self, ev: ReleaseEvent) -> Result<()> {
     match self {
-      RunResult::Empty => {
-        let mut runs = WroteRuns::new();
-        runs.push(ev);
-        *self = RunResult::Wrote(runs);
+      ReleaseResult::Empty => {
+        let mut releases = WroteReleases::new();
+        releases.push(ev);
+        *self = ReleaseResult::Wrote(releases);
       }
-      RunResult::Wrote(runs) => {
-        runs.push(ev);
+      ReleaseResult::Wrote(releases) => {
+        releases.push(ev);
       }
     }
 
@@ -504,22 +504,22 @@ impl RunResult {
 
   fn commit(&mut self) -> Result<()> {
     match self {
-      RunResult::Empty => {
-        println!("No run: no projects.");
+      ReleaseResult::Empty => {
+        println!("No release: no projects.");
         Ok(())
       }
-      RunResult::Wrote(w) => w.commit()
+      ReleaseResult::Wrote(w) => w.commit()
     }
   }
 }
 
-struct WroteRuns {
-  events: Vec<RunEvent>
+struct WroteReleases {
+  events: Vec<ReleaseEvent>
 }
 
-impl WroteRuns {
-  pub fn new() -> WroteRuns { WroteRuns { events: Vec::new() } }
-  pub fn push(&mut self, path: RunEvent) { self.events.push(path); }
+impl WroteReleases {
+  pub fn new() -> WroteReleases { WroteReleases { events: Vec::new() } }
+  pub fn push(&mut self, path: ReleaseEvent) { self.events.push(path); }
 
   pub fn commit(&mut self) -> Result<()> {
     for ev in &mut self.events {
@@ -529,7 +529,7 @@ impl WroteRuns {
   }
 }
 
-enum RunEvent {
+enum ReleaseEvent {
   Logged(PathBuf),
   Changed(String, String, String, String),
   Forward(bool, String, String, String, String),
@@ -540,21 +540,21 @@ enum RunEvent {
   Done
 }
 
-impl RunEvent {
+impl ReleaseEvent {
   fn commit(&mut self) -> Result<()> {
     match self {
-      RunEvent::Logged(p) => println!("Wrote changelog at {}.", p.to_string_lossy()),
-      RunEvent::Done => println!("Run complete."),
-      RunEvent::Commit => println!("Changes committed."),
-      RunEvent::Dry => println!("Dry run: no actual changes."),
-      RunEvent::Changed(name, prev, curt, targ) => {
+      ReleaseEvent::Logged(p) => println!("Wrote changelog at {}.", p.to_string_lossy()),
+      ReleaseEvent::Done => println!("Release complete."),
+      ReleaseEvent::Commit => println!("Changes committed."),
+      ReleaseEvent::Dry => println!("Dry run: no actual changes."),
+      ReleaseEvent::Changed(name, prev, curt, targ) => {
         if prev == curt {
           println!("  {} : {} -> {}", name, prev, targ);
         } else {
           println!("  {} : {} -> {} instead of {}", name, prev, targ, curt);
         }
       }
-      RunEvent::NoChange(all, name, prev, curt) => {
+      ReleaseEvent::NoChange(all, name, prev, curt) => {
         if *all {
           if let Some(prev) = prev {
             if prev == curt {
@@ -567,7 +567,7 @@ impl RunEvent {
           }
         }
       }
-      RunEvent::Forward(all, name, prev, curt, targ) => {
+      ReleaseEvent::Forward(all, name, prev, curt, targ) => {
         if *all {
           if prev == curt {
             println!("  {} : no change to {}", name, curt);
@@ -578,7 +578,7 @@ impl RunEvent {
           }
         }
       }
-      RunEvent::New(all, name, curt) => {
+      ReleaseEvent::New(all, name, curt) => {
         if *all {
           println!("  {} : no change: {} is new", name, curt);
         }

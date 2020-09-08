@@ -27,7 +27,7 @@ version numbers.
 
 If a project uses `version: tags:`, you may want to use the
 `--vcs-level=max` option while running the `versio set` command for that
-project. See [Setting](./usage.md#setting).
+project.
 
 ## In Go projects
 

@@ -172,10 +172,10 @@ pub fn plan(pref_vcs: Option<VcsRange>) -> Result<()> {
   output.commit(&mono)
 }
 
-pub fn run(pref_vcs: Option<VcsRange>, all: bool, dry: bool) -> Result<()> {
+pub fn release(pref_vcs: Option<VcsRange>, all: bool, dry: bool) -> Result<()> {
   let mut mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
   let output = Output::new();
-  let mut output = output.run();
+  let mut output = output.release();
   let plan = mono.build_plan()?;
 
   if let Err((should, is)) = mono.check_branch() {

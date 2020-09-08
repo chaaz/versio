@@ -112,10 +112,10 @@ provide insight:
   users with a nice listing of changes, the change log lists sizing for
   each PR and commit that goes into version number calculation.
 - `versio files` will list each file that has been changed since the
-  previous run, and the commit size in which the file was found. A full
-  accounting of files may help you understand why a project ended up
-  with a particular version.
-- `versio run --dry-run` will prevent any writing from taking place,
+  previous release, and the commit size in which the file was found. A
+  full accounting of files may help you understand why a project ended
+  up with a particular version.
+- `versio release --dry-run` will prevent any writing from taking place,
   either on the filesystem or in the repository. Use this flag if you
   need to trace through a failed execution, or if you want to preview an
   execution without commitment.

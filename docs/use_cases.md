@@ -26,13 +26,13 @@ page](https://github.com/chaaz/versio/releases).
   $ git commit -m "build: add versio management"
   $ git push
   ```
-- If you want to use the GitHub API for [PR scanning](./pr_scanning.md), you'll need to
-  update your `~/.versio.rc.toml` file: See the
+- If you want to use the GitHub API for [PR scanning](./pr_scanning.md),
+  you'll need to update your `~/.versio/prefs.toml` file: See the
   [Reference](./reference.md#github-api).
 - After some [conventional
   commits](https://www.conventionalcommits.org/), update it:
   ```
-  $ versio run
+  $ versio release
   Executing plan:
     project : 1.0.1 -> 1.1.0
   Changes committed and pushed.
@@ -42,7 +42,7 @@ page](https://github.com/chaaz/versio/releases).
 
 Since Versio knows where all your project versions are stored, it can
 output them for you. It can even tell you the versions of projects as
-they were set by the last execution of `versio run`.
+they were set by the last execution of `versio release`.
 
 - View current versions in "wide" format (which shows project IDs):
   ```
@@ -144,15 +144,15 @@ plan` to log the version changes which will be applied once merged.
 ## CI Merge
 
 As part of your CI/CD pipeline, you can create an action to execute
-`versio run`, which will update the version numbers, generate
+`versio release`, which will update the version numbers, generate
 changelogs, and commit and push all changes. You can set this action to
 run automatically when a branch has been merged to a release branch, or
 at any other time you want your software to be released.
 
 It's important to note that nothing can be pushed to the release branch
-during the short time that Versio is running, or `versio run` will fail.
-There are a number of ways you can deal with this: from locking the
-branch while Versio is running; to creating a pre-release branch to
+during the short time that Versio is running, or `versio release` will
+fail. There are a number of ways you can deal with this: from locking
+the branch while Versio is running; to creating a pre-release branch to
 separate merges from the release process; to simply ignoring the problem
 and manually re-running the CI action if it gets stuck; and more. The
 strategy you use is dependent on the specifics of your organization and

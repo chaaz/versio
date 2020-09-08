@@ -4,7 +4,6 @@ options:
 projects:
   - name: "versio"
     id: 0
-    includes: ["**/*"]
     tag_prefix: ""
     version:
       file: "Cargo.toml"

@@ -186,7 +186,7 @@ pub fn execute(info: &EarlyInfo) -> Result<()> {
         .display_order(1)
     )
     .subcommand(
-      SubCommand::with_name("run")
+      SubCommand::with_name("release")
         .setting(AppSettings::UnifiedHelpMessage)
         .about("Change and commit version numbers")
         .arg(
@@ -253,7 +253,7 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
     ("log", Some(_)) => log(pref_vcs)?,
     ("changes", Some(_)) => changes(pref_vcs)?,
     ("plan", Some(_)) => plan(pref_vcs)?,
-    ("run", Some(m)) => run(pref_vcs, m.is_present("all"), m.is_present("dry"))?,
+    ("release", Some(m)) => release(pref_vcs, m.is_present("all"), m.is_present("dry"))?,
     ("init", Some(m)) => init(m.value_of("maxdepth").map(|d| d.parse().unwrap()).unwrap_or(5))?,
     ("", _) => empty_cmd()?,
     (c, _) => unknown_cmd(c)?

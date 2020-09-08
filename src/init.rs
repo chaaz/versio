@@ -77,8 +77,16 @@ fn find_projects_in(dir: &Path) -> impl Iterator<Item = Result<ProjSummary>> {
   }
 
   if dir.join("go.mod").exists() {
-    let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("project");
-    summaries.push(Ok(ProjSummary::new_tags(name, dir.to_string_lossy(), true)));
+    let mut is_subdir = false;
+    if let Some(parent) = dir.parent() {
+      if parent.join("go.mod").exists() {
+        is_subdir = true;
+      }
+    }
+    if !is_subdir {
+      let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("project");
+      summaries.push(Ok(ProjSummary::new_tags(name, dir.to_string_lossy(), true)));
+    }
   }
 
   if dir.join("pom.xml").exists() {
@@ -177,7 +185,6 @@ fn generate_yaml(projs: &[ProjSummary]) -> String {
       yaml.push_str(&format!("    root: \"{}\"\n", root));
     }
     yaml.push_str(&format!("    id: {}\n", id + 1));
-    yaml.push_str("    includes: [\"**/*\"]\n");
     yaml.push_str(&format!("    tag_prefix: \"{}\"\n", proj.tag_prefix(projs.len(), &mut prefixes)));
     yaml.push_str("    version:\n");
     proj.append_version(&mut yaml);
