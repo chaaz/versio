@@ -1081,12 +1081,13 @@ fn do_fetch(remote: &mut Remote, refs: &[&str], all_tags: bool) -> Result<()> {
 }
 
 pub fn do_push(repo: &Repository, remote_name: &str, specs: &[String]) -> Result<()> {
+  info!("Pushing specs {:?} to remote {}", specs, remote_name);
   let mut cb = RemoteCallbacks::new();
+
   cb.credentials(|_url, username_from_url, _allowed_types| Cred::ssh_key_from_agent(username_from_url.unwrap()));
 
-  info!("Pushing specs {:?} to remote {}", specs, remote_name);
-
   cb.push_update_reference(|rref, status| {
+    warn!("Pushing ref {}", rref);
     if let Some(status) = status {
       error!("Couldn't push reference {}: {}", rref, status);
       return Err(git2::Error::from_str(&format!("Couldn't push reference {}: {}", rref, status)));
