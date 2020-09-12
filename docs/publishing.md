@@ -1,12 +1,12 @@
-# (TODO)
+# Publishing
 
 Creating a new version of your software isn't useful if no-one can get
 it. That's why Versio can also publish your software to all kinds of
 targets.
 
 For some deploys, you'll need the specific build tools such as
-compilers; others might require the package manager (`npm`, `mvn`, or
-whatever). Some tools might require authorization, so be sure you're
+compilers; others might require the package manager (`npm`, `mvn`,
+etc.). Some publishing might require authorization, so be sure you're
 logged in, or have your credentials handy.
 
 ## Common deploys

@@ -86,8 +86,6 @@ You can read about [VCS Levels](./vcs_levels.md) if your error has
 to do with VCS levels or ranges; some commands can't execute if the
 preferred or detected VCS Level is insufficient.
 
-> TODO: other common errors
-
 ## Bad Calculations
 
 Sometimes, `versio` will run just fine, but will incorrectly calculate
@@ -108,16 +106,13 @@ provide insight:
   current/previous version numbers.
 - `versio plan --verbose` will print a full listing of all PRs, files,
   dependencies, locks, etc. that go into calculating version numbers;
-  essentially the same data as is in a change log, even for projects
-  that don't have a change log.
-- `versio log` will write out all change logs. In addition to providing
-  users with a nice listing of changes, the change log lists sizing for
-  each PR and commit that goes into version number calculation.
+  essentially the same data as is in a changelog, even for projects that
+  don't have a changelog.
 - `versio files` will list each file that has been changed since the
-  previous run, and the commit size in which the file was found. A full
-  accounting of files may help you understand why a project ended up
-  with a particular version.
-- `versio run --dry-run` will prevent any writing from taking place,
+  previous release, and the commit size in which the file was found. A
+  full accounting of files may help you understand why a project ended
+  up with a particular version.
+- `versio release --dry-run` will prevent any writing from taking place,
   either on the filesystem or in the repository. Use this flag if you
   need to trace through a failed execution, or if you want to preview an
   execution without commitment.
@@ -139,8 +134,6 @@ current commit, it might cause Versio to search the VCS history
 incorrectly. If this is the case, you should manually move and push the
 previous version tag (which is `versio-prev` by default) to a more
 suitable location.
-
-> TODO: other reasons for bad calculations
 
 ## Bad or Incomplete Operations
 
@@ -169,9 +162,7 @@ which prevents any writing being done at all: either to the file system,
 or to the local or remote VCS.
 
 It's possible that Versio is running in an environment where it does not
-have the permissions to write, commit, and/or push its changes. (TODO:
-describe what permissions Versio needs, and how to set up authorization
-for different levels)
+have the permissions to write, commit, and/or push its changes.
 
 A similar problem is when Versio only performs some operations, but not
 others. For example, if Versio might successfully write a file, but then

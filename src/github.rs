@@ -4,9 +4,7 @@ use crate::errors::Result;
 use crate::git::{Auth, CommitInfoBuf, FromTag, FromTagBuf, FullPr, GithubInfo, Repo, Span};
 use chrono::{DateTime, FixedOffset, TimeZone, Utc};
 use git2::Time;
-use github_gql::{client::Github, IntoGithubRequest};
-use hyper::header::{HeaderValue, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
-use hyper::Request;
+use octocrab::Octocrab;
 use serde::de::{self, Deserializer, Visitor};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -30,7 +28,8 @@ pub fn changes(auth: &Auth, repo: &Repo, baseref: FromTagBuf, headref: String) -
 
   let mut queue = VecDeque::new();
   let offset = FixedOffset::west(0);
-  let pr_zero = FullPr::lookup(repo, baseref, headref.clone(), 0, offset.timestamp(Utc::now().timestamp(), 0))?;
+  let pr_zero =
+    FullPr::lookup(repo, baseref, headref.clone(), 0, "".into(), offset.timestamp(Utc::now().timestamp(), 0))?;
   queue.push_back(pr_zero.span().ok_or_else(|| bad!("Unable to get oid for seed ref \"{}\".", headref))?);
   all_prs.insert(pr_zero.number(), pr_zero);
 
@@ -83,9 +82,6 @@ pub fn changes(auth: &Auth, repo: &Repo, baseref: FromTagBuf, headref: String) -
     all_commits.extend(commit_list.into_iter());
   }
 
-  // TODO: remove non-orphans from commits ?
-  // TODO: include files in commits ?
-
   Ok(Changes { commits: all_commits, groups: all_prs })
 }
 
@@ -94,11 +90,7 @@ pub fn line_commits_head(repo: &Repo, base: FromTag) -> Result<Vec<CommitInfoBuf
 }
 
 fn commits_from_v4_api(github_info: &GithubInfo, span: &Span) -> Result<Vec<ApiCommit>> {
-  // TODO : respect "hasNextPage" and endCursor by using history(after:)
-  // TODO : also get PR's headRepository / baseRepository to (try to) look at other repos.
-
-  let query = r#"
-query associatedPRs($since:GitTimestamp!, $sha:String!, $repo:String!, $owner:String!){
+  let query = r#"query associatedPRs($since:GitTimestamp!, $sha:String!, $repo:String!, $owner:String!){
   repository(name:$repo, owner:$owner){
     commit:object(expression: $sha){
       ... on Commit {
@@ -121,6 +113,7 @@ fragment commitResult on Commit {
       edges {
         node {
           number
+          title
           state
           headRefName
           baseRefOid
@@ -145,12 +138,15 @@ fragment commitResult on Commit {
     github_info.repo_name()
   );
 
-  let token = github_info.token().as_deref().unwrap_or("");
-  let mut github = Github::new(token)?;
-  let query = QueryVars::new(query.to_string(), variables);
-  let (_headers, _status, resp) = github.run::<ChangesResponse, _>(&query)?;
+  let octo = Octocrab::builder();
+  let token = github_info.token().clone();
+  let octo = if let Some(token) = token { octo.personal_token(token) } else { octo };
+  let octo = octo.build()?;
+  let full_query = serde_json::json!({"query": &query, "variables": &variables});
+  let value = octo.post("/graphql", Some(&full_query));
+  let mut rt = tokio::runtime::Runtime::new()?;
+  let changes: ChangesResponse = rt.block_on(value)?;
 
-  let changes = resp.ok_or_else(|| bad!("Couldn't find commits."))?;
   let changes = changes.data.repository.commit.history.nodes;
   let mut changes: HashMap<String, ApiCommit> = changes.into_iter().map(|c| (c.oid().to_string(), c)).collect();
 
@@ -257,6 +253,7 @@ struct PrEdge {
 struct PrEdgeNode {
   number: u32,
   state: String,
+  title: String,
   #[serde(rename = "headRefName")]
   head_ref_name: String,
   #[serde(rename = "baseRefOid")]
@@ -270,57 +267,15 @@ impl PrEdgeNode {
   pub fn state(&self) -> &str { &self.state }
 
   pub fn lookup(self, repo: &Repo) -> Result<FullPr> {
-    FullPr::lookup(repo, FromTagBuf::new(self.base_ref_oid, false), self.head_ref_name, self.number, self.closed_at)
+    FullPr::lookup(
+      repo,
+      FromTagBuf::new(self.base_ref_oid, false),
+      self.head_ref_name,
+      self.number,
+      self.title,
+      self.closed_at
+    )
   }
-}
-
-#[derive(Default)]
-struct QueryVars {
-  query: String,
-  variables: String
-}
-
-impl QueryVars {
-  pub fn new(query: String, variables: String) -> QueryVars { QueryVars { query, variables } }
-}
-
-impl IntoGithubRequest for QueryVars {
-  fn into_github_req(&self, token: &str) -> github_gql::errors::Result<Request<hyper::Body>> {
-    use github_gql::errors::ResultExt;
-
-    // escaping new lines and quotation marks for json
-    let query = escape(&self.query);
-    let variables = escape(&self.variables);
-
-    let mut q = String::from("{ \"query\": \"");
-    q.push_str(&query);
-    q.push_str("\", \"variables\": \"");
-    q.push_str(&variables);
-    q.push_str("\" }");
-    let mut req = Request::builder()
-      .method("POST")
-      .uri("https://api.github.com/graphql")
-      .body(q.into())
-      .chain_err(|| "Unable for URL to make the request")?;
-
-    let token = String::from("token ") + token;
-    {
-      let headers = req.headers_mut();
-      headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-      headers.insert(USER_AGENT, HeaderValue::from_static("github-rs"));
-      headers.insert(AUTHORIZATION, HeaderValue::from_str(&token).chain_err(|| "token parse")?);
-    }
-
-    Ok(req)
-  }
-}
-
-fn escape(val: &str) -> String {
-  let mut escaped = val.to_string();
-  escaped = escaped.replace("\n", "\\n");
-  escaped = escaped.replace("\"", "\\\"");
-
-  escaped
 }
 
 fn deserialize_datetime<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<DateTime<FixedOffset>, D::Error> {

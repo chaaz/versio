@@ -2,7 +2,7 @@
 
 use crate::errors::Result;
 use crate::scan::parts::{deserialize_parts, Part};
-use crate::scan::{JsonScanner, Scanner, TomlScanner, XmlScanner, YamlScanner};
+use crate::scan::{find_reg_data, scan_reg_data, JsonScanner, Scanner, TomlScanner, XmlScanner, YamlScanner};
 use error_chain::bail;
 use regex::Regex;
 use serde::Deserialize;
@@ -85,7 +85,7 @@ pub struct LinePicker {
 
 impl LinePicker {
   pub fn new(pattern: String) -> LinePicker { LinePicker { pattern } }
-  pub fn find(&self, data: &str) -> Result<Mark> { LinePicker::find_reg_data(data, &self.pattern) }
+  pub fn find(&self, data: &str) -> Result<Mark> { find_reg_data(data, &self.pattern) }
 
   pub fn find_version(&self, data: &str) -> Result<Mark> {
     let mark = self.find(data)?;
@@ -93,21 +93,7 @@ impl LinePicker {
     Ok(mark)
   }
 
-  pub fn scan(&self, data: NamedData) -> Result<MarkedData> { LinePicker::scan_reg_data(data, &self.pattern) }
-
-  fn find_reg_data(data: &str, pattern: &str) -> Result<Mark> {
-    let pattern = Regex::new(pattern)?;
-    let found = pattern.captures(data).ok_or_else(|| bad!("No match for {}", pattern))?;
-    let item = found.get(1).ok_or_else(|| bad!("No capture group in {}.", pattern))?;
-    let value = item.as_str().to_string();
-    let index = item.start();
-    Ok(Mark::new(value, index))
-  }
-
-  fn scan_reg_data(data: NamedData, pattern: &str) -> Result<MarkedData> {
-    let mark = LinePicker::find_reg_data(data.data(), pattern)?;
-    Ok(data.mark(mark))
-  }
+  pub fn scan(&self, data: NamedData) -> Result<MarkedData> { scan_reg_data(data, &self.pattern) }
 }
 
 #[derive(Clone, Deserialize, Debug)]
@@ -225,7 +211,7 @@ impl CharMark {
 
 #[cfg(test)]
 mod test {
-  use super::LinePicker;
+  use super::find_reg_data;
 
   #[test]
   fn test_find_reg() {
@@ -233,7 +219,7 @@ mod test {
 This is text.
 Current rev is "v1.2.3" because it is."#;
 
-    let mark = LinePicker::find_reg_data(data, "v(\\d+\\.\\d+\\.\\d+)").unwrap();
+    let mark = find_reg_data(data, "v(\\d+\\.\\d+\\.\\d+)").unwrap();
     assert_eq!("1.2.3", mark.value());
     assert_eq!(32, mark.start());
   }

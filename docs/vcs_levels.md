@@ -3,8 +3,8 @@
 ## Description
 
 The **VCS Level** of a Versio command is the extent to which that
-command interacts with the VCS system (i.e. Git). There are four such
-levels, ordered from minimal to maximal:
+command interacts with your Version Control System (VCS) (e.g. Git).
+There are four such levels, ordered from minimal to maximal:
 
 - **None**: The command does not interact with VCS at all: no commits,
   pulls, merges, fetches, etc. are done. Tags are not searched for
@@ -20,9 +20,9 @@ levels, ordered from minimal to maximal:
   both before and after the command executes.
 
 - **Smart**: As "Remote", but also applies intelligence that requires
-  interaction with other VCS-related entities. For example, commits in a
-  GitHub-based repo can be grouped by Pull Request by querying the
-  GitHub API.
+  interaction with other VCS-related entities e.g. the GitHub API. For
+  example, commits in a GitHub-based repo can be grouped by Pull
+  Request.
 
 ### Vs Dry Run
 
@@ -37,12 +37,12 @@ commit and tag any changes to the local repository.
 
 ## Calculation
 
-There are three inputs to calculate the final VCS level, each of which
-is expressed as a range (with an inclusive min and max level):
+Every Versio command except for `versio init` calculates the final VCS
+level using three inputs, each of which is itself a range of levels:
 
 1. The _preferred_ range is given by the user, or by the command itself
    if the user doesn't provide it.
-1. The _required_ range are the VCS levels in which the command can
+1. The _required_ range is the VCS range in which the command can
    operate, and is provided by the command. Some commands can only act
    if they can interact with the VCS system in certain ways. The max of
    the required range is usually the highest value, "Smart".
@@ -59,6 +59,31 @@ run as.
 
 If there is no common intersection of the three ranges, then the command
 will immediately fail without any attempt to read or write anything.
+
+The `versio init` command does not interact with VCS, and so ignores all
+VCS levels.
+
+Most Versio commands try to find the `root` of a repository to run in:
+this is either the base directory of the local VCS (if any is detected),
+or it's the nearest (inclusive) ancestor from the current working
+directory that contains a `.versio.yaml` config file. If neither such
+directory can be found, then the current directory is used.
+
+## Detection
+
+Currently, Git is the only VCS that Versio understands; it creates the
+detected range like this:
+
+- The minimum of the range is always "None". The maximum of the range is
+  at least "None".
+- If the working directory is a local working directory, and if the
+  directory is checked out of a branch, then the maximum is at least
+  "Local".
+- Additionally, if the current branch has a configured remote, or if the
+  repository itself has exactly one remote, then the maximum is at least
+  "Remote".
+- Additionally, if the remote URL starts with "https://github.com/" or
+  "git@github.com:", then the maximum is "Smart".
 
 ## Options
 
@@ -92,7 +117,3 @@ command-line options you can use to set the preferred range:
 - Use `vcs-level-max=remote` to avoid using the GitHub API. All commands
   can operate at this level, although your changelogs and sizing
   calculation might suffer because of the lack of PRs/unsquash.
-
-> TODO: Have commands warn when the VCS level is usable, but of limited
-> value: e.g. `set` will warn if it runs at `none` on a tags project
-> (e.g. "warning: nothing actually done").

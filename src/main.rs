@@ -2,6 +2,8 @@
 
 mod cli;
 
+use env_logger::{Builder, Env};
+use versio::commands::early_info;
 use versio::errors::Result;
 
 fn main() {
@@ -26,6 +28,10 @@ fn main() {
 }
 
 fn run() -> Result<()> {
-  env_logger::try_init()?;
-  cli::execute()
+  // This is even better than `env_logger::try_init()?`.
+  Builder::from_env(Env::new().default_filter_or("versio=warn")).try_init()?;
+
+  let info = early_info()?;
+  std::env::set_current_dir(info.working_dir())?;
+  cli::execute(&info)
 }

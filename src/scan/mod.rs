@@ -11,6 +11,7 @@ pub use self::yaml::YamlScanner;
 use crate::errors::Result;
 use crate::mark::{Mark, MarkedData, NamedData};
 use crate::scan::parts::Part;
+use regex::Regex;
 
 pub trait Scanner {
   fn build(parts: Vec<Part>) -> Self;
@@ -27,4 +28,18 @@ pub trait Scanner {
     let mark = self.find(data.data())?;
     Ok(data.mark(mark))
   }
+}
+
+pub fn find_reg_data(data: &str, pattern: &str) -> Result<Mark> {
+  let pattern = Regex::new(pattern)?;
+  let found = pattern.captures(data).ok_or_else(|| bad!("No match for {}", pattern))?;
+  let item = found.get(1).ok_or_else(|| bad!("No capture group in {}.", pattern))?;
+  let value = item.as_str().to_string();
+  let index = item.start();
+  Ok(Mark::new(value, index))
+}
+
+pub fn scan_reg_data(data: NamedData, pattern: &str) -> Result<MarkedData> {
+  let mark = find_reg_data(data.data(), pattern)?;
+  Ok(data.mark(mark))
 }

@@ -1,30 +1,34 @@
 //! The command-line options for the executable.
 
-use crate::config::{ConfigFile, Size};
+use crate::config::{Config, ConfigFile, Size};
 use crate::errors::{Result, ResultExt};
 use crate::git::Repo;
 use crate::mono::Mono;
 use crate::output::{Output, ProjLine};
+use crate::state::StateRead;
 use crate::vcs::{VcsLevel, VcsRange};
+use error_chain::bail;
+use std::path::{Path, PathBuf};
 
 pub fn early_info() -> Result<EarlyInfo> {
   let vcs = VcsRange::detect()?.max();
-  let repo = Repo::open(".", vcs)?;
-  let root = repo.working_dir()?;
-  let file = ConfigFile::from_dir(root)?;
+  let root = Repo::find_working_dir(".", vcs, true)?;
+  let file = ConfigFile::from_dir(&root)?;
   let project_count = file.projects().len();
 
-  Ok(EarlyInfo::new(project_count))
+  Ok(EarlyInfo::new(project_count, root))
 }
 
 /// Environment information gathered even before we set the CLI options.
 pub struct EarlyInfo {
-  project_count: usize
+  project_count: usize,
+  working_dir: PathBuf
 }
 
-impl EarlyInfo { 
-  pub fn new(project_count: usize) -> EarlyInfo { EarlyInfo { project_count } }
+impl EarlyInfo {
+  pub fn new(project_count: usize, working_dir: PathBuf) -> EarlyInfo { EarlyInfo { project_count, working_dir } }
   pub fn project_count(&self) -> usize { self.project_count }
+  pub fn working_dir(&self) -> &Path { &self.working_dir }
 }
 
 pub fn check(pref_vcs: Option<VcsRange>) -> Result<()> {
@@ -39,34 +43,58 @@ pub fn check(pref_vcs: Option<VcsRange>) -> Result<()> {
 }
 
 pub fn get(
-  pref_vcs: Option<VcsRange>, wide: bool, versonly: bool, _prev: bool, id: Option<&str>, name: Option<&str>
+  pref_vcs: Option<VcsRange>, wide: bool, versonly: bool, prev: bool, id: Option<&str>, name: Option<&str>
 ) -> Result<()> {
   let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Local, VcsLevel::None, VcsLevel::Smart)?;
+
+  if prev {
+    get_using_cfg(&mono.config().slice_to_prev(mono.repo())?, wide, versonly, id, name)
+  } else {
+    get_using_cfg(mono.config(), wide, versonly, id, name)
+  }
+}
+
+fn get_using_cfg<R: StateRead>(
+  cfg: &Config<R>, wide: bool, versonly: bool, id: Option<&str>, name: Option<&str>
+) -> Result<()> {
   let output = Output::new();
   let mut output = output.projects(wide, versonly);
 
-  // TODO: prev
+  let ensure = || bad!("No such project.");
 
-  let reader = mono.reader();
+  let reader = cfg.state_read();
   if let Some(id) = id {
     let id = id.parse()?;
-    output.write_project(ProjLine::from(mono.get_project(&id)?, reader)?)?;
+    output.write_project(ProjLine::from(cfg.get_project(&id).ok_or_else(&ensure)?, reader)?)?;
   } else if let Some(name) = name {
-    output.write_project(ProjLine::from(mono.get_named_project(name)?, reader)?)?;
+    let id = cfg.find_unique(name)?;
+    output.write_project(ProjLine::from(cfg.get_project(&id).ok_or_else(&ensure)?, reader)?)?;
   } else {
-    output.write_project(ProjLine::from(mono.get_only_project()?, reader)?)?;
+    if cfg.projects().len() != 1 {
+      bail!("No solo project.");
+    }
+    let id = cfg.projects().get(0).unwrap().id();
+    output.write_project(ProjLine::from(cfg.get_project(&id).ok_or_else(&ensure)?, reader)?)?;
   }
 
   output.commit()
 }
 
-pub fn show(pref_vcs: Option<VcsRange>, wide: bool) -> Result<()> {
+pub fn show(pref_vcs: Option<VcsRange>, wide: bool, prev: bool) -> Result<()> {
   let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Local, VcsLevel::None, VcsLevel::Smart)?;
+
+  if prev {
+    show_using_cfg(&mono.config().slice_to_prev(mono.repo())?, wide)
+  } else {
+    show_using_cfg(mono.config(), wide)
+  }
+}
+
+fn show_using_cfg<R: StateRead>(cfg: &Config<R>, wide: bool) -> Result<()> {
   let output = Output::new();
   let mut output = output.projects(wide, false);
-
-  let reader = mono.reader();
-  output.write_projects(mono.projects().iter().map(|p| ProjLine::from(p, reader)))?;
+  let reader = cfg.state_read();
+  output.write_projects(cfg.projects().iter().map(|p| ProjLine::from(p, reader)))?;
   output.commit()
 }
 
@@ -81,7 +109,7 @@ pub fn set(pref_vcs: Option<VcsRange>, id: Option<&str>, name: Option<&str>, val
     mono.set_by_only(value)?;
   }
 
-  mono.commit()
+  mono.commit(false)
 }
 
 pub fn diff(pref_vcs: Option<VcsRange>) -> Result<()> {
@@ -104,28 +132,6 @@ pub fn files(pref_vcs: Option<VcsRange>) -> Result<()> {
   output.commit()
 }
 
-pub fn log(pref_vcs: Option<VcsRange>) -> Result<()> {
-  let mut mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
-  let output = Output::new();
-  let mut output = output.log();
-
-  let plan = mono.build_plan()?;
-
-  if plan.incrs().is_empty() {
-    output.write_empty()?;
-    return output.commit();
-  }
-
-  for (id, (.., change_log)) in plan.incrs() {
-    if let Some(wrote) = mono.write_change_log(id, change_log)? {
-      output.write_logged(wrote)?;
-    }
-  }
-
-  mono.commit()?;
-  output.commit()
-}
-
 pub fn changes(pref_vcs: Option<VcsRange>) -> Result<()> {
   let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
   let output = Output::new();
@@ -144,20 +150,23 @@ pub fn plan(pref_vcs: Option<VcsRange>) -> Result<()> {
   output.commit(&mono)
 }
 
-pub fn run(pref_vcs: Option<VcsRange>, all: bool, dry: bool) -> Result<()> {
+pub fn release(pref_vcs: Option<VcsRange>, all: bool, dry: bool) -> Result<()> {
   let mut mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
   let output = Output::new();
-  let mut output = output.run();
-
+  let mut output = output.release();
   let plan = mono.build_plan()?;
+
+  if let Err((should, is)) = mono.check_branch() {
+    bail!("Branch name \"{}\"\" doesn't match \"{}\".", is, should);
+  }
 
   if plan.incrs().is_empty() {
     output.write_empty()?;
     return output.commit();
   }
 
-  for (id, (size, change_log)) in plan.incrs() {
-    if let Some(wrote) = mono.write_change_log(id, change_log)? {
+  for (id, (size, changelog)) in plan.incrs() {
+    if let Some(wrote) = mono.write_changelog(id, changelog)? {
       output.write_logged(wrote)?;
     }
 
@@ -192,7 +201,7 @@ pub fn run(pref_vcs: Option<VcsRange>, all: bool, dry: bool) -> Result<()> {
   }
 
   if !dry {
-    mono.commit()?;
+    mono.commit(true)?;
     output.write_commit()?;
   } else {
     output.write_dry()?;

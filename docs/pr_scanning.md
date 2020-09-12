@@ -22,6 +22,3 @@ commits may have been garbage collected and unavailable for examination.
 In this case, Versio will make some guesses, but might get some sizing
 or grouping wrong. If unsquashing is important, don't delete PR branches
 from GitHub until after they've been part of a release.
-
-> TODO: Add a "--delete-prs" flag to `versio run` that deletes all PR
-> branches that have been unsquashed?

@@ -4,7 +4,6 @@ use error_chain::error_chain;
 
 error_chain! {
   links {
-    Gql(github_gql::errors::Error, github_gql::errors::ErrorKind);
   }
 
   foreign_links {
@@ -20,6 +19,8 @@ error_chain! {
     Glob(glob::PatternError);
     Xml(xmlparser::Error);
     Log(log::SetLoggerError);
+    Octo(octocrab::Error);
+    Liquid(liquid::Error);
   }
 }
 
@@ -39,4 +40,14 @@ macro_rules! err {
 #[macro_export]
 macro_rules! bad {
   ($($arg:tt)*) => ($crate::errors::Error::from_kind($crate::errors::ErrorKind::Msg(format!($($arg)*))))
+}
+
+#[macro_export]
+macro_rules! try_iter {
+  ($arg:expr) => {
+    match $arg {
+      Ok(x) => x,
+      Err(e) => return E2::A(once(Err(e.into())))
+    }
+  };
 }

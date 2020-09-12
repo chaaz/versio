@@ -5,15 +5,20 @@ use crate::either::IterEither2 as E2;
 use crate::errors::{Result, ResultExt};
 use crate::git::{FromTagBuf, Repo, Slice};
 use crate::mark::{FilePicker, LinePicker, Picker, ScanningPicker};
-use crate::mono::ChangeLog;
+use crate::mono::Changelog;
 use crate::scan::parts::{deserialize_parts, Part};
-use crate::state::{CurrentFiles, CurrentState, FilesRead, PickPath, PrevFiles, PrevState, StateRead, StateWrite};
+use crate::state::{
+  CurrentFiles, CurrentState, FilesRead, OldTags, PickPath, PrevFiles, PrevState, StateRead, StateWrite
+};
+use chrono::prelude::Utc;
 use error_chain::bail;
 use glob::{glob_with, MatchOptions, Pattern};
+use liquid::ParserBuilder;
 use log::trace;
 use regex::{escape, Regex};
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, Unexpected, Visitor};
-use serde::Deserialize;
+use serde::ser::Serializer;
+use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::cmp::{Ord, Ordering};
 use std::collections::{HashMap, HashSet};
@@ -31,6 +36,7 @@ pub struct ProjectId {
 }
 
 impl ProjectId {
+  pub fn new(id: u32, majors: Vec<u32>) -> ProjectId { ProjectId { id, majors } }
   pub fn from_id(id: u32) -> ProjectId { ProjectId { id, majors: Vec::new() } }
 
   fn expand(&self, sub: &SubExtent) -> ProjectId {
@@ -45,7 +51,26 @@ impl FromStr for ProjectId {
 }
 
 impl fmt::Display for ProjectId {
-  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "[{} {:?}]", self.id, self.majors) }
+  fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    if self.majors.is_empty() {
+      write!(f, "{}", self.id)
+    } else {
+      write!(f, "{} {:?}", self.id, self.majors)
+    }
+  }
+}
+
+impl Serialize for ProjectId {
+  fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+  where
+    S: Serializer
+  {
+    if self.majors.is_empty() {
+      serializer.serialize_u32(self.id)
+    } else {
+      serializer.serialize_str(&format!("{} {:?}", self.id, self.majors))
+    }
+  }
 }
 
 impl<'de> Deserialize<'de> for ProjectId {
@@ -73,8 +98,20 @@ impl<'de> Deserialize<'de> for ProjectId {
       fn visit_f64<E: de::Error>(self, v: f64) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
 
       fn visit_str<E: de::Error>(self, v: &str) -> DeResult<E> {
-        let v = v.parse().map_err(|_| E::invalid_value(Unexpected::Str(v), &self))?;
-        Ok(ProjectId::from_id(v))
+        let id_majors: Vec<&str> = v.splitn(2, ' ').collect();
+        if id_majors.len() > 1 {
+          let v = id_majors[0].parse().map_err(|_| E::invalid_value(Unexpected::Str(v), &self))?;
+          let maj = id_majors[1];
+          let maj = maj[1 .. id_majors[1].len() - 1]
+            .split(", ")
+            .map(|m| m.parse())
+            .collect::<std::result::Result<Vec<u32>, std::num::ParseIntError>>()
+            .map_err(|_| E::invalid_value(Unexpected::Str(maj), &self))?;
+          Ok(ProjectId::new(v, maj))
+        } else {
+          let v = id_majors[0].parse().map_err(|_| E::invalid_value(Unexpected::Str(v), &self))?;
+          Ok(ProjectId::from_id(v))
+        }
       }
     }
 
@@ -90,13 +127,14 @@ pub struct Config<S: StateRead> {
 impl Config<CurrentState> {
   pub fn prev_tag(&self) -> &str { self.file.prev_tag() }
 
-  pub fn slice<'r>(&self, spec: FromTagBuf, repo: &'r Repo) -> Result<Config<PrevState<'r>>> {
-    Config::from_state(self.state.slice(spec, repo)?)
+  pub fn slice_to_prev<'r>(&self, repo: &'r Repo) -> Result<Config<PrevState<'r>>> {
+    let spec = FromTagBuf::new(self.prev_tag().to_string(), true);
+    let old_tags = self.state.old_tags().slice_to_prev()?;
+    let prev_state = PrevState::new(repo.slice(spec), old_tags);
+    Config::from_state(prev_state)
   }
 
-  pub fn slice_to_prev<'r>(&self, repo: &'r Repo) -> Result<Config<PrevState<'r>>> {
-    self.slice(FromTagBuf::new(self.prev_tag().to_string(), true), repo)
-  }
+  pub fn old_tags(&self) -> &OldTags { self.state.old_tags() }
 }
 
 impl<S: StateRead> Config<S> {
@@ -111,6 +149,7 @@ impl<S: StateRead> Config<S> {
   pub fn state_read(&self) -> &S { &self.state }
   pub fn projects(&self) -> &[Project] { &self.file.projects() }
   pub fn get_project(&self, id: &ProjectId) -> Option<&Project> { self.file.get_project(id) }
+  pub fn branch(&self) -> &Option<String> { self.file.branch() }
 
   pub fn find_unique(&self, name: &str) -> Result<&ProjectId> {
     let mut iter = self.file.projects.iter().filter(|p| p.name.contains(name)).map(|p| p.id());
@@ -211,6 +250,7 @@ impl ConfigFile {
   pub fn projects(&self) -> &[Project] { &self.projects }
   pub fn get_project(&self, id: &ProjectId) -> Option<&Project> { self.projects.iter().find(|p| p.id() == id) }
   pub fn sizes(&self) -> &HashMap<String, Size> { &self.sizes }
+  pub fn branch(&self) -> &Option<String> { self.options.branch() }
 
   /// Check that IDs are unique, etc.
   fn validate(&self) -> Result<()> {
@@ -240,23 +280,25 @@ impl ConfigFile {
       }
     }
 
-    // TODO: no circular deps
-
     Ok(())
   }
 }
 
 #[derive(Deserialize, Debug)]
 struct Options {
-  prev_tag: String
+  #[serde(default = "default_prev_tag")]
+  prev_tag: String,
+  #[serde(default = "default_branch")]
+  branch: Option<String>
 }
 
 impl Default for Options {
-  fn default() -> Options { Options { prev_tag: "versio-prev".into() } }
+  fn default() -> Options { Options { prev_tag: default_prev_tag(), branch: default_branch() } }
 }
 
 impl Options {
   pub fn prev_tag(&self) -> &str { &self.prev_tag }
+  pub fn branch(&self) -> &Option<String> { &self.branch }
 }
 
 fn legal_tag(prefix: &str) -> bool {
@@ -270,13 +312,13 @@ pub struct Project {
   name: String,
   id: ProjectId,
   root: Option<String>,
-  #[serde(default)]
+  #[serde(default = "default_includes")]
   includes: Vec<String>,
   #[serde(default)]
   excludes: Vec<String>,
   #[serde(default)]
   depends: Vec<ProjectId>,
-  change_log: Option<String>,
+  changelog: Option<String>,
   #[serde(deserialize_with = "deserialize_version")]
   version: Location,
   tag_prefix: Option<String>,
@@ -306,12 +348,12 @@ impl Project {
     Ok(())
   }
 
-  pub fn change_log(&self) -> Option<Cow<str>> {
-    self.change_log.as_ref().map(|change_log| {
+  pub fn changelog(&self) -> Option<Cow<str>> {
+    self.changelog.as_ref().map(|changelog| {
       if let Some(root) = self.root() {
-        Cow::Owned(PathBuf::from(root).join(change_log).to_string_lossy().to_string())
+        Cow::Owned(PathBuf::from(root).join(changelog).to_string_lossy().to_string())
       } else {
-        Cow::Borrowed(change_log.as_str())
+        Cow::Borrowed(changelog.as_str())
       }
     })
   }
@@ -319,18 +361,15 @@ impl Project {
   pub fn tag_prefix(&self) -> &Option<String> { &self.tag_prefix }
   pub fn tag_majors(&self) -> Option<&[u32]> { self.version.tag_majors() }
 
-  pub fn write_change_log(&self, write: &mut StateWrite, cl: &ChangeLog) -> Result<Option<PathBuf>> {
+  pub fn write_changelog(&self, write: &mut StateWrite, cl: &Changelog) -> Result<Option<PathBuf>> {
     if cl.is_empty() {
       return Ok(None);
     }
 
-    if let Some(cl_path) = self.change_log().as_ref() {
-      let log_path = if let Some(root) = self.root() {
-        Path::new(root).join(cl_path.as_ref())
-      } else {
-        Path::new(cl_path.as_ref()).to_path_buf()
-      };
-      write.write_file(log_path.clone(), construct_change_log_html(cl)?, self.id())?;
+    if let Some(log_path) = self.changelog().as_ref() {
+      let log_path = Path::new(log_path.as_ref()).to_path_buf();
+      let old_content = extract_old_content(&log_path)?;
+      write.write_file(log_path.clone(), construct_changelog_html(cl, old_content)?, self.id())?;
       Ok(Some(log_path))
     } else {
       Ok(None)
@@ -339,9 +378,6 @@ impl Project {
 
   pub fn size(&self, parent_sizes: &HashMap<String, Size>, kind: &str) -> Result<Size> {
     let kind = kind.trim();
-    if kind.ends_with('!') {
-      return Ok(Size::Major);
-    }
     parent_sizes
       .get(kind)
       .copied()
@@ -416,15 +452,15 @@ impl Project {
     self.version.read_value(read, self.root(), self.id())
   }
 
-  pub fn set_value(&self, write: &mut StateWrite, val: &str) -> Result<()> {
-    self.version.write_value(write, self.root(), val, &self.id)?;
-    self.forward_tag(write, val)
+  pub fn set_value(&self, write: &mut StateWrite, vers: &str) -> Result<()> {
+    self.version.write_value(write, self.root(), vers, &self.id)?;
+    self.forward_tag(write, vers)
   }
 
-  pub fn forward_tag(&self, write: &mut StateWrite, val: &str) -> Result<()> {
+  pub fn forward_tag(&self, write: &mut StateWrite, vers: &str) -> Result<()> {
     if let Some(tag_prefix) = &self.tag_prefix {
-      let tag = if tag_prefix.is_empty() { format!("v{}", val) } else { format!("{}-v{}", tag_prefix, val) };
-      write.tag_head_or_last(tag, &self.id)?;
+      let tag = if tag_prefix.is_empty() { format!("v{}", vers) } else { format!("{}-v{}", tag_prefix, vers) };
+      write.tag_head_or_last(vers, tag, &self.id)?;
     }
     Ok(())
   }
@@ -450,7 +486,7 @@ impl Project {
         includes: self.includes.clone(),
         excludes: expand_excludes(&self.excludes, &sub),
         depends: expand_depends(&self.depends, &sub),
-        change_log: self.change_log.clone(),
+        changelog: self.changelog.clone(),
         version: expand_version(&self.version, &sub),
         tag_prefix: self.tag_prefix.clone(),
         subs: None
@@ -478,9 +514,9 @@ impl Project {
       let excludes = dirs.iter().map(|d| format!("{}/**/*", d)).collect();
       let majors = subs.tops().to_vec();
 
-      let list = once(SubExtent { dir: ".".to_string(), majors, largest: dirs.is_empty(), excludes })
+      let list = once(SubExtent { dir: None, majors, largest: dirs.is_empty(), excludes })
         .chain(extents.into_iter().map(|(dir, major)| SubExtent {
-          dir,
+          dir: Some(dir),
           majors: vec![major],
           largest: major == *largest.as_ref().unwrap(),
           excludes: Vec::new()
@@ -494,14 +530,22 @@ impl Project {
   }
 }
 
-fn expand_name(name: &str, sub: &SubExtent) -> String { format!("{}/{}", name, sub.dir()) }
+fn expand_name(name: &str, sub: &SubExtent) -> String {
+  match sub.dir() {
+    Some(subdir) => format!("{}/{}", name, subdir),
+    None => name.to_string()
+  }
+}
 
 fn expand_root(root: Option<&String>, sub: &SubExtent) -> Option<String> {
   match root {
-    Some(root) => Some(Path::new(root).join(sub.dir()).to_string_lossy().into_owned()),
+    Some(root) => match sub.dir() {
+      Some(subdir) => Some(Path::new(root).join(subdir).to_string_lossy().into_owned()),
+      None => Some(Path::new(root).to_string_lossy().into_owned())
+    },
     None => match sub.dir() {
-      "." => None,
-      other => Some(Path::new(other).to_string_lossy().into_owned())
+      Some(subdir) => Some(Path::new(subdir).to_string_lossy().into_owned()),
+      None => None
     }
   }
 }
@@ -529,14 +573,14 @@ fn expand_version(version: &Location, sub: &SubExtent) -> Location {
 }
 
 struct SubExtent {
-  dir: String,
+  dir: Option<String>,
   majors: Vec<u32>,
   largest: bool,
   excludes: Vec<String>
 }
 
 impl SubExtent {
-  pub fn dir(&self) -> &str { &self.dir }
+  pub fn dir(&self) -> &Option<String> { &self.dir }
   pub fn excludes(&self) -> &[String] { &self.excludes }
   pub fn is_largest(&self) -> bool { self.largest }
   pub fn majors(&self) -> &[u32] { &self.majors }
@@ -564,9 +608,9 @@ impl Location {
     }
   }
 
-  pub fn write_value(&self, write: &mut StateWrite, root: Option<&String>, val: &str, id: &ProjectId) -> Result<()> {
+  pub fn write_value(&self, write: &mut StateWrite, root: Option<&String>, vers: &str, id: &ProjectId) -> Result<()> {
     match self {
-      Location::File(l) => l.write_value(write, root, val, id),
+      Location::File(l) => l.write_value(write, root, vers, id),
       Location::Tag(_) => Ok(())
     }
   }
@@ -655,9 +699,9 @@ struct FileLocation {
 }
 
 impl FileLocation {
-  pub fn write_value(&self, write: &mut StateWrite, root: Option<&String>, val: &str, id: &ProjectId) -> Result<()> {
+  pub fn write_value(&self, write: &mut StateWrite, root: Option<&String>, vers: &str, id: &ProjectId) -> Result<()> {
     let file = self.rooted(root);
-    write.update_mark(PickPath::new(file, self.picker.clone()), val.to_string(), id)
+    write.update_mark(PickPath::new(file, self.picker.clone()), vers.to_string(), id)
   }
 
   pub fn read_value<S: StateRead>(&self, read: &S, root: Option<&String>) -> Result<String> {
@@ -817,6 +861,10 @@ impl Ord for Size {
   }
 }
 
+fn default_includes() -> Vec<String> { vec!["**/*".into()] }
+fn default_prev_tag() -> String { "versio-prev".into() }
+fn default_branch() -> Option<String> { None }
+
 fn deserialize_version<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<Location, D::Error> {
   struct VecPartSeed;
 
@@ -920,6 +968,7 @@ fn deserialize_sizes<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<
             let size = Size::from_str(val).unwrap();
             let keys: Vec<String> = map.next_value()?;
             for key in keys {
+              let key = key.to_lowercase();
               if result.contains_key(&key) {
                 return Err(de::Error::custom(format!("Duplicated kind \"{}\".", key)));
               }
@@ -947,6 +996,7 @@ fn deserialize_sizes<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<
 }
 
 fn insert_angular(result: &mut HashMap<String, Size>) {
+  insert_if_missing(result, "!", Size::Major);
   insert_if_missing(result, "feat", Size::Minor);
   insert_if_missing(result, "fix", Size::Patch);
   insert_if_missing(result, "docs", Size::None);
@@ -966,41 +1016,77 @@ fn insert_if_missing(result: &mut HashMap<String, Size>, key: &str, val: Size) {
 
 fn match_opts() -> MatchOptions { MatchOptions { require_literal_separator: true, ..Default::default() } }
 
-fn construct_change_log_html(cl: &ChangeLog) -> Result<String> {
-  let mut output = String::new();
-  output.push_str("<html>\n");
-  output.push_str("<body>\n");
+fn extract_old_content(path: &Path) -> Result<String> {
+  if !path.exists() {
+    return Ok("".into());
+  }
 
-  output.push_str("<ul>\n");
+  let full_content = std::fs::read_to_string(path)?;
+  let content = full_content
+    .split('\n')
+    .skip_while(|l| !l.contains("### VERSIO BEGIN CONTENT ###"))
+    .skip(1)
+    .take_while(|l| !l.contains("### VERSIO END CONTENT ###"))
+    .collect::<Vec<_>>()
+    .join("\n");
+  Ok(content)
+}
+
+fn construct_changelog_html(cl: &Changelog, old_content: String) -> Result<String> {
+  let tmpl = include_str!("tmpl/changelog.liquid");
+  let tmpl = ParserBuilder::with_stdlib().build()?.parse(tmpl)?;
+  let nowymd = Utc::now().format("%Y-%m-%d").to_string();
+
+  let pr_count = cl.entries().iter().filter(|(pr, _)| pr.commits().iter().any(|c| c.included())).count();
+
+  let mut prs = Vec::new();
   for (pr, size) in cl.entries() {
     if !pr.commits().iter().any(|c| c.included()) {
       continue;
     }
-    if pr.number() == 0 {
-      // "PR zero" is the top-level set of commits.
-      output.push_str(&format!("  <li>Other commits : {} </li>\n", size));
-    } else {
-      output.push_str(&format!("  <li>PR {} : {} </li>\n", pr.number(), size));
+
+    let mut commits = Vec::new();
+    for c in pr.commits().iter().filter(|c| c.included()) {
+      commits.push(liquid::object!({
+        "href": c.url().as_deref().unwrap_or(""),
+        "link": c.url().is_some(),
+        "shorthash": c.oid()[.. 7].to_string(),
+        "size": c.size().to_string(),
+        "summary": c.summary(),
+        "message": c.message().trim()
+      }));
     }
-    output.push_str("  <ul>\n");
-    for c /* (oid, msg, size, appl, dup) */ in pr.commits().iter().filter(|c| c.included()) {
-      let symbol = if c.duplicate() {
-        "(dup) "
-      } else if c.applies() {
-        ""
+
+    let pr_name = if pr.number() == 0 {
+      if pr_count == 1 {
+        "Commits".to_string()
       } else {
-        "(not appl) "
-      };
-      output.push_str(&format!("    <li>{}commit {} ({}) : {}</li>\n", symbol, &c.oid()[.. 7], c.size(), c.message()));
-    }
-    output.push_str("  </ul>\n");
+        "Other commits".to_string()
+      }
+    } else {
+      format!("PR {}", pr.number())
+    };
+
+    prs.push(liquid::object!({
+      "title": pr.title(),
+      "name": pr_name,
+      "size": size.to_string(),
+      "href": pr.url().as_deref().unwrap_or(""),
+      "link": pr.number() > 0 && pr.url().is_some(),
+      "commits": commits
+    }));
   }
-  output.push_str("</ul>\n");
 
-  output.push_str("</body>\n");
-  output.push_str("</html>\n");
+  let globals = liquid::object!({
+    "release": {
+      "date": nowymd,
+      "prs": prs
+    },
+    "old_content": old_content,
+    "content_marker": format!("CONTENT {}", nowymd)
+  });
 
-  Ok(output)
+  Ok(tmpl.render(&globals)?)
 }
 
 #[cfg(test)]
@@ -1010,12 +1096,10 @@ mod test {
 
   #[test]
   fn test_both_file_and_tags() {
-    // TODO: more tests like this
     let data = r#"
 projects:
   - name: everything
     id: 1
-    includes: ["**/*"]
     version:
       tags:
         default: "1.0.0"
@@ -1030,23 +1114,23 @@ projects:
 projects:
   - name: everything
     id: 1
-    includes: ["**/*"]
     version:
       file: "toplevel.json"
       json: "version"
 
   - name: project1
     id: 2
-    includes: ["project1/**/*"]
+    root: "project1"
     version:
-      file: "project1/Cargo.toml"
+      file: "Cargo.toml"
       toml: "version"
 
   - name: "combined a and b"
     id: 3
-    includes: ["nested/project_a/**/*", "nested/project_b/**/*"]
+    root: "nested"
+    includes: ["project_a/**/*", "project_b/**/*"]
     version:
-      file: "nested/version.txt"
+      file: "version.txt"
       pattern: "v([0-9]+\\.[0-9]+\\.[0-9]+) .*"
 
   - name: "build image"
@@ -1067,12 +1151,10 @@ projects:
 projects:
   - name: p1
     id: 1
-    includes: ["**/*"]
     version: { file: f1 }
 
   - name: project1
     id: 1
-    includes: ["**/*"]
     version: { file: f2 }
     "#;
 
@@ -1085,12 +1167,10 @@ projects:
 projects:
   - name: p1
     id: 1
-    includes: ["**/*"]
     version: { file: f1 }
 
   - name: p1
     id: 2
-    includes: ["**/*"]
     version: { file: f2 }
     "#;
 
@@ -1104,7 +1184,6 @@ projects:
   - name: p1
     id: 1
     tag_prefix: "ixth*&o"
-    includes: ["**/*"]
     version: { file: f1 }
     "#;
 
@@ -1118,7 +1197,6 @@ projects:
   - name: p1
     id: 1
     tag_prefix: "ixthïo"
-    includes: ["**/*"]
     version: { file: f1 }
     "#;
 
@@ -1132,13 +1210,11 @@ projects:
   - name: p1
     id: 1
     tag_prefix: proj
-    includes: ["**/*"]
     version: { file: f1 }
 
   - name: p2
     id: 2
     tag_prefix: proj
-    includes: ["**/*"]
     version: { file: f2 }
     "#;
 
@@ -1152,13 +1228,11 @@ projects:
   - name: p1
     id: 1
     tag_prefix: "_proj1-abc"
-    includes: ["**/*"]
     version: { file: f1 }
 
   - name: p2
     id: 2
     tag_prefix: proj2
-    includes: ["**/*"]
     version: { file: f2 }
     "#;
 
@@ -1170,15 +1244,16 @@ projects:
     let config = r#"
 projects: []
 sizes:
-  major: [ break ]
+  major: [ break, "!" ]
   minor: [ feat ]
   patch: [ fix, "-" ]
   none: [ none ]
 "#;
 
     let config = ConfigFile::read(config).unwrap();
-    assert_eq!(&Size::Minor, config.sizes.get("feat").unwrap());
     assert_eq!(&Size::Major, config.sizes.get("break").unwrap());
+    assert_eq!(&Size::Major, config.sizes.get("!").unwrap());
+    assert_eq!(&Size::Minor, config.sizes.get("feat").unwrap());
     assert_eq!(&Size::Patch, config.sizes.get("fix").unwrap());
     assert_eq!(&Size::Patch, config.sizes.get("-").unwrap());
     assert_eq!(&Size::None, config.sizes.get("none").unwrap());
@@ -1207,7 +1282,7 @@ sizes:
       includes: vec!["**/*".into()],
       excludes: Vec::new(),
       depends: Vec::new(),
-      change_log: None,
+      changelog: None,
       version: Location::File(FileLocation {
         file: "package.json".into(),
         picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())]))
@@ -1229,7 +1304,7 @@ sizes:
       includes: vec!["**/*".into()],
       excludes: vec!["internal/**/*".into()],
       depends: Vec::new(),
-      change_log: None,
+      changelog: None,
       version: Location::File(FileLocation {
         file: "package.json".into(),
         picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())]))
@@ -1250,7 +1325,7 @@ sizes:
       includes: vec![],
       excludes: vec!["internal/**/*".into()],
       depends: Vec::new(),
-      change_log: None,
+      changelog: None,
       version: Location::File(FileLocation {
         file: "package.json".into(),
         picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())]))

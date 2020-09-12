@@ -1,8 +1,14 @@
 [package]
 name = "versio"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Charlie Ozinga <ozchaz@gmail.com>"]
 edition = "2018"
+description = "Versio is a tool to manage and publish projects."
+homepage = "https://github.com/chaaz/versio/"
+repository = "https://github.com/chaaz/versio/"
+license-file = "LICENSE.txt"
+keywords = ["publish", "version", "development", "deploy", "release"]
+categories = ["command-line-utilities", "config"]
 
 [dependencies]
 chrono = "0.4"
@@ -10,22 +16,26 @@ dirs = "3.0"
 env_logger = "0.7"
 error-chain = "0.12"
 git2 = "0.12"
-# until the next version with updated deps is published
-github-gql-rs = { version = "0.0.1", path = "../github-rs/github-gql-rs" }
 glob = "0.3"
 hyper = "0.12.27"
+liquid = "0.21"
 log = "0.4"
+octocrab = "0.6"
 regex = "1.3"
-serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.8"
+tokio = "0.2"
 toml = "0.5"
 xmlparser = "0.13"
 yaml-rust = "0.4"
 
+[dependencies.serde]
+version = "1.0"
+features = ["derive"]
+
 [dependencies.clap]
 version = "2.33"
-features = [ "wrap_help" ]
+features = ["wrap_help"]
 
 [lib]
 name = "versio"

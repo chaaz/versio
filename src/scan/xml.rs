@@ -1,6 +1,4 @@
 //! Utilities to find a mark in a XML file.
-//!
-//! TODO: versions in CDATA, attributes
 
 use crate::errors::Result;
 use crate::mark::Mark;
@@ -16,7 +14,6 @@ pub struct XmlScanner {
 }
 
 impl XmlScanner {
-  #[cfg(test)]
   pub fn new(target: &str) -> XmlScanner { XmlScanner { target: target.into_part_vec() } }
 
   #[cfg(test)]

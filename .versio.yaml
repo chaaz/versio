@@ -1,0 +1,14 @@
+options:
+  prev_tag: "versio-prev"
+
+projects:
+  - name: "versio"
+    id: 0
+    tag_prefix: ""
+    version:
+      file: "Cargo.toml"
+      toml: "package.version"
+
+sizes:
+  use_angular: true
+  fail: ["*"]

@@ -11,7 +11,7 @@ use git2::string_array::StringArray;
 use git2::{
   AnnotatedCommit, AutotagOption, Blob, Commit, Cred, Diff, DiffOptions, FetchOptions, Index, Object, ObjectType, Oid,
   PushOptions, Reference, ReferenceType, Remote, RemoteCallbacks, Repository, RepositoryOpenFlags, RepositoryState,
-  ResetType, Revwalk, Signature, Status, StatusOptions, Time
+  ResetType, Revwalk, Signature, Sort, Status, StatusOptions, Time
 };
 use log::{error, info, trace, warn};
 use regex::Regex;
@@ -54,7 +54,11 @@ impl Repo {
       Ok(repo) => repo
     };
 
-    let branch_name = find_branch_name(&repo)?;
+    let branch_name = match find_branch_name(&repo) {
+      Err(_) => return Ok(VcsLevel::None),
+      Ok(branch_name) => branch_name
+    };
+
     if let Ok(remote_name) = find_remote_name(&repo, &branch_name) {
       if find_github_info(&repo, &remote_name, &Default::default()).is_ok() {
         Ok(VcsLevel::Smart)
@@ -64,6 +68,25 @@ impl Repo {
     } else {
       Ok(VcsLevel::Local)
     }
+  }
+
+  pub fn find_working_dir<P: AsRef<Path>>(path: P, vcs: VcsLevel, allow_cwd: bool) -> Result<PathBuf> {
+    if vcs == VcsLevel::None {
+      match find_root_blind(path.as_ref()) {
+        Ok(path) => return Ok(path),
+        Err(e) => {
+          if allow_cwd {
+            return Ok(path.as_ref().to_path_buf());
+          } else {
+            return Err(e);
+          }
+        }
+      }
+    }
+
+    let flags = RepositoryOpenFlags::empty();
+    let repo = Repository::open_ext(path, flags, empty::<&OsStr>())?;
+    Ok(repo.workdir().ok_or_else(|| bad!("Repo has no working dir"))?.to_path_buf())
   }
 
   pub fn open<P: AsRef<Path>>(path: P, vcs: VcsLevel) -> Result<Repo> {
@@ -127,6 +150,7 @@ impl Repo {
   pub fn commits_between_buf(&self, from: FromTag, to_oid: Oid) -> Result<Option<(Vec<CommitInfoBuf>, Time)>> {
     let repo = self.repo()?;
     let mut revwalk = repo.revwalk()?;
+    revwalk.set_sorting(Sort::TOPOLOGICAL)?;
     hide_from(repo, &mut revwalk, from)?;
     revwalk.push(to_oid)?;
 
@@ -152,6 +176,7 @@ impl Repo {
   ) -> Result<impl Iterator<Item = Result<CommitInfo>> + '_> {
     let repo = self.repo()?;
     let mut revwalk = repo.revwalk()?;
+    revwalk.set_sorting(Sort::TOPOLOGICAL)?;
     if incl_from {
       hide_from_parents(repo, &mut revwalk, from)?;
     } else {
@@ -187,10 +212,23 @@ impl Repo {
       }
       GitVcsLevel::Remote { repo, branch_name, remote_name, fetches }
       | GitVcsLevel::Smart { repo, branch_name, remote_name, fetches } => {
-        verify_current(repo).chain_err(|| "Can't complete get.")?;
+        // get_oid_remote() will verify current
         get_oid_remote(repo, branch_name, spec, remote_name, fetches)
       }
     }
+  }
+
+  pub fn annotation_of(&self, tag: &str) -> Option<String> {
+    let repo = match &self.vcs {
+      GitVcsLevel::None { .. } => return None,
+      GitVcsLevel::Local { repo, .. } | GitVcsLevel::Remote { repo, .. } | GitVcsLevel::Smart { repo, .. } => repo
+    };
+
+    repo
+      .refname_to_id(&format!("refs/tags/{}", tag))
+      .and_then(|oid| repo.find_tag(oid))
+      .ok()
+      .and_then(|tag| tag.message().map(|m| m.to_string()))
   }
 
   pub fn commit(&self) -> Result<bool> {
@@ -213,11 +251,14 @@ impl Repo {
     let mut status_opts = StatusOptions::new();
     status_opts.include_ignored(false);
     status_opts.include_untracked(true);
-    status_opts.exclude_submodules(false);
+    status_opts.exclude_submodules(true);
 
     let mut index = repo.index()?;
     let mut found = false;
-    for s in repo.statuses(Some(&mut status_opts))?.iter().filter(|s| s.status().is_wt_modified()) {
+    for s in repo.statuses(Some(&mut status_opts))?.iter().filter(|s| {
+      let s = s.status();
+      s.is_wt_modified() || s.is_wt_deleted() || s.is_wt_renamed() || s.is_wt_typechange() || s.is_wt_new()
+    }) {
       found = true;
       let path = s.path().ok_or_else(|| bad!("Bad path"))?;
       index.add_path(path.as_ref())?;
@@ -236,7 +277,7 @@ impl Repo {
     let parent_commit = self.find_last_commit()?;
     let sig = Signature::now("Versio", "github.com/chaaz/versio")?;
     let head = Some("HEAD");
-    let msg = "chore(deploy): update versions";
+    let msg = "build(deploy): Versio update versions";
 
     let commit_oid = repo.commit(head, &sig, &sig, msg, &tree, &[&parent_commit])?;
     repo.reset(&repo.find_object(commit_oid, Some(ObjectType::Commit))?, ResetType::Mixed, None)?;
@@ -252,6 +293,8 @@ impl Repo {
 
   pub fn update_tag_head(&self, tag: &str) -> Result<()> { self.update_tag(tag, "HEAD") }
 
+  pub fn update_tag_head_anno(&self, tag: &str, msg: &str) -> Result<()> { self.update_tag_anno(tag, "HEAD", msg) }
+
   pub fn update_tag(&self, tag: &str, spec: &str) -> Result<()> {
     if let GitVcsLevel::None { .. } = self.vcs {
       return Ok(());
@@ -264,6 +307,19 @@ impl Repo {
     Ok(())
   }
 
+  pub fn update_tag_anno(&self, tag: &str, spec: &str, msg: &str) -> Result<()> {
+    if let GitVcsLevel::None { .. } = self.vcs {
+      return Ok(());
+    }
+
+    let repo = self.repo()?;
+    let obj = repo.revparse_single(spec)?;
+    let tagger = Signature::now("Versio", "github.com/chaaz/versio")?;
+    repo.tag(tag, &obj, &tagger, msg, true)?;
+    self.push_tag(tag)?;
+    Ok(())
+  }
+
   fn push_head(&self, tags: &[String]) -> Result<()> {
     let (repo, branch_name, remote_name) = match &self.vcs {
       GitVcsLevel::None { .. } | GitVcsLevel::Local { .. } => return Ok(()),
@@ -271,9 +327,9 @@ impl Repo {
       | GitVcsLevel::Smart { repo, branch_name, remote_name, .. } => (repo, branch_name, remote_name)
     };
 
-    let mut refs = vec![format!("refs/heads/{}", branch_name)];
+    let mut refs = vec![format!("+refs/heads/{}", branch_name)];
     for tag in tags {
-      refs.push(format!("refs/tags/{}", tag));
+      refs.push(format!("+refs/tags/{}", tag));
     }
 
     do_push(repo, remote_name, &refs)
@@ -287,7 +343,7 @@ impl Repo {
       }
     };
 
-    do_push(repo, remote_name, &[format!("refs/tags/{}", tag)])
+    do_push(repo, remote_name, &[format!("+refs/tags/{}", tag)])
   }
 
   pub fn branch_name(&self) -> Result<&String> {
@@ -379,27 +435,30 @@ impl GithubInfo {
 pub struct CommitInfoBuf {
   id: String,
   summary: String,
+  message: String,
   kind: String,
   files: Vec<String>
 }
 
 impl CommitInfoBuf {
-  pub fn new(id: String, summary: String, files: Vec<String>) -> CommitInfoBuf {
-    let kind = extract_kind(&summary);
-    CommitInfoBuf { id, summary, kind, files }
+  pub fn new(id: String, kind: String, summary: String, message: String, files: Vec<String>) -> CommitInfoBuf {
+    CommitInfoBuf { id, summary, message, kind, files }
   }
 
-  pub fn guess(id: String) -> CommitInfoBuf { CommitInfoBuf::new(id, "".into(), Vec::new()) }
+  pub fn guess(id: String) -> CommitInfoBuf { CommitInfoBuf::new(id, "-".into(), "-".into(), "".into(), Vec::new()) }
 
   pub fn extract<'a>(repo: &'a Repository, commit: &Commit<'a>) -> Result<CommitInfoBuf> {
     let id = commit.id().to_string();
     let summary = commit.summary().unwrap_or("-").to_string();
+    let message = commit.message().unwrap_or("-").to_string();
+    let kind = extract_kind(&message);
     let files = files_from_commit(repo, commit)?.collect();
-    Ok(CommitInfoBuf::new(id, summary, files))
+    Ok(CommitInfoBuf::new(id, kind, summary, message, files))
   }
 
   pub fn id(&self) -> &str { &self.id }
   pub fn summary(&self) -> &str { &self.summary }
+  pub fn message(&self) -> &str { &self.message }
   pub fn kind(&self) -> &str { &self.kind }
   pub fn files(&self) -> &[String] { &self.files }
 }
@@ -414,11 +473,18 @@ impl<'a> CommitInfo<'a> {
 
   pub fn id(&self) -> String { self.commit.id().to_string() }
   pub fn summary(&self) -> &str { self.commit.summary().unwrap_or("-") }
-  pub fn kind(&self) -> String { extract_kind(self.summary()) }
+  pub fn message(&self) -> &str { self.commit.message().unwrap_or("-") }
+  pub fn kind(&self) -> String { extract_kind(self.message()) }
   pub fn files(&self) -> Result<impl Iterator<Item = String> + 'a> { files_from_commit(&self.repo, &self.commit) }
 
   pub fn buffer(self) -> Result<CommitInfoBuf> {
-    Ok(CommitInfoBuf::new(self.id(), self.summary().to_string(), self.files()?.collect()))
+    Ok(CommitInfoBuf::new(
+      self.id(),
+      self.kind(),
+      self.summary().to_string(),
+      self.message().to_string(),
+      self.files()?.collect()
+    ))
   }
 }
 
@@ -484,6 +550,7 @@ impl<'repo> DeltaIter<'repo> {
 
 pub struct FullPr {
   number: u32,
+  title: String,
   head_ref: String,
   head_oid: Option<Oid>,
   base_oid: FromTagBuf,
@@ -495,7 +562,7 @@ pub struct FullPr {
 
 impl FullPr {
   pub fn lookup(
-    repo: &Repo, base: FromTagBuf, headref: String, number: u32, closed_at: DateTime<FixedOffset>
+    repo: &Repo, base: FromTagBuf, headref: String, number: u32, title: String, closed_at: DateTime<FixedOffset>
   ) -> Result<FullPr> {
     let commit = repo.get_oid(&headref);
     match lookup_from_commit(repo, base.clone(), commit)? {
@@ -503,6 +570,7 @@ impl FullPr {
         warn!("Couldn't fetch {}: using best-guess instead: {}", headref, e);
         Ok(FullPr {
           number,
+          title,
           head_ref: headref,
           head_oid: None,
           base_oid: base,
@@ -514,6 +582,7 @@ impl FullPr {
       }
       Ok((commit, commits, base_time)) => Ok(FullPr {
         number,
+        title,
         head_ref: headref,
         head_oid: Some(commit.id()),
         base_oid: base,
@@ -526,6 +595,7 @@ impl FullPr {
   }
 
   pub fn number(&self) -> u32 { self.number }
+  pub fn title(&self) -> &str { &self.title }
   pub fn head_ref(&self) -> &str { &self.head_ref }
   pub fn head_oid(&self) -> &Option<Oid> { &self.head_oid }
   pub fn base_oid(&self) -> FromTag { self.base_oid.as_from_tag() }
@@ -804,21 +874,33 @@ fn fast_forward(repo: &Repository, rfrnc: &mut Reference, rc: &AnnotatedCommit) 
   Ok(())
 }
 
-fn extract_kind(summary: &str) -> String {
-  match summary.char_indices().find(|(_, c)| *c == ':' || *c == '\n') {
+/// Finds a conventional commit "type" from a commit message.
+///
+/// The type can be one of the special characters "-" (no type found) or "!" ("BREAKING CHANGE:" or
+/// "BREAKING-CHANGE:" starting footer, or "!" after type/scope)
+fn extract_kind(message: &str) -> String {
+  let breaking_pattern =
+    Regex::new("^(?s).*?\\n\\n((BREAKING CHANGE|BREAKING-CHANGE):|.*\n(BREAKING CHANGE|BREAKING-CHANGE):)").unwrap();
+  if breaking_pattern.is_match(message) {
+    return "!".into();
+  }
+
+  match message.char_indices().find(|(_, c)| *c == ':' || *c == '\n') {
     Some((i, c)) if c == ':' => {
-      let kind = &summary[0 .. i].trim();
-      let bang = kind.ends_with('!');
+      let kind = &message[.. i].trim();
+      if kind.ends_with('!') {
+        return "!".into();
+      }
       match kind.char_indices().find(|(_, c)| *c == '(').map(|(i, _)| i) {
         Some(i) => {
           let kind = &kind[0 .. i].trim();
-          if bang && !kind.ends_with('!') {
-            format!("{}!", kind)
+          if kind.ends_with('!') {
+            "!".into()
           } else {
-            (*kind).to_string()
+            (*kind).to_lowercase()
           }
         }
-        None => (*kind).to_string()
+        None => (*kind).to_lowercase()
       }
     }
     _ => "-".to_string()
@@ -903,14 +985,16 @@ fn verified_fetch<'r>(
   // Assume a standard git config `remote.<remote_name>.fetch` layout; if not we can force the tracking
   // branch (change the refspec to "{refspec}:refs/remotes/{remote_name}/{refspec}"), or parse the config
   // layout to see where it landed. Or maybe just use FETCH_HEAD?
-  let local_spec = format!("remotes/{}/{}^{{}}", remote_name, spec);
-  let obj = repo.revparse_single(&local_spec)?;
+  let remote_spec = format!("remotes/{}/{}^{{}}", remote_name, spec);
+  let obj = repo.revparse_single(&remote_spec)?;
   let oid = obj.id();
 
-  let workspace_spec = format!("{}^{{}}", spec);
-  let ws_oid = repo.revparse_single(&workspace_spec)?.id();
-  if ws_oid != oid {
-    warn!("`remotes/{}/{}` doesn't match local after fetch.", remote_name, spec);
+  // We don't need the revspec to be in our local database. But if it is there, it should match.
+  let local_spec = format!("{}^{{}}", spec);
+  if let Ok(loc_oid) = repo.revparse_single(&local_spec).map(|loc| loc.id()) {
+    if loc_oid != oid {
+      bail!("`remotes/{}/{}` doesn't match local after fetch.", remote_name, spec);
+    }
   }
 
   fetches.borrow_mut().insert(spec.to_string(), oid);
@@ -935,7 +1019,7 @@ fn verify_current(repo: &Repository) -> Result<()> {
   status_opts.include_untracked(true);
   status_opts.exclude_submodules(false);
   if repo.statuses(Some(&mut status_opts))?.iter().any(|s| s.status() != Status::CURRENT) {
-    bail!("Repository is not current");
+    bail!("Repository is not current.");
   }
   Ok(())
 }
@@ -1015,10 +1099,10 @@ fn do_fetch(remote: &mut Remote, refs: &[&str], all_tags: bool) -> Result<()> {
 }
 
 pub fn do_push(repo: &Repository, remote_name: &str, specs: &[String]) -> Result<()> {
-  let mut cb = RemoteCallbacks::new();
-  cb.credentials(|_url, username_from_url, _allowed_types| Cred::ssh_key_from_agent(username_from_url.unwrap()));
-
   info!("Pushing specs {:?} to remote {}", specs, remote_name);
+  let mut cb = RemoteCallbacks::new();
+
+  cb.credentials(|_url, username_from_url, _allowed_types| Cred::ssh_key_from_agent(username_from_url.unwrap()));
 
   cb.push_update_reference(|rref, status| {
     if let Some(status) = status {
@@ -1047,7 +1131,7 @@ mod test {
 
   #[test]
   fn test_kind_bang() {
-    assert_eq!(&extract_kind("thing! : this is thing"), "thing!");
+    assert_eq!(&extract_kind("thing! : this is thing"), "!");
   }
 
   #[test]
@@ -1057,11 +1141,51 @@ mod test {
 
   #[test]
   fn test_kind_complex() {
-    assert_eq!(&extract_kind("thing(scope)!: this is thing"), "thing!");
+    assert_eq!(&extract_kind("thing(scope)!: this is thing"), "!");
   }
 
   #[test]
   fn test_kind_backwards() {
-    assert_eq!(&extract_kind("thing!(scope): this is thing"), "thing!");
+    assert_eq!(&extract_kind("thing!(scope): this is thing"), "!");
+  }
+
+  #[test]
+  fn test_kind_breaking() {
+    assert_eq!(&extract_kind("thing(scope): this is thing\n\nbody\n\nBREAKING CHANGE: yup"), "!");
+  }
+
+  #[test]
+  fn test_kind_breaking_no_body() {
+    assert_eq!(&extract_kind("thing(scope): this is thing\n\nBREAKING CHANGE: yup"), "!");
+  }
+
+  #[test]
+  fn test_kind_breaking_later() {
+    assert_eq!(&extract_kind("thing(scope): this is thing\n\nbody\n\nfoot: 1\nBREAKING CHANGE: yup"), "!");
+  }
+
+  #[test]
+  fn test_kind_breaking_both() {
+    assert_eq!(&extract_kind("thing(scope)!: this is thing\n\nbody\n\nBREAKING CHANGE: yup"), "!");
+  }
+
+  #[test]
+  fn test_kind_breaking_dash() {
+    assert_eq!(&extract_kind("thing(scope): this is thing\n\nbody\n\nBREAKING-CHANGE: yup"), "!");
+  }
+
+  #[test]
+  fn test_empty() {
+    assert_eq!(&extract_kind(""), "-");
+  }
+
+  #[test]
+  fn test_unconventional() {
+    assert_eq!(&extract_kind("-"), "-");
+  }
+
+  #[test]
+  fn test_uncertain() {
+    assert_eq!(&extract_kind("ENG-123: I forgot to conventinal commit"), "eng-123");
   }
 }
