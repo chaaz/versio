@@ -1,0 +1,55 @@
+---
+name: release
+on:
+  - workflow_dispatch
+env:
+  RUSTFLAGS: '-D warnings'
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  cargo-checks:
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, 'skip ci')"
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+    - name: Cache cargo and target
+      uses: actions/cache@v1
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+    - name: Get cargo stable
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        components: clippy
+    - name: Get cargo nightly
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        components: rustfmt
+    - name: Check structure
+      run: cargo clippy
+    - name: Check format
+      run: cargo +nightly fmt -- --check
+    - name: Check tests
+      run: cargo test
+    - name: Get versio
+      uses: chaaz/versio-actions-install@v1
+    - name: Fetch history
+      run: git fetch --unshallow
+    - name: Check projects
+      run: versio check
+    - name: Print changes
+      run: versio plan
+    - name: Generate release
+      run: versio release
+    - name: Login to crates.io
+      run: cargo login ${CRATES_IO_TOKEN}
+      env:
+        CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+    - name: Publish to crates.io
+      run: cargo publish
