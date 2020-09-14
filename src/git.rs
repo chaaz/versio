@@ -734,6 +734,7 @@ impl Default for Auth {
 
 impl Auth {
   pub fn github_token(&self) -> &Option<String> { &self.github_token }
+  pub fn set_github_token(&mut self, token: Option<String>) { self.github_token = token; }
 }
 
 fn find_root_blind<P: AsRef<Path>>(path: P) -> Result<PathBuf> {

@@ -153,20 +153,59 @@ file with each of those projects listed. If you change later add,
 remove, or change the location of your projects, you should edit this
 file by hand to keep it up-to-date.
 
-## CI Premerge
+## CI Pre-merge
 
 You can use Versio to check that a branch is ready to be merged to your
 deployment branch. Your CI pipeline can run `versio check` to ensure
 that the `.versio.yaml` file is properly configured, and can `versio
 plan` to log the version changes which will be applied once merged.
 
-## CI Merge
+### GitHub Actions
 
-As part of your CI/CD pipeline, you can create an action to execute
-`versio release`, which will update the version numbers, generate
-changelogs, and commit and push all changes. You can set this action to
-run automatically when a branch has been merged to a release branch, or
-at any other time you want your software to be released.
+Use the example snippet to build a workflow for pull requests that can
+verify that Versio is configured correctly for all projects, and which
+will print out all changes in the pr, and their possible effect on the
+project(s) version numbers.
+
+Note the use of `checkout@v2`, and the following `git fetch --unshallow`
+command, which is necessary to fill in the git history before `versio`
+is asked to analyze it. Also, we've provided a
+`versio-actions-install@v1` command which installs the `versio` command
+into the job. (Currently, the `versio-actions-installer` action only
+works for linux-based runners.)
+
+```
+---
+name: pr
+on:
+  - pull_request
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  versio-checks:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+    - name: Get versio
+      uses: chaaz/versio-actions-install@v1
+    - name: Fetch history
+      run: git fetch --unshallow
+    - name: Check projects
+      run: versio check
+    - name: Print changes
+      run: versio plan
+```
+
+## CI Release
+
+As part of your CI (continuous integration)/CD (continuous deployment)
+pipeline, you can create an action to execute `versio release`, which
+will update the version numbers, generate changelogs, and commit and
+push all changes. You can set this action to run automatically when a
+branch has been merged to a release branch, or at any other time you
+want your software to be released.
 
 It's important to note that nothing can be pushed to the release branch
 during the short time that Versio is running, or `versio release` will
@@ -176,6 +215,17 @@ separate merges from the release process; to simply ignoring the problem
 and manually re-running the CI action if it gets stuck; and more. The
 strategy you use is dependent on the specifics of your organization and
 CI/CD process.
+
+It may be beneficial to generate some artifacts in your release
+workflow: this serves to capture the binaries, documentation, etc.
+associated with a particular version number. Typical targets for
+releases include GitHub Releases and library repositories (such as
+NPM.org, crates.io, Dockerhub, etc.), as well as whatever custom
+artifact storage you use in your org. In addition to being touchstones
+for particular releases, you can use these artifacts in your CD
+pipeline. While Versio itself (currently) can't generate or save these
+artifacts, most language and build systems have easy-to-use tools that
+can.
 
 <!--
 ## CD Deploy
