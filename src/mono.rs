@@ -46,7 +46,7 @@ impl Mono {
     let last_commits = find_last_commits(&current, &repo)?;
     let next = StateWrite::new();
 
-    let user_prefs = read_user_prefs()?;
+    let user_prefs = read_env_prefs()?;
 
     Ok(Mono { user_prefs, current, next, last_commits, repo })
   }
@@ -178,6 +178,16 @@ impl Mono {
   }
 }
 
+/// Read the user preferences file, with some values override with environment variables.
+fn read_env_prefs() -> Result<UserPrefs> {
+  read_user_prefs().map(|mut prefs| {
+    if let Ok(token) = std::env::var("GITHUB_TOKEN") {
+      prefs.auth_mut().set_github_token(Some(token))
+    }
+    prefs
+  })
+}
+
 fn read_user_prefs() -> Result<UserPrefs> {
   let homefile = dirs::home_dir().map(|h| h.join(USER_PREFS_DIR).join(USER_PREFS_FILE));
   let homefile = match homefile {
@@ -203,6 +213,7 @@ impl Default for UserPrefs {
 
 impl UserPrefs {
   fn auth(&self) -> &Auth { &self.auth }
+  fn auth_mut(&mut self) -> &mut Auth { &mut self.auth }
 }
 
 /// Find the last covering commit ID, if any, for each current project.

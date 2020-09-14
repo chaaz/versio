@@ -52,13 +52,17 @@ to do this, though, it may need an authorization token. You can generate
 a new personal access token for this purpose via the GitHub web UI in
 your user's Settings -> Developer settings.
 
-Once you have the new token, you can add it to your user configuration
-in `~/.versio/prefs.toml`. Here's an example of such a file:
+Once you have the new token, you can set the environment variable
+`GITHUB_TOKEN`, or you can add it to your user preferences in
+`~/.versio/prefs.toml`. Here's an example of such a file:
 
 ```
 [auth]
 github_token = "thisisa40charactertokeniamnotevenjokingg"
 ```
+
+The environment variable has precedence over the preferences file, but
+the file approach may be more convenient for some users.
 
 ## Command-line options
 [Command-line options]: #command-line-options
