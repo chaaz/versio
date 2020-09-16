@@ -1,0 +1,31 @@
+name: 'matrix'
+description: 'Set up matrixes'
+author: 'Charlie Ozinga <ozchaz@gmail.com>'
+branding:
+  icon: play-circle
+  color: black
+inputs: {}
+
+outputs:
+  matrixes:
+    description: The matrix for cargo projects
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Get versio
+      uses: chaaz/versio-actions-install@v1
+    - name: Store cargo matrix
+      id: find-cargo-matrix
+      run: 'echo "::set-output name=cargo-matrix::{\"include\": $(versio -l none info -i 0 -R -N)}"'
+    - name: Store cargo matrix
+      id: find-cargo-matrix
+      run: 'echo "::set-output name=all-matrix::{\"include\": $(versio -l none info -a -R -N)}"'
+    - name: Find cargo projects
+      id: set-cargo-matrix
+      run: >
+        echo "::set-output name=matrixes::{\"cargo-matrix\":"
+        "${{ toJson(steps.find-cargo-matrix.outputs.cargo-matrix) }}"
+        ", \"all-matrix\":"
+        "${{ toJson(steps.find-all-matrix.outputs.all-matrix) }}"
+        "}"

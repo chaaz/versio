@@ -1,0 +1,33 @@
+name: 'get-cargo'
+description: 'Install common cargo toolchains'
+author: 'Charlie Ozinga <ozchaz@gmail.com>'
+branding:
+  icon: play-circle
+  color: black
+inputs:
+  root:
+    description: The root of a cargo project
+
+outputs: {}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Get cargo stable
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        components: clippy
+    - name: Get cargo nightly
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        components: rustfmt
+    - name: Cache cargo and target
+      uses: actions/cache@v1
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          ${{ inputs.root }}/target
+        key: ${{ runner.os }}-cargo-${{ hashFiles(inputs.root + '/**/Cargo.lock') }}
