@@ -9,7 +9,9 @@ env:
 jobs:
   project-matrixes:
     runs-on: ubuntu-latest
-    outputs: ${{ fromJson(steps.set-matrixes.output.matrixes) }}
+    outputs:
+      cargo-matrix: steps.set-matrixes.output.cargo-matrix
+      all-matrix: steps.set-matrixes.output.all-matrix
     steps: 
     - { name: Checkout code, uses: actions/checkout@v2 }
     - { name: Set matrixes, id: set-matrixes, uses: ./.github/actions/matrix }

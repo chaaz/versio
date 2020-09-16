@@ -7,8 +7,10 @@ branding:
 inputs: {}
 
 outputs:
-  matrixes:
+  cargo-matrix:
     description: The matrix for cargo projects
+  all-matrix:
+    description: The matrix for all projects
 
 runs:
   using: 'composite'
@@ -21,11 +23,3 @@ runs:
     - name: Store cargo matrix
       id: find-cargo-matrix
       run: 'echo "::set-output name=all-matrix::{\"include\": $(versio -l none info -a -R -N)}"'
-    - name: Find cargo projects
-      id: set-cargo-matrix
-      run: >
-        echo "::set-output name=matrixes::{\"cargo-matrix\":"
-        "${{ toJson(steps.find-cargo-matrix.outputs.cargo-matrix) }}"
-        ", \"all-matrix\":"
-        "${{ toJson(steps.find-all-matrix.outputs.all-matrix) }}"
-        "}"
