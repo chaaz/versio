@@ -7,6 +7,7 @@ name: pr
 env:
   RUSTFLAGS: "-D warnings"
   GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+  GITHUB_USER: "${{ github.actor }}"
 jobs:
   project-matrixes:
     runs-on: ubuntu-latest

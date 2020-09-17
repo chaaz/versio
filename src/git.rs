@@ -9,9 +9,9 @@ use error_chain::bail;
 use git2::build::CheckoutBuilder;
 use git2::string_array::StringArray;
 use git2::{
-  AnnotatedCommit, AutotagOption, Blob, Commit, Cred, Diff, DiffOptions, FetchOptions, Index, Object, ObjectType, Oid,
-  PushOptions, Reference, ReferenceType, Remote, RemoteCallbacks, Repository, RepositoryOpenFlags, RepositoryState,
-  ResetType, Revwalk, Signature, Sort, Status, StatusOptions, Time
+  AnnotatedCommit, AutotagOption, Blob, Commit, Cred, CredentialType, Diff, DiffOptions, FetchOptions, Index, Object,
+  ObjectType, Oid, PushOptions, Reference, ReferenceType, Remote, RemoteCallbacks, Repository, RepositoryOpenFlags,
+  RepositoryState, ResetType, Revwalk, Signature, Sort, Status, StatusOptions, Time
 };
 use log::{error, info, trace, warn};
 use regex::Regex;
@@ -19,6 +19,7 @@ use serde::Deserialize;
 use std::cell::RefCell;
 use std::cmp::{min, Ord};
 use std::collections::HashMap;
+use std::env::var;
 use std::ffi::OsStr;
 use std::fmt;
 use std::io::{stdout, Write};
@@ -1084,8 +1085,7 @@ fn do_fetch(remote: &mut Remote, refs: &[&str], all_tags: bool) -> Result<()> {
 
   let mut cb = RemoteCallbacks::new();
 
-  cb.credentials(|_url, username_from_url, _allowed_types| Cred::ssh_key_from_agent(username_from_url.unwrap()));
-
+  cb.credentials(find_creds);
   cb.transfer_progress(|stats| {
     if stats.received_objects() == stats.total_objects() {
       info!("Resolving deltas {}/{}", stats.indexed_deltas(), stats.total_deltas());
@@ -1134,12 +1134,29 @@ fn do_fetch(remote: &mut Remote, refs: &[&str], all_tags: bool) -> Result<()> {
   Ok(())
 }
 
+fn find_creds(
+  _url: &str, username_from_url: Option<&str>, _allowed_types: CredentialType
+) -> std::result::Result<Cred, git2::Error> {
+  if let Some(username_from_url) = username_from_url {
+    if let Ok(v) = Cred::ssh_key_from_agent(username_from_url) {
+      return Ok(v);
+    }
+  }
+
+  if let Ok((user, token)) = var("GITHUB_TOKEN").and_then(|token| var("GITHUB_USER").map(|user| (user, token))) {
+    if let Ok(v) = Cred::userpass_plaintext(&user, &token) {
+      return Ok(v);
+    }
+  }
+
+  Err(git2::Error::from_str("Unable to authenticate"))
+}
+
 pub fn do_push(repo: &Repository, remote_name: &str, specs: &[String]) -> Result<()> {
   info!("Pushing specs {:?} to remote {}", specs, remote_name);
   let mut cb = RemoteCallbacks::new();
 
-  cb.credentials(|_url, username_from_url, _allowed_types| Cred::ssh_key_from_agent(username_from_url.unwrap()));
-
+  cb.credentials(find_creds);
   cb.push_update_reference(|rref, status| {
     if let Some(status) = status {
       error!("Couldn't push reference {}: {}", rref, status);

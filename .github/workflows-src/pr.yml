@@ -1,4 +1,6 @@
 ---
+# Edit this file, and then use `yambler`
+# (github.com/chaaz/versio-actions/tree/main/yambler) to stitch.
 name: pr
 on:
   - workflow_dispatch  # pull_request

@@ -1,6 +1,6 @@
 ---
 # Edit this file, and then use `yambler`
-# (github.com/chaaz/versio-actions/yambler) to assemble the snippets.
+# (github.com/chaaz/versio-actions/tree/main/yambler) to stitch.
 name: release
 on:
   - workflow_dispatch
