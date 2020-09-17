@@ -43,6 +43,13 @@ You'll need authorization to push to and pull from the remote if you
 expect Versio to keep your remote in sync. Make sure that commands like
 e.g. `git fetch` work from the command-line if versio is having trouble.
 
+If you don't have an agent set up, or if your agent is unable to
+generate credentials, you can set the environment variables
+`GITHUB_USER` and `GITHUB_TOKEN` to use more traditional user/password
+authorization. Note that the `GITHUB_TOKEN` can be the github password
+for this user, or (suggested) an access token generated for this user
+and appropriately scoped for versio operations.
+
 ### GitHub API
 [GitHub API]: #github-api
 
