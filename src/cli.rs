@@ -222,6 +222,56 @@ pub fn execute(info: &EarlyInfo) -> Result<()> {
         )
         .display_order(1)
     )
+    .subcommand(
+      SubCommand::with_name("info")
+        .setting(AppSettings::UnifiedHelpMessage)
+        .about("Print info about projects")
+        .arg(
+          Arg::with_name("id")
+            .short("i")
+            .long("id")
+            .takes_value(true)
+            .value_name("id")
+            .multiple(true)
+            .number_of_values(1)
+            .min_values(1)
+            .display_order(1)
+            .help("Info on project ID")
+        )
+        .arg(
+          Arg::with_name("name")
+            .short("n")
+            .long("name")
+            .takes_value(true)
+            .value_name("name")
+            .multiple(true)
+            .number_of_values(1)
+            .min_values(1)
+            .display_order(1)
+            .help("Info on project name")
+        )
+        .arg(
+          Arg::with_name("all").short("a").long("all").takes_value(false).display_order(1).help("Info on all projects")
+        )
+        .group(ArgGroup::with_name("which").args(&["id", "name", "all"]).required(false))
+        .arg(
+          Arg::with_name("showroot")
+            .short("R")
+            .long("show-root")
+            .takes_value(false)
+            .display_order(1)
+            .help("Show the project(s) root")
+        )
+        .arg(
+          Arg::with_name("showname")
+            .short("N")
+            .long("show-name")
+            .takes_value(false)
+            .display_order(1)
+            .help("Show the project(s) name")
+        )
+        .display_order(1)
+    )
     .get_matches();
 
   parse_matches(m)
@@ -248,6 +298,12 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
     ("plan", Some(_)) => plan(pref_vcs)?,
     ("release", Some(m)) => release(pref_vcs, m.is_present("all"), m.is_present("dry"))?,
     ("init", Some(m)) => init(m.value_of("maxdepth").map(|d| d.parse().unwrap()).unwrap_or(5))?,
+    ("info", Some(m)) => {
+      let names = m.values_of("name").map(|v| v.collect::<Vec<_>>());
+      let ids =
+        m.values_of("id").map(|v| v.map(|i| i.parse()).collect::<std::result::Result<Vec<_>, _>>()).transpose()?;
+      info(pref_vcs, ids, names, m.is_present("all"), m.is_present("showname"), m.is_present("showroot"))?
+    }
     ("", _) => empty_cmd()?,
     (c, _) => unknown_cmd(c)?
   }

@@ -201,7 +201,13 @@ impl Repo {
     Ok(E2::B(self.commits_between(from, head_oid, incl_from)?))
   }
 
-  pub fn get_oid_head(&self) -> Result<AnnotatedCommit> { self.get_oid(self.branch_name()?) }
+  pub fn get_oid_head(&self) -> Result<AnnotatedCommit> {
+    if let Some(branch_name) = self.branch_name()? {
+      self.get_oid(branch_name)
+    } else {
+      self.get_oid("HEAD")
+    }
+  }
 
   pub fn get_oid(&self, spec: &str) -> Result<AnnotatedCommit> {
     match &self.vcs {
@@ -212,8 +218,13 @@ impl Repo {
       }
       GitVcsLevel::Remote { repo, branch_name, remote_name, fetches }
       | GitVcsLevel::Smart { repo, branch_name, remote_name, fetches } => {
-        // get_oid_remote() will verify current
-        get_oid_remote(repo, branch_name, spec, remote_name, fetches)
+        if spec == "HEAD" {
+          verify_current(repo).chain_err(|| "Can't complete get.")?;
+          get_oid_local(repo, spec)
+        } else {
+          // get_oid_remote() will verify current
+          get_oid_remote(repo, branch_name, spec, remote_name, fetches)
+        }
       }
     }
   }
@@ -327,6 +338,7 @@ impl Repo {
       | GitVcsLevel::Smart { repo, branch_name, remote_name, .. } => (repo, branch_name, remote_name)
     };
 
+    let branch_name = branch_name.as_ref().ok_or_else(|| bad!("No branch name for push."))?;
     let mut refs = vec![format!("+refs/heads/{}", branch_name)];
     for tag in tags {
       refs.push(format!("+refs/tags/{}", tag));
@@ -346,7 +358,7 @@ impl Repo {
     do_push(repo, remote_name, &[format!("+refs/tags/{}", tag)])
   }
 
-  pub fn branch_name(&self) -> Result<&String> {
+  pub fn branch_name(&self) -> Result<&Option<String>> {
     match &self.vcs {
       GitVcsLevel::None { .. } => err!("No branch name at `none` level."),
       GitVcsLevel::Local { branch_name, .. }
@@ -557,12 +569,14 @@ pub struct FullPr {
   base_time: Time,
   commits: Vec<CommitInfoBuf>,
   excludes: Vec<String>,
-  closed_at: DateTime<FixedOffset>
+  closed_at: DateTime<FixedOffset>,
+  discovery_order: usize
 }
 
 impl FullPr {
   pub fn lookup(
-    repo: &Repo, base: FromTagBuf, headref: String, number: u32, title: String, closed_at: DateTime<FixedOffset>
+    repo: &Repo, base: FromTagBuf, headref: String, number: u32, title: String, closed_at: DateTime<FixedOffset>,
+    discovery_order: usize
   ) -> Result<FullPr> {
     let commit = repo.get_oid(&headref);
     match lookup_from_commit(repo, base.clone(), commit)? {
@@ -577,7 +591,8 @@ impl FullPr {
           base_time: Time::new(0, 0),
           commits: Vec::new(),
           excludes: Vec::new(),
-          closed_at
+          closed_at,
+          discovery_order
         })
       }
       Ok((commit, commits, base_time)) => Ok(FullPr {
@@ -589,7 +604,8 @@ impl FullPr {
         base_time,
         commits,
         excludes: Vec::new(),
-        closed_at
+        closed_at,
+        discovery_order
       })
     }
   }
@@ -604,6 +620,7 @@ impl FullPr {
   pub fn best_guess(&self) -> bool { self.head_oid.is_none() }
   pub fn has_exclude(&self, oid: &str) -> bool { self.excludes.iter().any(|c| c == oid) }
   pub fn closed_at(&self) -> &DateTime<FixedOffset> { &self.closed_at }
+  pub fn discovery_order(&self) -> usize { self.discovery_order }
 
   pub fn included_commits(&self) -> impl Iterator<Item = &CommitInfoBuf> + '_ {
     self.commits.iter().filter(move |c| !self.has_exclude(c.id()))
@@ -660,14 +677,14 @@ impl IterString {
 
 enum GitVcsLevel {
   None { root: PathBuf },
-  Local { repo: Repository, branch_name: String },
-  Remote { repo: Repository, branch_name: String, remote_name: String, fetches: RefCell<HashMap<String, Oid>> },
-  Smart { repo: Repository, branch_name: String, remote_name: String, fetches: RefCell<HashMap<String, Oid>> }
+  Local { repo: Repository, branch_name: Option<String> },
+  Remote { repo: Repository, branch_name: Option<String>, remote_name: String, fetches: RefCell<HashMap<String, Oid>> },
+  Smart { repo: Repository, branch_name: Option<String>, remote_name: String, fetches: RefCell<HashMap<String, Oid>> }
 }
 
 impl GitVcsLevel {
   fn from(
-    level: VcsLevel, root: PathBuf, repo: Repository, branch_name: String, remote_name: String,
+    level: VcsLevel, root: PathBuf, repo: Repository, branch_name: Option<String>, remote_name: String,
     fetches: RefCell<HashMap<String, Oid>>
   ) -> GitVcsLevel {
     match level {
@@ -746,8 +763,19 @@ fn find_root_blind<P: AsRef<Path>>(path: P) -> Result<PathBuf> {
   }
 }
 
-fn find_remote_name(repo: &Repository, branch_name: &str) -> Result<String> {
-  repo.config()?.get_str(&format!("branch.{}.remote", branch_name)).map(|s| s.to_string()).or_else(|_| {
+fn find_remote_name(repo: &Repository, branch_name: &Option<String>) -> Result<String> {
+  let configured = branch_name
+    .as_ref()
+    .and_then(|branch_name| {
+      repo
+        .config()
+        .map(|config| config.get_str(&format!("branch.{}.remote", branch_name)).map(|s| s.to_string()).ok())
+        .transpose()
+    })
+    .transpose()?
+    .ok_or_else(|| bad!("No configured repo found for {:?}.", branch_name));
+
+  configured.or_else(|_| {
     let remotes = repo.remotes()?;
     if remotes.is_empty() {
       err!("No remotes in this repo.")
@@ -759,16 +787,20 @@ fn find_remote_name(repo: &Repository, branch_name: &str) -> Result<String> {
   })
 }
 
-fn find_branch_name(repo: &Repository) -> Result<String> {
+fn find_branch_name(repo: &Repository) -> Result<Option<String>> {
   let head_ref = repo.find_reference("HEAD").map_err(|e| bad!("Couldn't resolve head: {:?}.", e))?;
   if head_ref.kind() != Some(ReferenceType::Symbolic) {
-    return err!("Not on a branch.");
+    Ok(None)
   } else {
-    let branch_name = head_ref.symbolic_target().ok_or_else(|| bad!("Branch is not named."))?;
-    if branch_name.starts_with("refs/heads/") {
-      Ok(branch_name[11 ..].to_string())
-    } else {
-      return err!("Current {} is not a branch.", branch_name);
+    match head_ref.symbolic_target() {
+      None => Ok(None),
+      Some(branch_name) => {
+        if branch_name.starts_with("refs/heads/") {
+          Ok(Some(branch_name[11 ..].to_string()))
+        } else {
+          return err!("Current {} is not a branch.", branch_name);
+        }
+      }
     }
   }
 }
@@ -959,13 +991,16 @@ fn get_oid_local<'r>(repo: &'r Repository, spec: &str) -> Result<AnnotatedCommit
 }
 
 fn get_oid_remote<'r>(
-  repo: &'r Repository, branch_name: &str, spec: &str, remote_name: &str, fetches: &RefCell<HashMap<String, Oid>>
+  repo: &'r Repository, branch_name: &Option<String>, spec: &str, remote_name: &str,
+  fetches: &RefCell<HashMap<String, Oid>>
 ) -> Result<AnnotatedCommit<'r>> {
   let (commit, cached) = verified_fetch(repo, remote_name, fetches, spec)?;
 
-  if !cached && (spec == branch_name || spec == "HEAD") {
-    info!("Merging to \"{}\" on local.", spec);
-    ff_merge(repo, branch_name, &commit)?;
+  if let Some(branch_name) = branch_name {
+    if !cached && spec == branch_name {
+      info!("Merging to \"{}\" on local.", spec);
+      ff_merge(repo, branch_name, &commit)?;
+    }
   }
   Ok(commit)
 }

@@ -329,9 +329,7 @@ pub struct Project {
 impl Project {
   pub fn id(&self) -> &ProjectId { &self.id }
   pub fn name(&self) -> &str { &self.name }
-
   pub fn depends(&self) -> &[ProjectId] { &self.depends }
-
   pub fn root(&self) -> Option<&String> { self.root.as_ref().and_then(|r| if r == "." { None } else { Some(r) }) }
 
   fn annotate<S: StateRead>(&self, state: &S) -> Result<AnnotatedMark> {

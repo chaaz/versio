@@ -25,6 +25,8 @@ versio
 │  └─ ...          . . . . . . . .  src and unit tests
 ├─ tests
 │  └─ ...          . . . . . . . .  integration tests
+└─ .github
+   └─ ...          . . . . . . . .  GitHub Actions
 ```
 
 <!-- 
@@ -147,6 +149,28 @@ shouldn't be unit tested, if the reason isn't obvious.
 
 To run service tests, run the `builds/test/service-tests.sh` script,
 which runs versio and tests in a docker container.
+
+## GitHub Actions
+
+Versio uses
+[Yambler](https://github.com/chaaz/versio-actions/tree/main/yambler) in
+order to more easily handle repetitive GitHub Actions. The main
+workflows are saved in `.github/workflows-src/` and snippets in
+`.github/snippets/`. When you create or change workflows, just run the
+script `yamble-repo.sh` (available from
+[here](https://github.com/chaaz/versio-actions/blob/main/scripts/yamble-repo.sh))
+which generates workflow files into `~/.github/workflows`.
+
+**DON'T EDIT THE WORKFLOW FILES DIRECTLY**. You should only edit the
+workflow sources in `workflow-src`, or the snippets in `snippets`, and
+then run the `yamble-repo` script. You will still need to
+add/commit/push the generated files in `workflow`, however, in order for
+GitHub Actions to use them.
+
+As mentioned in the Yambler README, you can copy the companion script
+`yamble-repo-pre-push.sh` to a file named `.git/hooks/pre-push` in your
+local copy of the `versio` repo. This will ensure that your workflows
+are synced before you push them up.
 
 ## Platform-specific help
 

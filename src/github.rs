@@ -26,10 +26,19 @@ pub fn changes(auth: &Auth, repo: &Repo, baseref: FromTagBuf, headref: String) -
   let mut all_commits = HashSet::new();
   let mut all_prs = HashMap::new();
 
+  let mut discover_order = 0;
   let mut queue = VecDeque::new();
   let offset = FixedOffset::west(0);
-  let pr_zero =
-    FullPr::lookup(repo, baseref, headref.clone(), 0, "".into(), offset.timestamp(Utc::now().timestamp(), 0))?;
+  let pr_zero = FullPr::lookup(
+    repo,
+    baseref,
+    headref.clone(),
+    0,
+    "".into(),
+    offset.timestamp(Utc::now().timestamp(), 0),
+    discover_order
+  )?;
+  discover_order += 1;
   queue.push_back(pr_zero.span().ok_or_else(|| bad!("Unable to get oid for seed ref \"{}\".", headref))?);
   all_prs.insert(pr_zero.number(), pr_zero);
 
@@ -52,10 +61,11 @@ pub fn changes(auth: &Auth, repo: &Repo, baseref: FromTagBuf, headref: String) -
         for pr in prs.merged_only() {
           let number = pr.number();
           if !all_prs.contains_key(&number) {
-            let full_pr = match pr.lookup(repo) {
+            let full_pr = match pr.lookup(repo, discover_order) {
               Ok(pr) => pr,
               Err(e) => return Some(Err(e))
             };
+            discover_order += 1;
             if let Some(span) = full_pr.span() {
               queue.push_back(span);
             }
@@ -240,7 +250,7 @@ struct PrList {
 
 impl PrList {
   fn merged_only(self) -> impl Iterator<Item = PrEdgeNode> {
-    self.edges.into_iter().map(|e| e.node).filter(|n| n.state() == "MERGED")
+    self.edges.into_iter().map(|e| e.node).filter(|n| n.state() == "MERGED" || n.state() == "OPEN")
   }
 }
 
@@ -266,14 +276,15 @@ impl PrEdgeNode {
   pub fn number(&self) -> u32 { self.number }
   pub fn state(&self) -> &str { &self.state }
 
-  pub fn lookup(self, repo: &Repo) -> Result<FullPr> {
+  pub fn lookup(self, repo: &Repo, discover_order: usize) -> Result<FullPr> {
     FullPr::lookup(
       repo,
       FromTagBuf::new(self.base_ref_oid, false),
       self.head_ref_name,
       self.number,
       self.title,
-      self.closed_at
+      self.closed_at,
+      discover_order
     )
   }
 }
@@ -287,7 +298,7 @@ fn deserialize_datetime<'de, D: Deserializer<'de>>(desr: D) -> std::result::Resu
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result { formatter.write_str("an RFC 3339 datetime") }
 
     fn visit_str<E: de::Error>(self, v: &str) -> std::result::Result<Self::Value, E> {
-      if v.is_empty() {
+      if v.is_empty() || v.trim() == "null" {
         return self.visit_none();
       }
       DateTime::parse_from_rfc3339(v).map_err(|e| de::Error::custom(format!("Couldn't parse date {}: {:?}", v, e)))
@@ -297,7 +308,9 @@ fn deserialize_datetime<'de, D: Deserializer<'de>>(desr: D) -> std::result::Resu
       let offset = FixedOffset::west(0);
       Ok(offset.timestamp(Utc::now().timestamp(), 0))
     }
+
+    fn visit_unit<E: de::Error>(self) -> std::result::Result<Self::Value, E> { self.visit_none() }
   }
 
-  desr.deserialize_str(DateTimeVisitor)
+  desr.deserialize_any(DateTimeVisitor)
 }

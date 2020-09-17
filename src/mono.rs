@@ -53,12 +53,18 @@ impl Mono {
 
   pub fn check_branch(&self) -> std::result::Result<(), (String, String)> {
     if let Ok(branch_name) = self.repo.branch_name() {
-      if let Some(cfg_name) = self.current.branch() {
-        if branch_name != cfg_name {
-          Err((cfg_name.clone(), branch_name.clone()))
+      if let Some(branch_name) = branch_name {
+        if let Some(cfg_name) = self.current.branch() {
+          if branch_name != cfg_name {
+            Err((cfg_name.clone(), branch_name.clone()))
+          } else {
+            Ok(())
+          }
         } else {
           Ok(())
         }
+      } else if let Some(cfg_name) = self.current.branch() {
+        Err((cfg_name.clone(), "((No branch))".to_string()))
       } else {
         Ok(())
       }
@@ -173,8 +179,7 @@ impl Mono {
 
   pub fn changes(&self) -> Result<Changes> {
     let base = FromTagBuf::new(self.current.prev_tag().to_string(), true);
-    let head = self.repo.branch_name()?.to_string();
-    changes(&self.user_prefs.auth, &self.repo, base, head)
+    changes(&self.user_prefs.auth, &self.repo, base, "HEAD".into())
   }
 }
 
@@ -293,7 +298,8 @@ impl Changelog {
 pub struct LoggedPr {
   number: u32,
   title: String,
-  closed_at: DateTime<FixedOffset>,
+  _closed_at: DateTime<FixedOffset>,
+  discovery_order: usize,
   commits: Vec<LoggedCommit>,
   url: Option<String>
 }
@@ -303,7 +309,8 @@ impl LoggedPr {
     LoggedPr {
       number: pr.number(),
       title: pr.title().to_string(),
-      closed_at: *pr.closed_at(),
+      _closed_at: *pr.closed_at(),
+      discovery_order: pr.discovery_order(),
       commits: Vec::new(),
       url
     }
@@ -311,7 +318,8 @@ impl LoggedPr {
 
   pub fn number(&self) -> u32 { self.number }
   pub fn title(&self) -> &str { &self.title }
-  pub fn closed_at(&self) -> &DateTime<FixedOffset> { &self.closed_at }
+  pub fn _closed_at(&self) -> &DateTime<FixedOffset> { &self._closed_at }
+  pub fn discovery_order(&self) -> usize { self.discovery_order }
   pub fn commits(&self) -> &[LoggedCommit] { &self.commits }
   pub fn url(&self) -> &Option<String> { &self.url }
 }
@@ -501,7 +509,7 @@ impl<'s> PlanBuilder<'s> {
 
   pub fn sort_and_dedup(&mut self) -> Result<()> {
     for (.., changelog) in self.incrs.values_mut() {
-      changelog.entries.sort_by_key(|(pr, _)| *pr.closed_at());
+      changelog.entries.sort_by(|(pr1, _), (pr2, _)| pr2.discovery_order().cmp(&pr1.discovery_order()));
 
       let mut seen_commits = HashSet::new();
       for (pr, size) in &mut changelog.entries {

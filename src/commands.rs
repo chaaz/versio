@@ -1,6 +1,6 @@
 //! The command-line options for the executable.
 
-use crate::config::{Config, ConfigFile, Size};
+use crate::config::{Config, ConfigFile, ProjectId, Size};
 use crate::errors::{Result, ResultExt};
 use crate::git::Repo;
 use crate::mono::Mono;
@@ -148,6 +148,43 @@ pub fn plan(pref_vcs: Option<VcsRange>) -> Result<()> {
 
   output.write_plan(mono.build_plan()?)?;
   output.commit(&mono)
+}
+
+pub fn info(
+  pref_vcs: Option<VcsRange>, ids: Option<Vec<ProjectId>>, names: Option<Vec<&str>>, all: bool, show_name: bool,
+  show_root: bool
+) -> Result<()> {
+  let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::None, VcsLevel::Smart)?;
+  let output = Output::new();
+  let mut output = output.info(show_name, show_root);
+
+  let cfg = mono.config();
+  let reader = cfg.state_read();
+
+  if all {
+    output.write_projects(cfg.projects().iter().map(|p| ProjLine::from(p, reader)))?;
+  } else if let Some(ids) = ids {
+    output.write_projects(
+      ids
+        .iter()
+        .map(|id| cfg.get_project(id).ok_or_else(|| bad!("No such project: {}.", id)))
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .map(|p| ProjLine::from(p, reader))
+    )?;
+  } else if let Some(names) = names {
+    output.write_projects(
+      names
+        .iter()
+        .map(|n| cfg.find_unique(n).map(|id| cfg.get_project(id).unwrap()))
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .map(|p| ProjLine::from(p, reader))
+    )?;
+  }
+
+  output.commit()?;
+  Ok(())
 }
 
 pub fn release(pref_vcs: Option<VcsRange>, all: bool, dry: bool) -> Result<()> {
