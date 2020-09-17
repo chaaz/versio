@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+ul {
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  margin: 10px;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.release {
+  border-top: 2px solid lightgray;
+  margin-bottom: 20px;
+}
+
+.release-head {
+  font-size: 150%;
+  margin-bottom: 10px;
+  margin-top: 10px;
+}
+
+.pr {
+  margin-left: 10px;
+  margin-bottom: 10px;
+}
+
+.pr-head {
+  font-size: 120%;
+  margin-bottom: 10px;
+}
+
+.commit {
+  margin-left: 10px;
+  margin-bottom: 20px;
+}
+
+.commit:first-child {
+  margin-top: 15px;
+}
+
+.commit-head {
+  margin-bottom: 10px;
+}
+
+.msg {
+  margin-top: 10px;
+  margin-left: 26px;
+}
+
+.caret {
+  cursor: pointer;
+  -webkit-user-select: none; /* Safari 3.1+ */
+  -moz-user-select: none; /* Firefox 2+ */
+  -ms-user-select: none; /* IE 10+ */
+  user-select: none;
+}
+
+.caret::before {
+  content: "\229E";
+  font-size: 14pt;
+  color: #aaa;
+  display: inline-block;
+  vertical-align: bottom;
+  text-align: bottom;
+  margin-right: 6px;
+  width: 20px;
+}
+
+.caret-down::before {
+  content: "\229F";
+  font-size: 14pt;
+  color: #aaa;
+  display: inline-block;
+  vertical-align: bottom;
+  text-align: bottom;
+  margin-right: 6px;
+  width: 20px;
+
+  /*
+  -ms-transform: rotate(90deg); /* IE 9
+  -webkit-transform: rotate(90deg); /* Safari
+  transform: rotate(90deg);
+  */
+}
+
+.nested {
+  display: none;
+}
+
+.active {
+  display: block;
+}
+</style>
+<script>
+</script>
+</head>
+<body>
+
+<h1>Changelog</h1>
+<p>The latest release was 2020-09-17.</p>
+
+<!-- ### VERSIO BEGIN CONTENT ### -->
+<!-- ### VERSIO CONTENT 2020-09-17 ### -->
+<div class="release">
+  <div class="release-head"><span class="caret caret-down"></span>Release 2020-09-17</div>
+  <div class="nested active">
+    
+    <div class="pr">
+      <div class="pr-head"><span class="caret"></span><a href="https://github.com/chaaz/versio/pull/1">PR 1</a> (patch): Add GITHUB_TOKEN env</div>
+      <div class="nested">
+        
+        <div class="commit">
+          <div class="commit-head"><span class="caret"></span>Commit <a href="https://github.com/chaaz/versio/commit/bd133fec9a33d1ee89446d171b436e174c73a3d4">bd133fe</a> (patch): fix: add GITHUB_TOKEN for easier CI</div>
+          <pre class="msg nested">fix: add GITHUB_TOKEN for easier CI</pre>
+        </div>
+        
+        <div class="commit">
+          <div class="commit-head"><span class="caret"></span>Commit <a href="https://github.com/chaaz/versio/commit/b4014b72de47c513416110810ab749b3d2383419">b4014b7</a> (none): build(changelog): add changelog</div>
+          <pre class="msg nested">build(changelog): add changelog</pre>
+        </div>
+        
+      </div>
+    </div>
+    
+    <div class="pr">
+      <div class="pr-head"><span class="caret"></span>Other commits (minor)</div>
+      <div class="nested">
+        
+        <div class="commit">
+          <div class="commit-head"><span class="caret"></span>Commit <a href="https://github.com/chaaz/versio/commit/da09bf8b60edc8f1bde98a16627dbb3c46f2ac7c">da09bf8</a> (patch): fix: better credential handling</div>
+          <pre class="msg nested">fix: better credential handling</pre>
+        </div>
+        
+        <div class="commit">
+          <div class="commit-head"><span class="caret"></span>Commit <a href="https://github.com/chaaz/versio/commit/a7140f671b403937a6d51939b608f3518968d928">a7140f6</a> (patch): fix: add info cmd and premerge compat</div>
+          <pre class="msg nested">fix: add info cmd and premerge compat
+
+Add the 'info' subcommand, better PR handling for premerge checks, and
+make some minor github workflow changes.</pre>
+        </div>
+        
+        <div class="commit">
+          <div class="commit-head"><span class="caret"></span>Commit <a href="https://github.com/chaaz/versio/commit/7e87eeda0b3708a1cc3249288153d6b1c1caeacc">7e87eed</a> (minor): feat: use the yambler</div>
+          <pre class="msg nested">feat: use the yambler</pre>
+        </div>
+        
+        <div class="commit">
+          <div class="commit-head"><span class="caret"></span>Commit <a href="https://github.com/chaaz/versio/commit/350383ac57223d0efaa5a6c4081e7d71b4a7785b">350383a</a> (patch): fix: no dynamic output in gha</div>
+          <pre class="msg nested">fix: no dynamic output in gha</pre>
+        </div>
+        
+        <div class="commit">
+          <div class="commit-head"><span class="caret"></span>Commit <a href="https://github.com/chaaz/versio/commit/f8693e18c8c2b89c3a5f73f85aea043d91721414">f8693e1</a> (minor): feat: rework github actions</div>
+          <pre class="msg nested">feat: rework github actions</pre>
+        </div>
+        
+        <div class="commit">
+          <div class="commit-head"><span class="caret"></span>Commit <a href="https://github.com/chaaz/versio/commit/391ecfb47254bda266a5d610e1082f49f1731fbc">391ecfb</a> (none): build: update github structs</div>
+          <pre class="msg nested">build: update github structs</pre>
+        </div>
+        
+      </div>
+    </div>
+    
+  </div>
+</div>
+
+<!-- ### VERSIO END CONTENT ### -->
+
+<script>
+var toggler = document.getElementsByClassName("caret");
+var i;
+
+for (i = 0; i < toggler.length; i++) {
+  toggler[i].addEventListener("click", function() {
+    this.parentElement.parentElement.querySelector(".nested").classList.toggle("active");
+    this.classList.toggle("caret-down");
+  });
+}
+</script>
+
+</body>
+</html>
