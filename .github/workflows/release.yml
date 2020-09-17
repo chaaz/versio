@@ -1,39 +1,81 @@
 ---
+# DO NOT EDIT
+# Created from "/Users/charlie/Documents/Projects/gits/versio-new/.github/workflows-src/release.yml".
 name: release
-on:
+"on":
   - workflow_dispatch
 env:
-  RUSTFLAGS: '-D warnings'
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+  RUSTFLAGS: "-D warnings"
+  GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
 jobs:
   project-matrixes:
     runs-on: ubuntu-latest
-    outputs: ${{ fromJson(steps.set-matrixes.output.matrixes) }}
-    steps: 
-    - { name: Checkout code, uses: actions/checkout@v2 }
-    - { name: Set matrixes, id: set-matrixes, uses: ./.github/actions/matrix }
-
+    outputs:
+      cargo-matrix: "${{ steps.find-cargo-matrix.outputs.matrix }}"
+      all-matrix: "${{ steps.find-all-matrix.outputs.matrix }}"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Get versio
+        uses: chaaz/versio-actions/install@v1
+      - name: Find cargo matrix
+        id: find-cargo-matrix
+        run: "echo \"::set-output name=matrix::{\\\"include\\\": $(versio -l none info -i 0 -R -N)}\""
+      - name: debug
+        run: "echo \"::debug::{\\\"include\\\": $(versio -l none info -i 0 -R -N)}\""
+      - name: Find all matrix
+        id: find-all-matrix
+        run: "echo \"::set-output name=matrix::{\\\"include\\\": $(versio -l none info -a -R -N)}\""
   versio-checks:
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, 'skip ci')"
     steps:
-    - { name: Checkout code, uses: actions/checkout@v2 }
-    - { name: Versio checks, uses: ./.github/actions/check-versio }
-
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Get versio
+        uses: chaaz/versio-actions/install@v1
+      - name: Fetch history
+        run: git fetch --unshallow
+      - name: Check projects
+        run: versio check
+      - name: Output plan
+        run: versio plan
   cargo-checks:
     needs: project-matrixes
     runs-on: ubuntu-latest
     strategy:
-      matrix: ${{ fromJson(needs.project-matrixes.outputs.cargo-matrix) }}
+      matrix: "${{ fromJson(needs.project-matrixes.outputs.cargo-matrix) }}"
     if: "!contains(github.event.head_commit.message, 'skip ci')"
     defaults:
       run:
-        working-directory: ${{ matrix.root }}
+        working-directory: "${{ matrix.root }}"
     steps:
-    - { name: Checkout code, uses: actions/checkout@v2 }
-    - { name: Cargo checks, uses: ./.github/actions/check-cargo, with: { root: '${{ matrix.root }}' } }
-
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Get cargo stable
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: clippy
+      - name: Get cargo nightly
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: rustfmt
+      - name: Find paths
+        id: cargo-find-paths
+        run: "echo '::set-output name=cargo-lock-glob::${{ matrix.root }}/**/Cargo.lock'"
+      - name: Cache cargo and target
+        uses: actions/cache@v1
+        with:
+          path: "~/.cargo/registry\n~/.cargo/git\n${{ matrix.root }}/target\n"
+          key: "${{ runner.os }}-cargo-${{ hashFiles(steps.cargo-find-paths.outputs.cargo-lock-glob) }}"
+      - name: Check structure
+        run: cargo clippy
+      - name: Check format
+        run: cargo +nightly fmt -- --check
+      - name: Check tests
+        run: cargo test
   versio-release:
     needs:
       - cargo-checks
@@ -41,26 +83,49 @@ jobs:
     runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, 'skip ci')"
     steps:
-    - name: Generate release
-      run: versio release
-
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Get versio
+        uses: chaaz/versio-actions/install@v1
+      - name: Fetch history
+        run: git fetch --unshallow
+      - name: Generate release
+        run: versio release
   cargo-post:
-    needs: 
+    needs:
       - project-matrixes
       - versio-release
     runs-on: ubuntu-latest
     strategy:
-      matrix: ${{fromJson(needs.project-matrixes.outputs.cargo-matrix)}}
+      matrix: "${{fromJson(needs.project-matrixes.outputs.cargo-matrix)}}"
     if: "!contains(github.event.head_commit.message, 'skip ci')"
     defaults:
       run:
-        working-directory: ${{ matrix.root }}
+        working-directory: "${{ matrix.root }}"
     steps:
-    - { name: Checkout code, uses: actions/checkout@v2 }
-    - { name: Get cargo, uses: ./.github/actions/get-cargo, with: { root: '${{ matrix.root }}' }}
-    - name: Login to crates.io
-      run: cargo login ${CRATES_IO_TOKEN}
-      env:
-        CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
-    - name: Publish to crates.io
-      run: cargo publish
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Get cargo stable
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          components: clippy
+      - name: Get cargo nightly
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: rustfmt
+      - name: Find paths
+        id: cargo-find-paths
+        run: "echo '::set-output name=cargo-lock-glob::${{ matrix.root }}/**/Cargo.lock'"
+      - name: Cache cargo and target
+        uses: actions/cache@v1
+        with:
+          path: "~/.cargo/registry\n~/.cargo/git\n${{ matrix.root }}/target\n"
+          key: "${{ runner.os }}-cargo-${{ hashFiles(steps.cargo-find-paths.outputs.cargo-lock-glob) }}"
+      - name: Login to crates.io
+        run: "cargo login ${CRATES_IO_TOKEN}"
+        env:
+          CRATES_IO_TOKEN: "${{ secrets.CRATES_IO_TOKEN }}"
+      - name: Publish to crates.io
+        run: cargo publish

@@ -1,0 +1,10 @@
+---
+name: pr
+on:
+  - workflow_dispatch  # pull_request
+env: SNIPPET_common-env
+
+jobs:
+  project-matrixes: SNIPPET_job-project-matrixes
+  versio-checks: SNIPPET_job-versio-checks
+  cargo-checks: SNIPPET_job-cargo-checks

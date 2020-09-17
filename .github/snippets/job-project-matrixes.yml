@@ -1,0 +1,10 @@
+key: job-project-matrixes
+value:
+  runs-on: ubuntu-latest
+  outputs:
+    cargo-matrix: ${{ steps.find-cargo-matrix.outputs.matrix }}
+    all-matrix: ${{ steps.find-all-matrix.outputs.matrix }}
+  steps: 
+    - name: Checkout code
+      uses: actions/checkout@v2
+    - SNIPPET_matrix

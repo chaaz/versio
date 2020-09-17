@@ -1,0 +1,12 @@
+key: matrix
+value:
+  - name: Get versio
+    uses: chaaz/versio-actions/install@v1
+  - name: Find cargo matrix
+    id: find-cargo-matrix
+    run: 'echo "::set-output name=matrix::{\"include\": $(versio -l none info -i 0 -R -N)}"'
+  - name: debug
+    run: 'echo "::debug::{\"include\": $(versio -l none info -i 0 -R -N)}"'
+  - name: Find all matrix
+    id: find-all-matrix
+    run: 'echo "::set-output name=matrix::{\"include\": $(versio -l none info -a -R -N)}"'

@@ -1,0 +1,23 @@
+key: get-cargo
+value:
+  - name: Get cargo stable
+    uses: actions-rs/toolchain@v1
+    with:
+      toolchain: stable
+      components: clippy
+  - name: Get cargo nightly
+    uses: actions-rs/toolchain@v1
+    with:
+      toolchain: nightly
+      components: rustfmt
+  - name: Find paths
+    id: cargo-find-paths
+    run: echo '::set-output name=cargo-lock-glob::${{ matrix.root }}/**/Cargo.lock'
+  - name: Cache cargo and target
+    uses: actions/cache@v1
+    with:
+      path: |
+        ~/.cargo/registry
+        ~/.cargo/git
+        ${{ matrix.root }}/target
+      key: ${{ runner.os }}-cargo-${{ hashFiles(steps.cargo-find-paths.outputs.cargo-lock-glob) }}

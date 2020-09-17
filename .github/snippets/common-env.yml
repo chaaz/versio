@@ -1,0 +1,4 @@
+key: common-env
+value:
+  RUSTFLAGS: '-D warnings'
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
