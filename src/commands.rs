@@ -5,9 +5,11 @@ use crate::errors::{Result, ResultExt};
 use crate::git::Repo;
 use crate::mono::Mono;
 use crate::output::{Output, ProjLine};
-use crate::state::StateRead;
+use crate::state::{CommitState, StateRead};
 use crate::vcs::{VcsLevel, VcsRange};
 use error_chain::bail;
+use std::fs::{remove_file, File};
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 pub fn early_info() -> Result<EarlyInfo> {
@@ -109,7 +111,7 @@ pub fn set(pref_vcs: Option<VcsRange>, id: Option<&str>, name: Option<&str>, val
     mono.set_by_only(value)?;
   }
 
-  mono.commit(false)
+  mono.commit(false, false)
 }
 
 pub fn diff(pref_vcs: Option<VcsRange>) -> Result<()> {
@@ -151,8 +153,8 @@ pub fn plan(pref_vcs: Option<VcsRange>) -> Result<()> {
 }
 
 pub fn info(
-  pref_vcs: Option<VcsRange>, ids: Option<Vec<ProjectId>>, names: Option<Vec<&str>>, all: bool, show_name: bool,
-  show_root: bool
+  pref_vcs: Option<VcsRange>, ids: Option<Vec<ProjectId>>, names: Option<Vec<&str>>, labels: Option<Vec<&str>>,
+  all: bool, show_name: bool, show_root: bool
 ) -> Result<()> {
   let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::None, VcsLevel::Smart)?;
   let output = Output::new();
@@ -181,13 +183,20 @@ pub fn info(
         .into_iter()
         .map(|p| ProjLine::from(p, reader))
     )?;
+  } else if let Some(labels) = labels {
+    output.write_projects(
+      labels
+        .iter()
+        .flat_map(|l| cfg.find_labelled(l).into_iter().map(|id| cfg.get_project(id).unwrap()))
+        .map(|p| ProjLine::from(p, reader))
+    )?;
   }
 
   output.commit()?;
   Ok(())
 }
 
-pub fn release(pref_vcs: Option<VcsRange>, all: bool, dry: bool) -> Result<()> {
+pub fn release(pref_vcs: Option<VcsRange>, all: bool, dry: bool, pause: bool) -> Result<()> {
   let mut mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
   let output = Output::new();
   let mut output = output.release();
@@ -238,15 +247,56 @@ pub fn release(pref_vcs: Option<VcsRange>, all: bool, dry: bool) -> Result<()> {
   }
 
   if !dry {
-    mono.commit(true)?;
-    output.write_commit()?;
+    mono.commit(true, pause)?;
+    if pause {
+      output.write_pause()?;
+    } else {
+      output.write_commit()?;
+      output.write_done()?;
+    }
   } else {
     output.write_dry()?;
   }
 
-  output.write_done()?;
   output.commit()?;
   Ok(())
+}
+
+pub fn resume(user_pref_vcs: Option<VcsRange>) -> Result<()> {
+  let vcs = combine_vcs(user_pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
+  let repo = Repo::open(".", vcs.max())?;
+  let output = Output::new();
+  let mut output = output.resume();
+
+  let mut commit: CommitState = {
+    let file = File::open(".versio-paused")?;
+    let reader = BufReader::new(file);
+    let commit: CommitState = serde_json::from_reader(reader)?;
+
+    // We must remove the pausefile before resuming, or else it will be committed.
+    remove_file(".versio-paused")?;
+    commit
+  };
+  commit.resume(&repo)?;
+
+  output.write_done()?;
+  output.commit()?;
+
+  Ok(())
+}
+
+pub fn abort() -> Result<()> {
+  remove_file(".versio-paused")?;
+  println!("Release aborted. You may need to rollback your VCS \n(i.e `git checkout -- .`)");
+  Ok(())
+}
+
+pub fn sanity_check() -> Result<()> {
+  if Path::new(".versio-paused").exists() {
+    bail!("versio is paused: use `release --resume` or `--abort`.")
+  } else {
+    Ok(())
+  }
 }
 
 fn build(

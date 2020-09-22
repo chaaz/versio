@@ -1,6 +1,7 @@
 //! Targets for finding a version in a file.
 
 use serde::de::{self, Deserialize, Deserializer, SeqAccess, Visitor};
+use serde::ser::{Serialize, Serializer};
 use std::fmt;
 
 pub trait IntoPartVec {
@@ -119,5 +120,14 @@ impl<'de> Deserialize<'de> for Part {
     }
 
     desr.deserialize_any(PartVisitor)
+  }
+}
+
+impl Serialize for Part {
+  fn serialize<S: Serializer>(&self, ser: S) -> std::result::Result<S::Ok, S::Error> {
+    match self {
+      Part::Seq(v) => v.serialize(ser),
+      Part::Map(v) => v.serialize(ser)
+    }
   }
 }

@@ -5,10 +5,13 @@ projects:
   - name: "versio"
     id: 0
     tag_prefix: ""
-    changelog: 'CHANGELOG.html'
+    labels: cargo
+    changelog: "CHANGELOG.html"
     version:
       file: "Cargo.toml"
       toml: "package.version"
+    hooks:
+      post_write: cargo fetch
 
 sizes:
   use_angular: true

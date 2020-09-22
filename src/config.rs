@@ -16,7 +16,7 @@ use glob::{glob_with, MatchOptions, Pattern};
 use liquid::ParserBuilder;
 use log::trace;
 use regex::{escape, Regex};
-use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, Unexpected, Visitor};
+use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, SeqAccess, Unexpected, Visitor};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
@@ -61,10 +61,7 @@ impl fmt::Display for ProjectId {
 }
 
 impl Serialize for ProjectId {
-  fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-  where
-    S: Serializer
-  {
+  fn serialize<S: Serializer>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error> {
     if self.majors.is_empty() {
       serializer.serialize_u32(self.id)
     } else {
@@ -135,6 +132,8 @@ impl Config<CurrentState> {
   }
 
   pub fn old_tags(&self) -> &OldTags { self.state.old_tags() }
+
+  pub fn hooks(&self) -> HashMap<ProjectId, (Option<&String>, &HookSet)> { self.file.hooks() }
 }
 
 impl<S: StateRead> Config<S> {
@@ -158,6 +157,10 @@ impl<S: StateRead> Config<S> {
       bail!("Multiple projects with name {}", name);
     }
     Ok(id)
+  }
+
+  pub fn find_labelled(&self, label: &str) -> Vec<&ProjectId> {
+    self.file.projects.iter().filter(|p| p.has_label(label)).map(|p| p.id()).collect()
   }
 
   pub fn annotate(&self) -> Result<Vec<AnnotatedMark>> {
@@ -252,6 +255,10 @@ impl ConfigFile {
   pub fn sizes(&self) -> &HashMap<String, Size> { &self.sizes }
   pub fn branch(&self) -> &Option<String> { self.options.branch() }
 
+  pub fn hooks(&self) -> HashMap<ProjectId, (Option<&String>, &HookSet)> {
+    self.projects.iter().map(|p| (p.id().clone(), (p.root(), p.hooks()))).collect()
+  }
+
   /// Check that IDs are unique, etc.
   fn validate(&self) -> Result<()> {
     let mut ids = HashSet::new();
@@ -321,9 +328,13 @@ pub struct Project {
   changelog: Option<String>,
   #[serde(deserialize_with = "deserialize_version")]
   version: Location,
+  #[serde(default, deserialize_with = "deserialize_labels")]
+  labels: Vec<String>,
   tag_prefix: Option<String>,
   #[serde(default)]
-  subs: Option<Subs>
+  subs: Option<Subs>,
+  #[serde(default)]
+  hooks: HookSet
 }
 
 impl Project {
@@ -331,6 +342,8 @@ impl Project {
   pub fn name(&self) -> &str { &self.name }
   pub fn depends(&self) -> &[ProjectId] { &self.depends }
   pub fn root(&self) -> Option<&String> { self.root.as_ref().and_then(|r| if r == "." { None } else { Some(r) }) }
+  pub fn has_label(&self, label: &str) -> bool { self.labels.iter().any(|l| l == label) }
+  pub fn hooks(&self) -> &HookSet { &self.hooks }
 
   fn annotate<S: StateRead>(&self, state: &S) -> Result<AnnotatedMark> {
     Ok(AnnotatedMark::new(self.id.clone(), self.name.clone(), self.get_value(state)?))
@@ -486,8 +499,10 @@ impl Project {
         depends: expand_depends(&self.depends, &sub),
         changelog: self.changelog.clone(),
         version: expand_version(&self.version, &sub),
+        labels: Default::default(),
         tag_prefix: self.tag_prefix.clone(),
-        subs: None
+        subs: None,
+        hooks: self.hooks.clone()
       })))
     } else {
       Ok(E2::B(once(self)))
@@ -526,6 +541,69 @@ impl Project {
       Ok(None)
     }
   }
+}
+
+#[derive(Clone, Debug)]
+pub struct HookSet {
+  hooks: HashMap<String, Hook>
+}
+
+impl Default for HookSet {
+  fn default() -> HookSet { HookSet { hooks: Default::default() } }
+}
+
+impl HookSet {
+  pub fn execute(&self, which: &str, root: &Option<&String>) -> Result<()> {
+    if let Some(hook) = self.hooks.get(which) {
+      hook.execute(root)?;
+    }
+
+    Ok(())
+  }
+
+  pub fn execute_post_write(&self, root: &Option<&String>) -> Result<()> { self.execute("post_write", root) }
+}
+
+impl<'de> Deserialize<'de> for HookSet {
+  fn deserialize<D: Deserializer<'de>>(desr: D) -> std::result::Result<HookSet, D::Error> {
+    Ok(HookSet { hooks: Deserialize::deserialize(desr)? })
+  }
+}
+
+impl Serialize for HookSet {
+  fn serialize<S: Serializer>(&self, srlr: S) -> std::result::Result<S::Ok, S::Error> { self.hooks.serialize(srlr) }
+}
+
+#[derive(Clone, Debug)]
+pub struct Hook {
+  cmd: String
+}
+
+impl Hook {
+  pub fn execute(&self, root: &Option<&String>) -> Result<()> {
+    use std::process::Command;
+
+    let mut command = Command::new("bash");
+    if let Some(root) = root {
+      command.current_dir(root);
+    }
+    let status = command.args(&["-e", "-c", &self.cmd]).status()?;
+    if !status.success() {
+      bail!("Unable to run hook {}.", self.cmd);
+    } else {
+      Ok(())
+    }
+  }
+}
+
+impl<'de> Deserialize<'de> for Hook {
+  fn deserialize<D: Deserializer<'de>>(desr: D) -> std::result::Result<Hook, D::Error> {
+    Ok(Hook { cmd: Deserialize::deserialize(desr)? })
+  }
+}
+
+impl Serialize for Hook {
+  fn serialize<S: Serializer>(&self, srlr: S) -> std::result::Result<S::Ok, S::Error> { self.cmd.serialize(srlr) }
 }
 
 fn expand_name(name: &str, sub: &SubExtent) -> String {
@@ -945,6 +1023,27 @@ fn deserialize_version<'de, D: Deserializer<'de>>(desr: D) -> std::result::Resul
   desr.deserialize_map(LocatorVisitor)
 }
 
+fn deserialize_labels<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<Vec<String>, D::Error> {
+  struct StringsVisitor;
+  type T = Vec<String>;
+
+  impl<'de> Visitor<'de> for StringsVisitor {
+    type Value = T;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result { formatter.write_str("a string or list") }
+
+    fn visit_str<E: de::Error>(self, v: &str) -> std::result::Result<T, E> { Ok(vec![v.to_string()]) }
+    fn visit_borrowed_str<E: de::Error>(self, v: &'de str) -> std::result::Result<T, E> { Ok(vec![v.to_string()]) }
+    fn visit_string<E: de::Error>(self, v: String) -> std::result::Result<T, E> { Ok(vec![v]) }
+
+    fn visit_seq<S: SeqAccess<'de>>(self, seq: S) -> std::result::Result<T, S::Error> {
+      Deserialize::deserialize(de::value::SeqAccessDeserializer::new(seq))
+    }
+  }
+
+  desr.deserialize_any(StringsVisitor)
+}
+
 fn deserialize_sizes<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<HashMap<String, Size>, D::Error> {
   struct MapVisitor;
 
@@ -1286,6 +1385,8 @@ sizes:
         picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())]))
       }),
       tag_prefix: None,
+      labels: Default::default(),
+      hooks: Default::default(),
       subs: None
     };
 
@@ -1308,6 +1409,8 @@ sizes:
         picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())]))
       }),
       tag_prefix: None,
+      labels: Default::default(),
+      hooks: Default::default(),
       subs: None
     };
 
@@ -1329,6 +1432,8 @@ sizes:
         picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())]))
       }),
       tag_prefix: None,
+      labels: Default::default(),
+      hooks: Default::default(),
       subs: None
     };
 

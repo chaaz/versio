@@ -10,41 +10,5 @@ jobs:
   project-matrixes: SNIPPET_job-project-matrixes
   versio-checks: SNIPPET_job-versio-checks
   cargo-checks: SNIPPET_job-cargo-checks
-
-  versio-release:
-    needs:
-      - cargo-checks
-      - versio-checks
-    runs-on: ubuntu-latest
-    if: "!contains(github.event.head_commit.message, 'skip ci')"
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
-    - name: Get versio
-      uses: chaaz/versio-actions/install@v1
-    - name: Fetch history
-      run: git fetch --unshallow
-    - name: Generate release
-      run: versio release
-
-  cargo-post:
-    needs:
-      - project-matrixes
-      - versio-release
-    runs-on: ubuntu-latest
-    strategy:
-      matrix: ${{fromJson(needs.project-matrixes.outputs.cargo-matrix)}}
-    if: "!contains(github.event.head_commit.message, 'skip ci')"
-    defaults:
-      run:
-        working-directory: ${{ matrix.root }}
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
-    - SNIPPET_get-cargo
-    - name: Login to crates.io
-      run: cargo login ${CRATES_IO_TOKEN}
-      env:
-        CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
-    - name: Publish to crates.io
-      run: cargo publish
+  versio-release: SNIPPET_job-versio-release
+  cratesio-publish: SNIPPET_job-cratesio-publish

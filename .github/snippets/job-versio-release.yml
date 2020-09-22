@@ -1,5 +1,8 @@
-key: job-versio-checks
+key: job-versio-release
 value:
+  needs:
+    - cargo-checks
+    - versio-checks
   runs-on: ubuntu-latest
   if: SNIPPET_not-skip-ci
   steps:
@@ -7,9 +10,8 @@ value:
       uses: actions/checkout@v2
     - name: Get versio
       uses: chaaz/versio-actions/install@v1
+    - SNIPPET_get-cargo-minimal
     - name: Fetch history
       run: git fetch --unshallow
-    - name: Check projects
-      run: versio check
-    - name: Output plan
-      run: versio plan
+    - name: Generate release
+      run: versio release

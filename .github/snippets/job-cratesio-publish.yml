@@ -1,0 +1,24 @@
+key: job-cratesio-publish
+value:
+  needs:
+    - project-matrixes
+    - versio-release
+  runs-on: ubuntu-latest
+  strategy:
+    matrix: ${{fromJson(needs.project-matrixes.outputs.cargo-matrix)}}
+  if: SNIPPET_not-skip-ci
+  defaults:
+    run:
+      working-directory: ${{ matrix.root }}
+  steps:
+    - name: Checkout release
+      uses: actions/checkout@v2
+      with:
+        ref: main
+    - SNIPPET_get-cargo
+    - name: Login to crates.io
+      run: cargo login ${CRATES_IO_TOKEN}
+      env:
+        CRATES_IO_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+    - name: Publish to crates.io
+      run: cargo publish

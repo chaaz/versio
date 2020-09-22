@@ -6,7 +6,7 @@ use crate::either::{IterEither2 as E2, IterEither3 as E3};
 use crate::errors::Result;
 use crate::git::{Auth, CommitInfoBuf, FromTag, FromTagBuf, FullPr, GithubInfo, Repo};
 use crate::github::{changes, line_commits_head, Changes};
-use crate::state::{CurrentState, OldTags, PrevFiles, PrevTagMessage, StateRead, StateWrite};
+use crate::state::{CommitArgs, CurrentState, OldTags, PrevFiles, PrevTagMessage, StateRead, StateWrite};
 use crate::vcs::VcsLevel;
 use chrono::{DateTime, FixedOffset};
 use error_chain::bail;
@@ -73,13 +73,17 @@ impl Mono {
     }
   }
 
-  pub fn commit(&mut self, advance_prev: bool) -> Result<()> {
+  pub fn commit(&mut self, advance_prev: bool, pause: bool) -> Result<()> {
     self.next.commit(
       &self.repo,
-      self.current.prev_tag(),
-      &self.last_commits,
-      &self.current.old_tags().current(),
-      advance_prev
+      CommitArgs::new(
+        self.current.prev_tag(),
+        &self.last_commits,
+        &self.current.old_tags().current(),
+        advance_prev,
+        &self.current.hooks(),
+        pause
+      )
     )
   }
 

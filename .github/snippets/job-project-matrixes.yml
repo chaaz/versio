@@ -1,10 +1,18 @@
 key: job-project-matrixes
 value:
   runs-on: ubuntu-latest
+  if: SNIPPET_not-skip-ci
   outputs:
     cargo-matrix: ${{ steps.find-cargo-matrix.outputs.matrix }}
     all-matrix: ${{ steps.find-all-matrix.outputs.matrix }}
   steps: 
     - name: Checkout code
       uses: actions/checkout@v2
-    - SNIPPET_matrix
+    - name: Get versio
+      uses: chaaz/versio-actions/install@v1
+    - name: Find cargo matrix
+      id: find-cargo-matrix
+      run: 'echo "::set-output name=matrix::{\"include\":$(versio -l none info -l cargo -R -N)}"'
+    - name: Find all matrix
+      id: find-all-matrix
+      run: 'echo "::set-output name=matrix::{\"include\":$(versio -l none info -a -R -N)}"'

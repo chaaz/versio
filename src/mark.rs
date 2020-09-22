@@ -5,12 +5,12 @@ use crate::scan::parts::{deserialize_parts, Part};
 use crate::scan::{find_reg_data, scan_reg_data, JsonScanner, Scanner, TomlScanner, XmlScanner, YamlScanner};
 use error_chain::bail;
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Deserialize, Serialize, Debug)]
 #[serde(untagged)]
 pub enum Picker {
   Json(ScanningPicker<JsonScanner>),
@@ -57,7 +57,7 @@ impl Picker {
   }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct ScanningPicker<T: Scanner> {
   #[serde(deserialize_with = "deserialize_parts")]
   parts: Vec<Part>,
@@ -78,7 +78,7 @@ impl<T: Scanner> ScanningPicker<T> {
   pub fn scan(&self, data: NamedData) -> Result<MarkedData> { T::build(self.parts.clone()).scan(data) }
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct LinePicker {
   pattern: String
 }
@@ -96,7 +96,7 @@ impl LinePicker {
   pub fn scan(&self, data: NamedData) -> Result<MarkedData> { scan_reg_data(data, &self.pattern) }
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct FilePicker {}
 
 impl FilePicker {

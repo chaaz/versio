@@ -35,6 +35,20 @@ without `--dry-run` will not read any data from the remote, nor will it
 write to the remote: however, it may still write to the filesystem, and
 commit and tag any changes to the local repository.
 
+### Vs Pause
+
+The VCS Level is distinct from the idea of a "pause". The "pause" flag
+exits a command just before executing a stage (e.g. "commit"), but
+otherwise doesn't affect operations or have any effect on the VCS level.
+In fact, you can supply a different VCS level to commands with the
+`--pause` and `--resume` commands, and that level will apply for the
+portion of the operation it applies to.
+
+You could, for example, run `versio -l smart release --pause commit` to
+gather information and write a new versions and changelogs based on pull
+request information from the remote GitHub API, but then run `versio -l
+local release --resume` to commit and tag only the local repo.
+
 ## Calculation
 
 Every Versio command except for `versio init` calculates the final VCS

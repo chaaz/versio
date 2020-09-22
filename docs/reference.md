@@ -25,6 +25,9 @@ behavior), you can always force Versio to stick to the local repository
 with `-l local`; or to not use the GitHub API with  `-l remote`. See
 [VCS Levels](./vcs_levels.md) for more information.
 
+See the `CI` sections in [Use Cases](./use_cases.md#ci-authorization)
+for info on how to set up authorization for common CI/CD systems.
+
 ### Git remotes
 [Git remotes]: #git-remotes
 
@@ -44,7 +47,7 @@ expect Versio to keep your remote in sync. Make sure that commands like
 e.g. `git fetch` work from the command-line if versio is having trouble.
 
 If you don't have an agent set up, or if your agent is unable to
-generate credentials, you can set the environment variables
+negotiate credentials, you can set the environment variables
 `GITHUB_USER` and `GITHUB_TOKEN` to use more traditional user/password
 authorization. Note that the `GITHUB_TOKEN` can be the github password
 for this user, or (suggested) an access token generated for this user
@@ -60,7 +63,8 @@ a new personal access token for this purpose via the GitHub web UI in
 your user's Settings -> Developer settings.
 
 Once you have the new token, you can set the environment variable
-`GITHUB_TOKEN`, or you can add it to your user preferences in
+`GITHUB_TOKEN` (this can be the same `GITHUB_TOKEN` used for `git`
+authorization as well), or you can add it to your user preferences in
 `~/.versio/prefs.toml`. Here's an example of such a file:
 
 ```
@@ -136,17 +140,40 @@ along with their options and flags. You can always use `versio help` or
 - `plan`: View the update plan.
 - `release`: Apply the update plan: update version numbers,
   create/update changelogs, and commit/tag/push all changes.
-  - `--dry-run` (`-d`): Don't actually commit, push, tag, or change any
-    files, but otherwise run as if you would.
   - `--show-all` (`-a`): Show the run results for all projects, even
     those that weren't updated.
+  - `--pause` (`-p <stage>`): Pause the release process before a stage
+    of operation. Currently, only the `commit` stage is supported, which
+    means that Versio will exit after it writes any local files, but
+    before it commits, tags, or pushes to the remote repository. You can
+    use this feature to perform additional changes before committing
+    your version update. This will create a `.versio-paused` file at the
+    top level of your local repository that stores the planned resume
+    action: while this file exists, only the `release --resume` or
+    `release --abort` commands can be used.
+  - `--resume` will perform the planned commits, tags, pushes, etc.
+    which were paused from a previous `release --pause`. Any local file
+    changes made after the `release --pause` will also be committed. You
+    may supply a different VCS Level to this command than the original
+    `release --pause` command.
+  - `--abort` will simply delete the `.versio-paused` file from a
+    previous `release --pause`, discarding any planned commits, tags,
+    pushes. This command will *not* rollback any local changes made as
+    part of the previous `release --pause`; if needed, you should do
+    that yourself with e.g. `git checkout -- .`. You can't use both
+    `--resume` and `--abort`.
+  - `--dry-run` (`-d`): Don't actually commit, push, tag, or change any
+    files, but otherwise run as if you would. `dry-run` is incompatible
+    with `--pause`, `--resume`, and `--abort`.
 - `init`:
   - `--max-depth` (`-d <depth>`): The maximum directory depth that
     Versio will search for projects. Defaults to `5`.
 
   Run this command at the base directory of an uninitialized repository.
   It will search the repository for projects, and create a new
-  `.versio.yaml` config based on what it finds.
+  `.versio.yaml` config based on what it finds. It will also append
+  `/.versio-paused` to your `.gitignore` file, as a safety measure while
+  using the `release --pause` command.
 
 ## Common project types
 [Common project types]: #common-project-types

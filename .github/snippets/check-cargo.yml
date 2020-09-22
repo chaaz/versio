@@ -1,9 +1,0 @@
-key: 'check-cargo'
-value:
-  - SNIPPET_get-cargo
-  - name: Check structure
-    run: cargo clippy
-  - name: Check format
-    run: cargo +nightly fmt -- --check
-  - name: Check tests
-    run: cargo test

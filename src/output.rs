@@ -25,6 +25,7 @@ impl Output {
   pub fn changes(&self) -> ChangesOutput { ChangesOutput::new() }
   pub fn plan(&self) -> PlanOutput { PlanOutput::new() }
   pub fn release(&self) -> ReleaseOutput { ReleaseOutput::new() }
+  pub fn resume(&self) -> ResumeOutput { ResumeOutput::new() }
 }
 
 pub struct CheckOutput {}
@@ -39,6 +40,22 @@ impl CheckOutput {
 
   pub fn commit(&mut self) -> Result<()> {
     println!("Check complete.");
+    Ok(())
+  }
+}
+
+pub struct ResumeOutput {}
+
+impl Default for ResumeOutput {
+  fn default() -> ResumeOutput { ResumeOutput::new() }
+}
+
+impl ResumeOutput {
+  pub fn new() -> ResumeOutput { ResumeOutput {} }
+  pub fn write_done(&mut self) -> Result<()> { Ok(()) }
+
+  pub fn commit(&mut self) -> Result<()> {
+    println!("Release complete.");
     Ok(())
   }
 }
@@ -408,6 +425,7 @@ impl ReleaseOutput {
   pub fn write_logged(&mut self, path: PathBuf) -> Result<()> { self.result.append_logged(path) }
   pub fn write_done(&mut self) -> Result<()> { self.result.append_done() }
   pub fn write_commit(&mut self) -> Result<()> { self.result.append_commit() }
+  pub fn write_pause(&mut self) -> Result<()> { self.result.append_pause() }
   pub fn write_dry(&mut self) -> Result<()> { self.result.append_dry() }
 
   pub fn write_changed(&mut self, name: String, prev: String, curt: String, targ: String) -> Result<()> {
@@ -438,6 +456,7 @@ impl ReleaseResult {
   fn append_logged(&mut self, path: PathBuf) -> Result<()> { self.append(ReleaseEvent::Logged(path)) }
   fn append_done(&mut self) -> Result<()> { self.append(ReleaseEvent::Done) }
   fn append_commit(&mut self) -> Result<()> { self.append(ReleaseEvent::Commit) }
+  fn append_pause(&mut self) -> Result<()> { self.append(ReleaseEvent::Pause) }
   fn append_dry(&mut self) -> Result<()> { self.append(ReleaseEvent::Dry) }
 
   fn append_changed(&mut self, name: String, prev: String, curt: String, targ: String) -> Result<()> {
@@ -505,6 +524,7 @@ enum ReleaseEvent {
   NoChange(bool, String, Option<String>, String),
   New(bool, String, String),
   Commit,
+  Pause,
   Dry,
   Done
 }
@@ -515,6 +535,7 @@ impl ReleaseEvent {
       ReleaseEvent::Logged(p) => println!("Wrote changelog at {}.", p.to_string_lossy()),
       ReleaseEvent::Done => println!("Release complete."),
       ReleaseEvent::Commit => println!("Changes committed."),
+      ReleaseEvent::Pause => println!("Paused for commit: use --resume to continue."),
       ReleaseEvent::Dry => println!("Dry run: no actual changes."),
       ReleaseEvent::Changed(name, prev, curt, targ) => {
         if prev == curt {

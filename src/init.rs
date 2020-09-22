@@ -9,6 +9,8 @@ use error_chain::bail;
 use log::trace;
 use log::warn;
 use std::collections::HashSet;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::iter::once;
 use std::path::Path;
 
@@ -22,7 +24,13 @@ pub fn init(max_depth: u16) -> Result<()> {
     println!("No projects found.");
   }
   write_yaml(&projs)?;
+  append_ignore()?;
   Ok(())
+}
+
+fn append_ignore() -> Result<()> {
+  let mut file = OpenOptions::new().create(true).append(true).open(".gitignore")?;
+  Ok(file.write_all(b"/.versio-paused\n")?)
 }
 
 fn find_projects(dir: &Path, depth: u16, max_depth: u16) -> Result<Vec<ProjSummary>> {
@@ -68,12 +76,19 @@ fn find_projects_in(dir: &Path) -> impl Iterator<Item = Result<ProjSummary>> {
 
   if dir.join("package.json").exists() {
     let name = try_iter!(extract_name(dir, "package.json", |d| JsonScanner::new("name").find(&d)));
-    summaries.push(Ok(ProjSummary::new_file(name, dir.to_string_lossy(), "package.json", "json", "version")));
+    summaries.push(Ok(ProjSummary::new_file(name, dir.to_string_lossy(), "package.json", "json", "version", &["npm"])));
   }
 
   if dir.join("Cargo.toml").exists() {
     let name = try_iter!(extract_name(dir, "Cargo.toml", |d| TomlScanner::new("package.name").find(&d)));
-    summaries.push(Ok(ProjSummary::new_file(name, dir.to_string_lossy(), "Cargo.toml", "toml", "package.version")));
+    summaries.push(Ok(ProjSummary::new_file(
+      name,
+      dir.to_string_lossy(),
+      "Cargo.toml",
+      "toml",
+      "package.version",
+      &["cargo"]
+    )));
   }
 
   if dir.join("go.mod").exists() {
@@ -85,31 +100,45 @@ fn find_projects_in(dir: &Path) -> impl Iterator<Item = Result<ProjSummary>> {
     }
     if !is_subdir {
       let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("project");
-      summaries.push(Ok(ProjSummary::new_tags(name, dir.to_string_lossy(), true)));
+      summaries.push(Ok(ProjSummary::new_tags(name, dir.to_string_lossy(), true, &["go"])));
     }
   }
 
   if dir.join("pom.xml").exists() {
     let name = try_iter!(extract_name(dir, "pom.xml", |d| XmlScanner::new("project.artifactId").find(&d)));
-    summaries.push(Ok(ProjSummary::new_file(name, dir.to_string_lossy(), "pom.xml", "xml", "project.version")));
+    summaries.push(Ok(ProjSummary::new_file(
+      name,
+      dir.to_string_lossy(),
+      "pom.xml",
+      "xml",
+      "project.version",
+      &["mvn"]
+    )));
   }
 
   if dir.join("setup.py").exists() {
     let name_reg = r#"name *= *['"]([^'"]*)['"]"#;
     let version_reg = r#"version *= *['"](\d+\.\d+\.\d+)['"]"#;
     let name = try_iter!(extract_name(dir, "setup.py", |d| find_reg_data(&d, &name_reg)));
-    summaries.push(Ok(ProjSummary::new_file(name, dir.to_string_lossy(), "setup.py", "pattern", version_reg)));
+    summaries.push(Ok(ProjSummary::new_file(
+      name,
+      dir.to_string_lossy(),
+      "setup.py",
+      "pattern",
+      version_reg,
+      &["pip"]
+    )));
   }
 
   if try_iter!(dir.read_dir())
     .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
     .any(|n| n.ends_with("*.tf"))
   {
-    summaries.push(Ok(ProjSummary::new_tags("terraform", dir.to_string_lossy(), false)));
+    summaries.push(Ok(ProjSummary::new_tags("terraform", dir.to_string_lossy(), false, &["terraform"])));
   }
 
   if dir.join("Dockerfile").exists() {
-    summaries.push(Ok(ProjSummary::new_tags("docker", dir.to_string_lossy(), false)));
+    summaries.push(Ok(ProjSummary::new_tags("docker", dir.to_string_lossy(), false, &["docker"])));
   }
 
   try_iter!(add_gemspecs(dir, &mut summaries));
@@ -136,7 +165,14 @@ fn add_gemspecs(dir: &Path, summaries: &mut Vec<Result<ProjSummary>>) -> Result<
     if Mark::new(vers.clone(), 0).validate_version().is_ok() {
       // Sometimes, the version is in the specfile.
       let version_reg = r#"spec\.version *= *['"](\d+\.\d+\.\d+)['"]"#;
-      summaries.push(Ok(ProjSummary::new_file(name, dir.to_string_lossy(), spec_file, "pattern", version_reg)));
+      summaries.push(Ok(ProjSummary::new_file(
+        name,
+        dir.to_string_lossy(),
+        spec_file,
+        "pattern",
+        version_reg,
+        &["gem"]
+      )));
     } else if vers.ends_with("::VERSION") {
       // But other times, the version is in the gem itself i.e. 'MyGem::VERSION'. Search the standard place.
       let vers_file = Path::new("lib").join(&spec_file[.. spec_file.len() - spec_suffix.len()]).join("version.rb");
@@ -147,16 +183,24 @@ fn add_gemspecs(dir: &Path, summaries: &mut Vec<Result<ProjSummary>>) -> Result<
           dir.to_string_lossy(),
           vers_file.to_string_lossy(),
           "pattern",
-          version_reg
+          version_reg,
+          &["gem"]
         )));
       } else {
         warn!("Couldn't find VERSION file \"{}\". Please edit the .versio.yaml file.", vers_file.to_string_lossy());
-        summaries.push(Ok(ProjSummary::new_file(name, dir.to_string_lossy(), "EDIT_ME", "pattern", "EDIT_ME")));
+        summaries.push(Ok(ProjSummary::new_file(
+          name,
+          dir.to_string_lossy(),
+          "EDIT_ME",
+          "pattern",
+          "EDIT_ME",
+          &["gem"]
+        )));
       }
     } else {
       // Still other times, it's too tough to find.
       warn!("Couldn't find version in \"{}\" from \"{}\". Please edit the .versio.yaml file.", spec_file, vers);
-      summaries.push(Ok(ProjSummary::new_file(name, dir.to_string_lossy(), "EDIT_ME", "pattern", "EDIT_ME")));
+      summaries.push(Ok(ProjSummary::new_file(name, dir.to_string_lossy(), "EDIT_ME", "pattern", "EDIT_ME", &["gem"])));
     }
   }
 
@@ -186,6 +230,16 @@ fn generate_yaml(projs: &[ProjSummary]) -> String {
     }
     yaml.push_str(&format!("    id: {}\n", id + 1));
     yaml.push_str(&format!("    tag_prefix: \"{}\"\n", proj.tag_prefix(projs.len(), &mut prefixes)));
+    if !proj.labels().is_empty() {
+      if proj.labels().len() == 1 {
+        yaml.push_str(&format!("    labels: {}\n", &proj.labels()[0]));
+      } else {
+        yaml.push_str("    labels:\n");
+        for l in proj.labels() {
+          yaml.push_str(&format!("      - {}\n", l));
+        }
+      }
+    }
     yaml.push_str("    version:\n");
     proj.append_version(&mut yaml);
     if proj.subs() {
@@ -203,6 +257,7 @@ fn generate_yaml(projs: &[ProjSummary]) -> String {
 
 struct ProjSummary {
   name: String,
+  labels: Vec<String>,
   root: String,
   subs: bool,
   version: VersionSummary
@@ -210,12 +265,14 @@ struct ProjSummary {
 
 impl ProjSummary {
   pub fn new_file(
-    name: impl ToString, root: impl ToString, file: impl ToString, file_type: impl ToString, parts: impl ToString
+    name: impl ToString, root: impl ToString, file: impl ToString, file_type: impl ToString, parts: impl ToString,
+    labels: &[impl ToString]
   ) -> ProjSummary {
     ProjSummary {
       name: name.to_string(),
       root: root.to_string(),
       subs: false,
+      labels: labels.iter().map(|s| s.to_string()).collect(),
       version: VersionSummary::File(FileVersionSummary::new(
         file.to_string(),
         file_type.to_string(),
@@ -224,16 +281,18 @@ impl ProjSummary {
     }
   }
 
-  pub fn new_tags(name: impl ToString, root: impl ToString, subs: bool) -> ProjSummary {
+  pub fn new_tags(name: impl ToString, root: impl ToString, subs: bool, labels: &[impl ToString]) -> ProjSummary {
     ProjSummary {
       name: name.to_string(),
       root: root.to_string(),
       subs,
+      labels: labels.iter().map(|s| s.to_string()).collect(),
       version: VersionSummary::Tag(TagVersionSummary::new())
     }
   }
 
   fn name(&self) -> &str { &self.name }
+  fn labels(&self) -> &[String] { &self.labels }
 
   fn root(&self) -> Option<&str> {
     if &self.root == "." {

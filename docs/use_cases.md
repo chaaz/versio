@@ -153,6 +153,29 @@ file with each of those projects listed. If you change later add,
 remove, or change the location of your projects, you should edit this
 file by hand to keep it up-to-date.
 
+## CI/CD
+
+### GitHub Action Matrixes
+
+If you are using a monorepo, you may want to perform the same build step
+on all your (for example) Node.js projects. You can build GitHub dynamic
+matrixes using the `versio info` command, and then use those matrixes to
+execute multiple projects in your repo.
+
+### Authorization
+
+In most CI/CD environments, you may not have a credentials agent
+available to negotiate credentials to your git repo and/or github APIs.
+Instead, your should set the `GITHUB_USER` and `GITHUB_TOKEN`
+environment variables. For example, GitHub Actions provides these values
+to you in various places:
+
+```
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GITHUB_USER: ${{ github.actor }}
+```
+
 ## CI Pre-merge
 
 You can use Versio to check that a branch is ready to be merged to your
@@ -170,9 +193,9 @@ project(s) version numbers.
 Note the use of `checkout@v2`, and the following `git fetch --unshallow`
 command, which is necessary to fill in the git history before `versio`
 is asked to analyze it. Also, we've provided a
-`versio-actions-install@v1` command which installs the `versio` command
-into the job. (Currently, the `versio-actions-installer` action only
-works for linux-based runners.)
+`versio-actions/install@v1` command which installs the `versio` command
+into the job. (Currently, the `versio-actions/install` action only works
+for linux-based runners.)
 
 ```
 ---
@@ -181,21 +204,22 @@ on:
   - pull_request
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GITHUB_USER: ${{ github.actor }}
 
 jobs:
   versio-checks:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
-    - name: Get versio
-      uses: chaaz/versio-actions-install@v1
-    - name: Fetch history
-      run: git fetch --unshallow
-    - name: Check projects
-      run: versio check
-    - name: Print changes
-      run: versio plan
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Get versio
+        uses: chaaz/versio-actions/install@v1
+      - name: Fetch history
+        run: git fetch --unshallow
+      - name: Check projects
+        run: versio check
+      - name: Print changes
+        run: versio plan
 ```
 
 ## CI Release
@@ -207,6 +231,16 @@ push all changes. You can set this action to run automatically when a
 branch has been merged to a release branch, or at any other time you
 want your software to be released.
 
+It may be beneficial to generate some artifacts in your release
+workflow: this serves to capture the binaries, documentation, etc.
+associated with a particular version number. Typical targets for
+releases include GitHub Releases and library repositories (such as
+NPM.org, crates.io, Dockerhub, etc.). While Versio itself can't generate
+these artifacts, most language and build systems have easy-to-use tools
+that can.
+
+### About Timing
+
 It's important to note that nothing can be pushed to the release branch
 during the short time that Versio is running, or `versio release` will
 fail. There are a number of ways you can deal with this: from locking
@@ -216,22 +250,22 @@ and manually re-running the CI action if it gets stuck; and more. The
 strategy you use is dependent on the specifics of your organization and
 CI/CD process.
 
-It may be beneficial to generate some artifacts in your release
-workflow: this serves to capture the binaries, documentation, etc.
-associated with a particular version number. Typical targets for
-releases include GitHub Releases and library repositories (such as
-NPM.org, crates.io, Dockerhub, etc.), as well as whatever custom
-artifact storage you use in your org. In addition to being touchstones
-for particular releases, you can use these artifacts in your CD
-pipeline. While Versio itself (currently) can't generate or save these
-artifacts, most language and build systems have easy-to-use tools that
-can.
+### GitHub Actions
 
-<!--
-## CD Deploy
+A GitHub Actions job that releases your projects might look something
+like this:
 
-> TODO
-
-`versio publish`
-
--->
+```
+jobs:
+  versio-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Get versio
+        uses: chaaz/versio-actions/install@v1
+      - name: Fetch history
+        run: git fetch --unshallow
+      - name: Generate release
+        run: versio release
+```

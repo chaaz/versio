@@ -1,6 +1,6 @@
 //! The mechanisms used to read and write state, both current and historical.
 
-use crate::config::ProjectId;
+use crate::config::{HookSet, ProjectId};
 use crate::errors::{Result, ResultExt as _};
 use crate::git::{FromTagBuf, Repo, Slice};
 use crate::mark::{NamedData, Picker};
@@ -8,6 +8,8 @@ use log::{trace, warn};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::fs::OpenOptions;
+use std::mem::take;
 use std::path::{Path, PathBuf};
 
 pub trait StateRead: FilesRead {
@@ -130,6 +132,7 @@ impl OldTags {
   pub fn slice_to_prev(&self) -> Result<OldTags> { Ok(OldTags::new(self.prev.clone(), HashMap::new())) }
 }
 
+#[derive(Deserialize, Serialize)]
 pub struct StateWrite {
   writes: Vec<FileWrite>,
   proj_writes: HashSet<ProjectId>,
@@ -175,53 +178,49 @@ impl StateWrite {
     Ok(())
   }
 
-  pub fn commit(
-    &mut self, repo: &Repo, prev_tag: &str, last_commits: &HashMap<ProjectId, String>,
-    old_tags: &HashMap<ProjectId, String>, advance_prev: bool
-  ) -> Result<()> {
+  pub fn commit(&mut self, repo: &Repo, data: CommitArgs) -> Result<()> {
     for write in &self.writes {
       write.write()?;
     }
     let did_write = !self.writes.is_empty();
     self.writes.clear();
 
-    if did_write {
-      trace!("Wrote files, so committing.");
-      repo.commit()?;
-    } else {
-      trace!("No files written, so not committing.");
-    }
-
-    for tag in &self.tag_head {
-      repo.update_tag_head(tag)?;
-    }
-    self.tag_head.clear();
-
-    for (tag, proj_id) in &self.tag_head_or_last {
-      if self.proj_writes.contains(&proj_id) {
-        repo.update_tag_head(tag)?;
-      } else if let Some(oid) = last_commits.get(proj_id) {
-        repo.update_tag(tag, oid)?;
-      } else {
-        warn!("Latest commit for project {} unknown: tagging head.", proj_id);
-        repo.update_tag_head(tag)?;
+    for proj_id in &self.proj_writes {
+      if let Some((root, hooks)) = data.hooks.get(proj_id) {
+        hooks.execute_post_write(root)?;
       }
     }
-    self.tag_head_or_last.clear();
-    self.proj_writes.clear();
 
-    for (tag, oid) in &self.tag_commit {
-      repo.update_tag(tag, oid)?;
+    let me = take(self);
+    let prev_tag = data.prev_tag.to_string();
+    let last_commits = data.last_commits.clone();
+    let old_tags = data.old_tags.clone();
+    let mut commit_state = CommitState::new(me, did_write, prev_tag, last_commits, old_tags, data.advance_prev);
+
+    if data.pause {
+      let file = OpenOptions::new().create(true).write(true).truncate(true).open(".versio-paused")?;
+      Ok(serde_json::to_writer(file, &commit_state)?)
+    } else {
+      commit_state.resume(repo)
     }
-    self.tag_commit.clear();
+  }
+}
 
-    if advance_prev {
-      fill_from_old(old_tags, &mut self.new_tags)?;
-      let msg = serde_json::to_string(&PrevTagMessage::new(std::mem::replace(&mut self.new_tags, HashMap::new())))?;
-      repo.update_tag_head_anno(prev_tag, &msg)?;
-    }
+pub struct CommitArgs<'a> {
+  prev_tag: &'a str,
+  last_commits: &'a HashMap<ProjectId, String>,
+  old_tags: &'a HashMap<ProjectId, String>,
+  advance_prev: bool,
+  hooks: &'a HashMap<ProjectId, (Option<&'a String>, &'a HookSet)>,
+  pause: bool
+}
 
-    Ok(())
+impl<'a> CommitArgs<'a> {
+  pub fn new(
+    prev_tag: &'a str, last_commits: &'a HashMap<ProjectId, String>, old_tags: &'a HashMap<ProjectId, String>,
+    advance_prev: bool, hooks: &'a HashMap<ProjectId, (Option<&'a String>, &'a HookSet)>, pause: bool
+  ) -> CommitArgs<'a> {
+    CommitArgs { prev_tag, last_commits, old_tags, advance_prev, hooks, pause }
   }
 }
 
@@ -232,6 +231,67 @@ fn fill_from_old(old: &HashMap<ProjectId, String>, new_tags: &mut HashMap<Projec
     }
   }
   Ok(())
+}
+
+/// A command to commit, tag, and push everything
+#[derive(Deserialize, Serialize)]
+pub struct CommitState {
+  write: StateWrite,
+  did_write: bool,
+  prev_tag: String,
+  last_commits: HashMap<ProjectId, String>,
+  old_tags: HashMap<ProjectId, String>,
+  advance_prev: bool
+}
+
+impl CommitState {
+  pub fn new(
+    write: StateWrite, did_write: bool, prev_tag: String, last_commits: HashMap<ProjectId, String>,
+    old_tags: HashMap<ProjectId, String>, advance_prev: bool
+  ) -> CommitState {
+    CommitState { write, did_write, prev_tag, last_commits, old_tags, advance_prev }
+  }
+
+  pub fn resume(&mut self, repo: &Repo) -> Result<()> {
+    if self.did_write {
+      trace!("Wrote files, so committing.");
+      repo.commit()?;
+    } else {
+      trace!("No files written, so not committing.");
+    }
+
+    for tag in &self.write.tag_head {
+      repo.update_tag_head(tag)?;
+    }
+    self.write.tag_head.clear();
+
+    for (tag, proj_id) in &self.write.tag_head_or_last {
+      if self.write.proj_writes.contains(&proj_id) {
+        repo.update_tag_head(tag)?;
+      } else if let Some(oid) = self.last_commits.get(proj_id) {
+        repo.update_tag(tag, oid)?;
+      } else {
+        warn!("Latest commit for project {} unknown: tagging head.", proj_id);
+        repo.update_tag_head(tag)?;
+      }
+    }
+    self.write.tag_head_or_last.clear();
+    self.write.proj_writes.clear();
+
+    for (tag, oid) in &self.write.tag_commit {
+      repo.update_tag(tag, oid)?;
+    }
+    self.write.tag_commit.clear();
+
+    if self.advance_prev {
+      fill_from_old(&self.old_tags, &mut self.write.new_tags)?;
+      let msg =
+        serde_json::to_string(&PrevTagMessage::new(std::mem::replace(&mut self.write.new_tags, HashMap::new())))?;
+      repo.update_tag_head_anno(&self.prev_tag, &msg)?;
+    }
+
+    Ok(())
+  }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -248,6 +308,7 @@ impl PrevTagMessage {
   pub fn into_versions(self) -> HashMap<ProjectId, String> { self.versions }
 }
 
+#[derive(Deserialize, Serialize)]
 enum FileWrite {
   Write { path: PathBuf, val: String },
   Update { pick: PickPath, val: String }
@@ -268,6 +329,7 @@ impl FileWrite {
   }
 }
 
+#[derive(Deserialize, Serialize)]
 pub struct PickPath {
   file: PathBuf,
   picker: Picker

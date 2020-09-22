@@ -12,7 +12,7 @@ value:
       components: rustfmt
   - name: Find paths
     id: cargo-find-paths
-    run: echo '::set-output name=cargo-lock-glob::${{ matrix.root }}/**/Cargo.lock'
+    run: 'echo ::set-output name=cargo-lock-glob::"${{ matrix.root }}"/**/Cargo.lock'
   - name: Cache cargo and target
     uses: actions/cache@v1
     with:

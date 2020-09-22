@@ -4,11 +4,17 @@ value:
   runs-on: ubuntu-latest
   strategy:
     matrix: ${{ fromJson(needs.project-matrixes.outputs.cargo-matrix) }}
-  if: "!contains(github.event.head_commit.message, 'skip ci')"
+  if: SNIPPET_not-skip-ci
   defaults:
     run:
       working-directory: ${{ matrix.root }}
   steps:
-  - name: Checkout code
-    uses: actions/checkout@v2
-  - SNIPPET_check-cargo
+    - name: Checkout code
+      uses: actions/checkout@v2
+    - SNIPPET_get-cargo
+    - name: Check structure
+      run: cargo clippy
+    - name: Check format
+      run: cargo +nightly fmt -- --check
+    - name: Check tests
+      run: cargo test

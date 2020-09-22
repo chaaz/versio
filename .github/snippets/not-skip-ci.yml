@@ -1,0 +1,2 @@
+key: not-skip-ci
+value: "!contains(github.event.head_commit.message, 'skip ci')"

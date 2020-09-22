@@ -192,10 +192,30 @@ pub fn execute(info: &EarlyInfo) -> Result<()> {
             .help("Also show unchnaged versions")
         )
         .arg(
+          Arg::with_name("pause")
+            .short("p")
+            .long("pause")
+            .takes_value(true)
+            .value_name("stage")
+            .possible_values(&["commit"])
+            .display_order(1)
+            .help("Pause the release")
+        )
+        .arg(Arg::with_name("resume").long("resume").takes_value(false).display_order(1).help("Resume after pausing"))
+        .arg(
+          Arg::with_name("abort")
+            .long("abort")
+            .takes_value(false)
+            .conflicts_with("resume")
+            .display_order(1)
+            .help("Abort after pausing")
+        )
+        .arg(
           Arg::with_name("dry")
             .short("d")
             .long("dry-run")
             .takes_value(false)
+            .conflicts_with_all(&["pause", "resume", "abort"])
             .display_order(1)
             .help("Don't write new versions")
         )
@@ -251,9 +271,21 @@ pub fn execute(info: &EarlyInfo) -> Result<()> {
             .help("Info on project name")
         )
         .arg(
+          Arg::with_name("label")
+            .short("l")
+            .long("label")
+            .takes_value(true)
+            .value_name("label")
+            .multiple(true)
+            .number_of_values(1)
+            .min_values(1)
+            .display_order(1)
+            .help("Info on projects with a label")
+        )
+        .arg(
           Arg::with_name("all").short("a").long("all").takes_value(false).display_order(1).help("Info on all projects")
         )
-        .group(ArgGroup::with_name("which").args(&["id", "name", "all"]).required(false))
+        .group(ArgGroup::with_name("which").args(&["id", "name", "label", "all"]).required(false))
         .arg(
           Arg::with_name("showroot")
             .short("R")
@@ -278,6 +310,12 @@ pub fn execute(info: &EarlyInfo) -> Result<()> {
 }
 
 fn parse_matches(m: ArgMatches) -> Result<()> {
+  match m.subcommand() {
+    ("release", Some(m)) if m.is_present("abort") => (),
+    ("release", Some(m)) if m.is_present("resume") => (),
+    _ => sanity_check()?
+  }
+
   let pref_vcs = parse_vcs(&m)?;
 
   match m.subcommand() {
@@ -296,13 +334,16 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
     ("files", Some(_)) => files(pref_vcs)?,
     ("changes", Some(_)) => changes(pref_vcs)?,
     ("plan", Some(_)) => plan(pref_vcs)?,
-    ("release", Some(m)) => release(pref_vcs, m.is_present("all"), m.is_present("dry"))?,
+    ("release", Some(m)) if m.is_present("abort") => abort()?,
+    ("release", Some(m)) if m.is_present("resume") => resume(pref_vcs)?,
+    ("release", Some(m)) => release(pref_vcs, m.is_present("all"), m.is_present("dry"), m.is_present("pause"))?,
     ("init", Some(m)) => init(m.value_of("maxdepth").map(|d| d.parse().unwrap()).unwrap_or(5))?,
     ("info", Some(m)) => {
       let names = m.values_of("name").map(|v| v.collect::<Vec<_>>());
+      let labels = m.values_of("label").map(|v| v.collect::<Vec<_>>());
       let ids =
         m.values_of("id").map(|v| v.map(|i| i.parse()).collect::<std::result::Result<Vec<_>, _>>()).transpose()?;
-      info(pref_vcs, ids, names, m.is_present("all"), m.is_present("showname"), m.is_present("showroot"))?
+      info(pref_vcs, ids, names, labels, m.is_present("all"), m.is_present("showname"), m.is_present("showroot"))?
     }
     ("", _) => empty_cmd()?,
     (c, _) => unknown_cmd(c)?
