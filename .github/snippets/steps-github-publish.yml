@@ -1,0 +1,36 @@
+key: steps-github-publish
+value:
+  - name: Checkout release
+    uses: actions/checkout@v2
+    with:
+      ref: main
+  - name: Get versio
+    uses: chaaz/versio-actions/install@v1
+  - name: Find version
+    id: find-version
+    run: 'echo ::set-output name=version::$(versio -l none info -i 0 -F | jq -r ''.[0].full_version'')'
+  - name: Publish to GitHub
+    id: publish-to-github
+    uses: actions/create-release@v1
+    with:
+      tag_name: ${{ steps.find-version.outputs.version }}
+      release_name: (TODO) RELEASE FOR ${{ steps.find-version.outputs.version }}
+      body: |
+        (TODO) SUMMARY
+        - (TODO) FEATURE1
+
+        New to Versio? The [repository](https://github.com/chaaz/versio) is the best place to learn about Versio and what it can do. If you want to report a bug or request a feature, you can do so at our [Issues](https://github.com/chaaz/versio/issues) link, but we ask you first read the [Troubleshooting](https://github.com/chaaz/versio/blob/main/docs/troubleshooting.md) page learn about problems and their solutions.
+
+        To install, follow the instructions for your platform; some files might be zipped for improved download speed. For example, on MacOS you can do something like this (assuming `~/bin` exists and is in your PATH):
+
+        ```sh
+        curl -L https://github.com/chaaz/versio/releases/download/${{ steps.find-version.outputs.version }}/versio__x86_64-apple-darwin -o ~/bin/versio
+        chmod +x ~/bin/versio
+        ```
+
+        **MacOS:** download `versio__x86_64-apple-darwin`, copy to `versio` in your PATH.
+        **GNU Linux 64:** download `versio__x86_64-unknown-linux-gnu`, copy to `versio` in your PATH.
+        **Windows:** download `versio__x86_64-pc-win32`, copy to `versio` in your %PATH.
+      draft: true
+      prerelease: false
+      commitish: main
