@@ -1,6 +1,7 @@
 //! The way we output things to the user.
 
 use crate::analyze::Analysis;
+use crate::commands::InfoShow;
 use crate::config::{Project, ProjectId, Size};
 use crate::errors::{Result, ResultExt};
 use crate::github::Changes;
@@ -19,7 +20,7 @@ impl Output {
   pub fn new() -> Output { Output {} }
   pub fn check(&self) -> CheckOutput { CheckOutput::new() }
   pub fn projects(&self, wide: bool, vers_only: bool) -> ProjOutput { ProjOutput::new(wide, vers_only) }
-  pub fn info(&self, show_name: bool, show_root: bool) -> ProjOutput { ProjOutput::info(show_name, show_root) }
+  pub fn info(&self, show: InfoShow) -> ProjOutput { ProjOutput::info(show) }
   pub fn diff(&self) -> DiffOutput { DiffOutput::new() }
   pub fn files(&self) -> FilesOutput { FilesOutput::new() }
   pub fn changes(&self) -> ChangesOutput { ChangesOutput::new() }
@@ -65,17 +66,16 @@ pub struct ProjOutput {
   vers_only: bool,
   proj_lines: Vec<ProjLine>,
   info_only: bool,
-  show_name: bool,
-  show_root: bool
+  show: InfoShow
 }
 
 impl ProjOutput {
   pub fn new(wide: bool, vers_only: bool) -> ProjOutput {
-    ProjOutput { show_name: false, show_root: false, info_only: false, wide, vers_only, proj_lines: Vec::new() }
+    ProjOutput { show: InfoShow::new(), info_only: false, wide, vers_only, proj_lines: Vec::new() }
   }
 
-  pub fn info(show_name: bool, show_root: bool) -> ProjOutput {
-    ProjOutput { info_only: true, show_name, show_root, wide: false, vers_only: false, proj_lines: Vec::new() }
+  pub fn info(show: InfoShow) -> ProjOutput {
+    ProjOutput { info_only: true, show, wide: false, vers_only: false, proj_lines: Vec::new() }
   }
 
   pub fn write_projects<I: Iterator<Item = Result<ProjLine>>>(&mut self, lines: I) -> Result<()> {
@@ -96,17 +96,26 @@ impl ProjOutput {
         .iter()
         .map(|line| {
           let root = line.root.as_deref().unwrap_or(".");
-          if self.show_name {
-            if self.show_root {
-              json!({"name": line.name, "root": root})
-            } else {
-              json!({"name": line.name})
-            }
-          } else if self.show_root {
-            json!({ "root": root })
-          } else {
-            json!({})
+          let mut val = json!({});
+          if self.show.name() {
+            val["name"] = json!(line.name);
           }
+          if self.show.root() {
+            val["root"] = json!(root);
+          }
+          if self.show.id() {
+            val["id"] = json!(line.id);
+          }
+          if self.show.full_version() {
+            val["full_version"] = json!(line.full_version);
+          }
+          if self.show.tag_prefix() {
+            val["tag_prefix"] = json!(line.tag_prefix);
+          }
+          if self.show.version() {
+            val["version"] = json!(line.version);
+          }
+          val
         })
         .collect::<Vec<_>>());
       println!("{}", serde_json::to_string(&val)?);
@@ -128,7 +137,9 @@ impl ProjOutput {
 pub struct ProjLine {
   pub id: ProjectId,
   pub name: String,
+  pub tag_prefix: Option<String>,
   pub version: String,
+  pub full_version: Option<String>,
   pub root: Option<String>
 }
 
@@ -137,8 +148,10 @@ impl ProjLine {
     let id = p.id();
     let name = p.name().to_string();
     let version = p.get_value(read)?;
+    let tag_prefix = p.tag_prefix().clone();
+    let full_version = p.full_version(&version);
     let root = p.root().cloned();
-    Ok(ProjLine { id: id.clone(), name, version, root })
+    Ok(ProjLine { id: id.clone(), name, tag_prefix, version, full_version, root })
   }
 }
 

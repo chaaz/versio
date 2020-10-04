@@ -30,7 +30,7 @@ up and running quickly with Versio. Or, try this and see what happens:
 
 ```
 $ versio init  # this creates .versio.yaml
-$ git add .versio.yaml
+$ git add .versio.yaml .gitignore
 $ git commit -m "build: add versio management"
 $ git push
 $ versio release

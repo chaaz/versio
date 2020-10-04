@@ -22,7 +22,7 @@ page](https://github.com/chaaz/versio/releases).
   ```
   $ git pull
   $ versio init  # this creates .versio.yaml
-  $ git add .versio.yaml
+  $ git add .versio.yaml .gitignore
   $ git commit -m "build: add versio management"
   $ git push
   ```

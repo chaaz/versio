@@ -8,7 +8,7 @@ use crate::scan::{find_reg_data, JsonScanner, Scanner, TomlScanner, XmlScanner};
 use error_chain::bail;
 use log::trace;
 use log::warn;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::iter::once;
@@ -81,14 +81,10 @@ fn find_projects_in(dir: &Path) -> impl Iterator<Item = Result<ProjSummary>> {
 
   if dir.join("Cargo.toml").exists() {
     let name = try_iter!(extract_name(dir, "Cargo.toml", |d| TomlScanner::new("package.name").find(&d)));
-    summaries.push(Ok(ProjSummary::new_file(
-      name,
-      dir.to_string_lossy(),
-      "Cargo.toml",
-      "toml",
-      "package.version",
-      &["cargo"]
-    )));
+    let mut proj =
+      ProjSummary::new_file(name, dir.to_string_lossy(), "Cargo.toml", "toml", "package.version", &["cargo"]);
+    proj.hook("post_write", "cargo fetch");
+    summaries.push(Ok(proj));
   }
 
   if dir.join("go.mod").exists() {
@@ -242,6 +238,16 @@ fn generate_yaml(projs: &[ProjSummary]) -> String {
     }
     yaml.push_str("    version:\n");
     proj.append_version(&mut yaml);
+
+    if !proj.hooks().is_empty() {
+      let mut hooks: Vec<_> = proj.hooks().iter().collect();
+      hooks.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
+      yaml.push_str("    hooks:\n");
+      for (k, v) in hooks {
+        yaml.push_str(&format!("      {}: '{}'\n", k, yaml_escape_single(v)));
+      }
+    }
+
     if proj.subs() {
       yaml.push_str("    subs: {}\n");
     }
@@ -260,7 +266,8 @@ struct ProjSummary {
   labels: Vec<String>,
   root: String,
   subs: bool,
-  version: VersionSummary
+  version: VersionSummary,
+  hooks: HashMap<String, String>
 }
 
 impl ProjSummary {
@@ -277,8 +284,14 @@ impl ProjSummary {
         file.to_string(),
         file_type.to_string(),
         parts.to_string()
-      ))
+      )),
+      hooks: HashMap::new()
     }
+  }
+
+  pub fn hook(&mut self, key: &str, val: &str) -> &mut ProjSummary {
+    self.hooks.insert(key.into(), val.into());
+    self
   }
 
   pub fn new_tags(name: impl ToString, root: impl ToString, subs: bool, labels: &[impl ToString]) -> ProjSummary {
@@ -287,12 +300,14 @@ impl ProjSummary {
       root: root.to_string(),
       subs,
       labels: labels.iter().map(|s| s.to_string()).collect(),
-      version: VersionSummary::Tag(TagVersionSummary::new())
+      version: VersionSummary::Tag(TagVersionSummary::new()),
+      hooks: HashMap::new()
     }
   }
 
   fn name(&self) -> &str { &self.name }
   fn labels(&self) -> &[String] { &self.labels }
+  fn hooks(&self) -> &HashMap<String, String> { &self.hooks }
 
   fn root(&self) -> Option<&str> {
     if &self.root == "." {

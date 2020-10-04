@@ -1,0 +1,38 @@
+key: job-publish-versio
+value:
+  needs: github-publish
+  strategy:
+    matrix:
+      include:
+        - os: ubuntu-latest
+          target: x86_64-unknown-linux-gnu
+          root: '.'
+          rustflags: '-D warnings -C link-args=-s'
+        - os: macos-latest
+          target: x86_64-apple-darwin
+          root: '.'
+          rustflags: '-D warnings'
+        - os: windows-latest
+          target: x86_64-pc-win32
+          root: '.'
+          rustflags: '-D warnings'
+  if: SNIPPET_not-skip-ci
+  runs-on: ${{ matrix.os }}
+  steps:
+    - name: Checkout release
+      uses: actions/checkout@v2
+      with:
+        ref: main
+    - SNIPPET_get-cargo
+    - name: Build binary
+      run: cargo build --release
+      working-directory: ${{ matrix.root }}
+      env:
+        RUSTFLAGS: ${{ matrix.rustflags }}
+    - name: Upload binary
+      uses: actions/upload-release-asset@v1
+      with:
+        upload_url: ${{ needs.github-publish.outputs.upload_url }}
+        asset_path: ./target/release/versio
+        asset_name: versio__${{ matrix.target }}
+        asset_content_type: application/octet-stream

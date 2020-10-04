@@ -189,7 +189,7 @@ pub fn execute(info: &EarlyInfo) -> Result<()> {
             .long("show-all")
             .takes_value(false)
             .display_order(1)
-            .help("Also show unchnaged versions")
+            .help("Also show unchanged versions")
         )
         .arg(
           Arg::with_name("pause")
@@ -285,7 +285,6 @@ pub fn execute(info: &EarlyInfo) -> Result<()> {
         .arg(
           Arg::with_name("all").short("a").long("all").takes_value(false).display_order(1).help("Info on all projects")
         )
-        .group(ArgGroup::with_name("which").args(&["id", "name", "label", "all"]).required(false))
         .arg(
           Arg::with_name("showroot")
             .short("R")
@@ -301,6 +300,38 @@ pub fn execute(info: &EarlyInfo) -> Result<()> {
             .takes_value(false)
             .display_order(1)
             .help("Show the project(s) name")
+        )
+        .arg(
+          Arg::with_name("showid")
+            .short("I")
+            .long("show-id")
+            .takes_value(false)
+            .display_order(1)
+            .help("Show the project(s) ID")
+        )
+        .arg(
+          Arg::with_name("showfull")
+            .short("F")
+            .long("show-full-version")
+            .takes_value(false)
+            .display_order(1)
+            .help("Show the project(s) full version with the tag prefix")
+        )
+        .arg(
+          Arg::with_name("showversion")
+            .short("V")
+            .long("show-version")
+            .takes_value(false)
+            .display_order(1)
+            .help("Show the project(s) version")
+        )
+        .arg(
+          Arg::with_name("showtagprefix")
+            .short("T")
+            .long("show-tag-prefix")
+            .takes_value(false)
+            .display_order(1)
+            .help("Show the project(s) tag prefix")
         )
         .display_order(1)
     )
@@ -339,11 +370,24 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
     ("release", Some(m)) => release(pref_vcs, m.is_present("all"), m.is_present("dry"), m.is_present("pause"))?,
     ("init", Some(m)) => init(m.value_of("maxdepth").map(|d| d.parse().unwrap()).unwrap_or(5))?,
     ("info", Some(m)) => {
-      let names = m.values_of("name").map(|v| v.collect::<Vec<_>>());
-      let labels = m.values_of("label").map(|v| v.collect::<Vec<_>>());
-      let ids =
-        m.values_of("id").map(|v| v.map(|i| i.parse()).collect::<std::result::Result<Vec<_>, _>>()).transpose()?;
-      info(pref_vcs, ids, names, labels, m.is_present("all"), m.is_present("showname"), m.is_present("showroot"))?
+      let names = m.values_of("name").map(|v| v.collect::<Vec<_>>()).unwrap_or_default();
+      let labels = m.values_of("label").map(|v| v.collect::<Vec<_>>()).unwrap_or_default();
+      let ids = m
+        .values_of("id")
+        .map(|v| v.map(|i| i.parse()).collect::<std::result::Result<Vec<_>, _>>())
+        .transpose()?
+        .unwrap_or_default();
+
+      let show = InfoShow::new()
+        .pick_all(m.is_present("all"))
+        .show_name(m.is_present("showname"))
+        .show_root(m.is_present("showroot"))
+        .show_id(m.is_present("showid"))
+        .show_full_version(m.is_present("showfull"))
+        .show_version(m.is_present("showversion"))
+        .show_tag_prefix(m.is_present("showtagprefix"));
+
+      info(pref_vcs, ids, names, labels, show)?
     }
     ("", _) => empty_cmd()?,
     (c, _) => unknown_cmd(c)?

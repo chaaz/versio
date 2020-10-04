@@ -10,6 +10,7 @@ use crate::vcs::{VcsLevel, VcsRange};
 use error_chain::bail;
 use std::fs::{remove_file, File};
 use std::io::BufReader;
+// use std::iter::once;
 use std::path::{Path, PathBuf};
 
 pub fn early_info() -> Result<EarlyInfo> {
@@ -153,47 +154,105 @@ pub fn plan(pref_vcs: Option<VcsRange>) -> Result<()> {
 }
 
 pub fn info(
-  pref_vcs: Option<VcsRange>, ids: Option<Vec<ProjectId>>, names: Option<Vec<&str>>, labels: Option<Vec<&str>>,
-  all: bool, show_name: bool, show_root: bool
+  pref_vcs: Option<VcsRange>, ids: Vec<ProjectId>, names: Vec<&str>, labels: Vec<&str>, show: InfoShow
 ) -> Result<()> {
   let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::None, VcsLevel::Smart)?;
   let output = Output::new();
-  let mut output = output.info(show_name, show_root);
+  let all = show.all();
+  let mut output = output.info(show);
 
   let cfg = mono.config();
   let reader = cfg.state_read();
 
   if all {
     output.write_projects(cfg.projects().iter().map(|p| ProjLine::from(p, reader)))?;
-  } else if let Some(ids) = ids {
+  } else {
     output.write_projects(
-      ids
+      cfg
+        .projects()
         .iter()
-        .map(|id| cfg.get_project(id).ok_or_else(|| bad!("No such project: {}.", id)))
-        .collect::<Result<Vec<_>>>()?
-        .into_iter()
-        .map(|p| ProjLine::from(p, reader))
-    )?;
-  } else if let Some(names) = names {
-    output.write_projects(
-      names
-        .iter()
-        .map(|n| cfg.find_unique(n).map(|id| cfg.get_project(id).unwrap()))
-        .collect::<Result<Vec<_>>>()?
-        .into_iter()
-        .map(|p| ProjLine::from(p, reader))
-    )?;
-  } else if let Some(labels) = labels {
-    output.write_projects(
-      labels
-        .iter()
-        .flat_map(|l| cfg.find_labelled(l).into_iter().map(|id| cfg.get_project(id).unwrap()))
+        .filter(|p| {
+          ids.contains(p.id())
+            || names.contains(&p.name())
+            || p.labels().iter().any(|l| labels.iter().any(|ll| ll == l))
+        })
         .map(|p| ProjLine::from(p, reader))
     )?;
   }
 
   output.commit()?;
   Ok(())
+}
+
+pub struct InfoShow {
+  pick_all: bool,
+  show_id: bool,
+  show_root: bool,
+  show_name: bool,
+  show_tag_prefix: bool,
+  show_full_version: bool,
+  show_version: bool
+}
+
+impl Default for InfoShow {
+  fn default() -> InfoShow { InfoShow::new() }
+}
+
+impl InfoShow {
+  pub fn new() -> InfoShow {
+    InfoShow {
+      pick_all: false,
+      show_id: false,
+      show_root: false,
+      show_name: false,
+      show_version: false,
+      show_tag_prefix: false,
+      show_full_version: false
+    }
+  }
+
+  pub fn all(&self) -> bool { self.pick_all }
+  pub fn id(&self) -> bool { self.show_id }
+  pub fn name(&self) -> bool { self.show_name }
+  pub fn root(&self) -> bool { self.show_root }
+  pub fn tag_prefix(&self) -> bool { self.show_tag_prefix }
+  pub fn full_version(&self) -> bool { self.show_full_version }
+  pub fn version(&self) -> bool { self.show_version }
+
+  pub fn pick_all(mut self, v: bool) -> InfoShow {
+    self.pick_all = v;
+    self
+  }
+
+  pub fn show_id(mut self, v: bool) -> InfoShow {
+    self.show_id = v;
+    self
+  }
+
+  pub fn show_name(mut self, v: bool) -> InfoShow {
+    self.show_name = v;
+    self
+  }
+
+  pub fn show_root(mut self, v: bool) -> InfoShow {
+    self.show_root = v;
+    self
+  }
+
+  pub fn show_tag_prefix(mut self, v: bool) -> InfoShow {
+    self.show_tag_prefix = v;
+    self
+  }
+
+  pub fn show_full_version(mut self, v: bool) -> InfoShow {
+    self.show_full_version = v;
+    self
+  }
+
+  pub fn show_version(mut self, v: bool) -> InfoShow {
+    self.show_version = v;
+    self
+  }
 }
 
 pub fn release(pref_vcs: Option<VcsRange>, all: bool, dry: bool, pause: bool) -> Result<()> {

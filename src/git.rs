@@ -59,15 +59,21 @@ impl Repo {
       Err(_) => return Ok(VcsLevel::None),
       Ok(branch_name) => branch_name
     };
+    trace!("Detected branch name: {:?}.", branch_name);
 
-    if let Ok(remote_name) = find_remote_name(&repo, &branch_name) {
-      if find_github_info(&repo, &remote_name, &Default::default()).is_ok() {
-        Ok(VcsLevel::Smart)
-      } else {
-        Ok(VcsLevel::Remote)
+    match find_remote_name(&repo, &branch_name) {
+      Ok(remote_name) => {
+        trace!("Detected remote name: \"{}\".", remote_name);
+        if find_github_info(&repo, &remote_name, &Default::default()).is_ok() {
+          Ok(VcsLevel::Smart)
+        } else {
+          Ok(VcsLevel::Remote)
+        }
       }
-    } else {
-      Ok(VcsLevel::Local)
+      Err(e) => {
+        trace!("No remote name: {:?}.", e);
+        Ok(VcsLevel::Local)
+      }
     }
   }
 
@@ -770,20 +776,21 @@ fn find_remote_name(repo: &Repository, branch_name: &Option<String>) -> Result<S
     .and_then(|branch_name| {
       repo
         .config()
-        .map(|config| config.get_str(&format!("branch.{}.remote", branch_name)).map(|s| s.to_string()).ok())
+        .and_then(|mut config| config.snapshot())
+        .map(|config| config.get_string(&format!("branch.{}.remote", branch_name)).ok())
         .transpose()
     })
     .transpose()?
-    .ok_or_else(|| bad!("No configured repo found for {:?}.", branch_name));
+    .ok_or_else(|| bad!("No configured remote found for {:?}.", branch_name));
 
-  configured.or_else(|_| {
+  configured.or_else(|e| {
     let remotes = repo.remotes()?;
     if remotes.is_empty() {
-      err!("No remotes in this repo.")
+      err!("No remotes in this repo: {}.", e)
     } else if remotes.len() == 1 {
       Ok(remotes.iter().next().unwrap().ok_or_else(|| bad!("Non-utf8 remote name."))?.to_string())
     } else {
-      err!("Too many remotes in this repo.")
+      err!("Too many remotes in this repo: {}.", e)
     }
   })
 }

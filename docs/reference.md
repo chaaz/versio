@@ -138,6 +138,27 @@ along with their options and flags. You can always use `versio help` or
 - `diff`: See differences between the current and previous versions.
 - `files`: See all files that have changed since the previous version.
 - `plan`: View the update plan.
+- `info`: Outputs a JSON document with information about projects:
+  - `--id` (`-i <ID>`): include an ID'd project in the document (you can
+    provide this option more than once).
+  - `--name` (`-n <name>`): include a named project in the document (you
+    can provide this option more than once).
+  - `--label` (`-l <label>`): include all projects with a label (you can
+    provide this option more than once).
+  - `--all` (`-a`): include all projects.
+  - `--show-root` (`-R`): include the projects' root directories in the
+    document.
+  - `--show-name` (`-N`): include the projects' names in the document.
+
+  This command is useful to generate a machine-consumable document of
+  one or more of the project configurations. It's especially helpful to
+  create a matrix of projects that share a label. For example:
+  ```
+  echo "::set-output name=matrix::{\"include\":$(versio -l none info -l cargo -R -N)}"
+  ```
+  can be used to create a dynamic GitHub Actions matrix that contains
+  all "cargo" projects, which you can then use to run cargo-specific
+  jobs.
 - `release`: Apply the update plan: update version numbers,
   create/update changelogs, and commit/tag/push all changes.
   - `--show-all` (`-a`): Show the run results for all projects, even
@@ -215,14 +236,18 @@ projects:
     id: 1
     root: "proj_1"
     tag_prefix: "proj1"
+    labels: npm
     version:
       file: "package.json"
       json: "version"
+    hooks:
+      post_write: ./bin/my_script.sh --auto
 
   - name: proj_2
     id: 2
     root: "proj_2"
     tag_prefix: ""
+    labels: go
     version:
       tags:
         default: "0.0.0"
@@ -278,6 +303,14 @@ sizes:
   - `subs`: If provided, allows a project to be subdivided into "major"
     versions, each in its own subdirectory. See [Major
     Subdirectories](./subs.md) for more info on this feature.
+  - `labels`: (optional) A string or sequence of strings, you can
+    arbitrary labels to you projects, which is useful when using the
+    `info` command.
+  - `hooks`: (optional) A set of hooks that run at certain points of the
+    release process. Currently, only the `post_write` hook is supported:
+    this hook runs after local file changes are made, but before any VCS
+    commits/push/tagging is performed; it's useful to make additional
+    file changes that need to be committed with the release.
 
 - `sizes`
 

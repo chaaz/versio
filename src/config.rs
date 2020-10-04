@@ -159,10 +159,6 @@ impl<S: StateRead> Config<S> {
     Ok(id)
   }
 
-  pub fn find_labelled(&self, label: &str) -> Vec<&ProjectId> {
-    self.file.projects.iter().filter(|p| p.has_label(label)).map(|p| p.id()).collect()
-  }
-
   pub fn annotate(&self) -> Result<Vec<AnnotatedMark>> {
     self.file.projects.iter().map(|p| p.annotate(&self.state)).collect()
   }
@@ -342,8 +338,8 @@ impl Project {
   pub fn name(&self) -> &str { &self.name }
   pub fn depends(&self) -> &[ProjectId] { &self.depends }
   pub fn root(&self) -> Option<&String> { self.root.as_ref().and_then(|r| if r == "." { None } else { Some(r) }) }
-  pub fn has_label(&self, label: &str) -> bool { self.labels.iter().any(|l| l == label) }
   pub fn hooks(&self) -> &HookSet { &self.hooks }
+  pub fn labels(&self) -> &[String] { &self.labels }
 
   fn annotate<S: StateRead>(&self, state: &S) -> Result<AnnotatedMark> {
     Ok(AnnotatedMark::new(self.id.clone(), self.name.clone(), self.get_value(state)?))
@@ -469,11 +465,20 @@ impl Project {
   }
 
   pub fn forward_tag(&self, write: &mut StateWrite, vers: &str) -> Result<()> {
-    if let Some(tag_prefix) = &self.tag_prefix {
-      let tag = if tag_prefix.is_empty() { format!("v{}", vers) } else { format!("{}-v{}", tag_prefix, vers) };
-      write.tag_head_or_last(vers, tag, &self.id)?;
+    if let Some(full_tag) = self.full_version(vers) {
+      write.tag_head_or_last(vers, full_tag, &self.id)?;
     }
     Ok(())
+  }
+
+  pub fn full_version(&self, vers: &str) -> Option<String> {
+    self.tag_prefix.as_ref().map(|tag_prefix| {
+      if tag_prefix.is_empty() {
+        format!("v{}", vers)
+      } else {
+        format!("{}-v{}", tag_prefix, vers)
+      }
+    })
   }
 
   fn rooted_pattern(&self, pat: &str) -> String {
