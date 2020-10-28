@@ -7,9 +7,8 @@ use crate::git::{FromTagBuf, Repo, Slice};
 use crate::mark::{FilePicker, LinePicker, Picker, ScanningPicker};
 use crate::mono::Changelog;
 use crate::scan::parts::{deserialize_parts, Part};
-use crate::state::{
-  CurrentFiles, CurrentState, FilesRead, OldTags, PickPath, PrevFiles, PrevState, StateRead, StateWrite
-};
+use crate::state::{CurrentFiles, CurrentState, FilesRead, OldTags, PickPath, PrevFiles, PrevState, StateRead,
+                   StateWrite};
 use chrono::prelude::Utc;
 use error_chain::bail;
 use glob::{glob_with, MatchOptions, Pattern};

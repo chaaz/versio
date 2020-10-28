@@ -8,11 +8,9 @@ use chrono::{DateTime, FixedOffset};
 use error_chain::bail;
 use git2::build::CheckoutBuilder;
 use git2::string_array::StringArray;
-use git2::{
-  AnnotatedCommit, AutotagOption, Blob, Commit, Cred, CredentialType, Diff, DiffOptions, FetchOptions, Index, Object,
-  ObjectType, Oid, PushOptions, Reference, ReferenceType, Remote, RemoteCallbacks, Repository, RepositoryOpenFlags,
-  RepositoryState, ResetType, Revwalk, Signature, Sort, Status, StatusOptions, Time
-};
+use git2::{AnnotatedCommit, AutotagOption, Blob, Commit, Cred, CredentialType, Diff, DiffOptions, FetchOptions, Index,
+           Object, ObjectType, Oid, PushOptions, Reference, ReferenceType, Remote, RemoteCallbacks, Repository,
+           RepositoryOpenFlags, RepositoryState, ResetType, Revwalk, Signature, Sort, Status, StatusOptions, Time};
 use log::{error, info, trace, warn};
 use regex::Regex;
 use serde::Deserialize;

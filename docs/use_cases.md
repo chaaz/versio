@@ -160,7 +160,35 @@ file by hand to keep it up-to-date.
 If you are using a monorepo, you may want to perform the same build step
 on all your (for example) Node.js projects. You can build GitHub dynamic
 matrixes using the `versio info` command, and then use those matrixes to
-execute multiple projects in your repo.
+execute multiple projects in your repo. For example, if you wanted to
+run 'npm test' in every project in your monorepo with the `npm` label:
+
+```
+jobs:
+  project-matrixes:
+    runs-on: ubuntu-latest
+    outputs:
+      npm-matrix: "${{ steps.find-npm-matrix.outputs.matrix }}"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Get versio
+        uses: chaaz/versio-actions/install@v1
+      - name: Find npm matrix
+        id: find-npm-matrix
+        run: "echo \"::set-output name=matrix::{\\\"include\\\":$(versio -l none info -l npm -R -N)}\""
+  npm-tests:
+    needs: project-matrixes
+    runs-on: ubuntu-latest
+    strategy:
+      matrix: "${{ fromJson(needs.project-matrixes.outputs.npm-matrix) }}"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Run local tests
+        run: npm test
+        working-directory: "${{ matrix.root }}"
+```
 
 ### Authorization
 
