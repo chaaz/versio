@@ -473,7 +473,7 @@ impl<'s> PlanBuilder<'s> {
 
   pub fn handle_deps(&mut self) -> Result<()> {
     // Use a modified Kahn's algorithm to traverse deps in order.
-    let mut queue: VecDeque<(ProjectId, Size)> = VecDeque::new();
+    let mut queue: VecDeque<ProjectId> = VecDeque::new();
 
     let mut dependents: HashMap<ProjectId, HashSet<ProjectId>> = HashMap::new();
     for project in self.current.projects() {
@@ -482,18 +482,13 @@ impl<'s> PlanBuilder<'s> {
       }
 
       if project.depends().is_empty() {
-        if let Some((size, ..)) = self.incrs.get(&project.id()) {
-          queue.push_back((project.id().clone(), *size));
-        } else {
-          queue.push_back((project.id().clone(), Size::Empty))
-        }
+        self.incrs.entry(project.id().clone()).or_insert((Size::Empty, Changelog::empty()));
+        queue.push_back(project.id().clone());
       }
     }
 
-    while let Some((id, size)) = queue.pop_front() {
-      let val = &mut self.incrs.entry(id.clone()).or_insert((Size::Empty, Changelog::empty())).0;
-      *val = max(*val, size);
-
+    while let Some(id) = queue.pop_front() {
+      let size = self.incrs.get(&id).unwrap().0;
       let depds: Option<HashSet<ProjectId>> = dependents.get(&id).cloned();
       if let Some(depds) = depds {
         for depd in depds {
@@ -502,7 +497,7 @@ impl<'s> PlanBuilder<'s> {
           *val = max(*val, size);
 
           if dependents.values().all(|ds| !ds.contains(&depd)) {
-            queue.push_back((depd, *val));
+            queue.push_back(depd);
           }
         }
       }
