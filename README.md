@@ -54,15 +54,15 @@ can be a headache to resolve. And it can be inefficient to halt all
 contributions while a release is being built.
 -->
 
-To become available, software systems go through a _release process_,
-where the software is described, assigned a version number, and deployed
-to sites where it is executed or distributed. This process occurs when
-the application is created and again whenever maintenance or
-improvements are applied, so a single piece of software can incur many
-releases over its lifetime. Versio can help automate the release
-process, by updating version numbers automatically from [conventional
+Software go through a _release process_, where the software is
+described, assigned a version number, and deployed to sites where it can
+be executed or distributed. This process occurs first when the
+application is created, and again whenever maintenance or improvements
+are applied, so a single piece of software can incur many releases over
+its lifetime. Versio can help automate the release process by updating
+version numbers automatically from [conventional
 commits](https://www.conventionalcommits.org/), generating a changelog,
-and (in the future) publishing the software to distribution targets.
+and managing dependencies between projects.
 
 Many software projects declare their version number in some sort of
 manifest file. Node/NPM projects have a "package.json" file, Rust/Cargo
@@ -112,19 +112,18 @@ Scanning](./docs/pr_scanning.md) page for more information.
 
 ### Version Tags
 
-You can write project versions in VCS tags instead of a manifest file;
-this is a common pattern in Go and Terraform projects. To use this
-feature, you need to provide the project's tag prefix and a default
-value. See the [Version Tags](./docs/version_tags.md) document for
-details.
+You can write VCS tags, and use them instead of a manifest file; this is
+a common pattern in Go and Terraform projects. To use this feature, you
+need to provide the project's tag prefix and a default value. See the
+[Version Tags](./docs/version_tags.md) document for details.
 
 ### Major subdirectories
 
 Some projects keep major revisions of software in different
 subdirectories, usually named `v2`, `v3` etc. This allows developers to
-keep track of multiple, sometimes vastly different application
-structures at the same time. You can utilize this feature by providing a
-`subs` property in your project configuration. See the [Major
+keep track of multiple, sometimes very different application structures
+at the same time. You can utilize this feature by providing a `subs`
+property in your project configuration. See the [Major
 Subdirectories](./docs/subs.md) page for a description.
 
 ### VCS Levels
@@ -133,6 +132,14 @@ VCS Levels allow you to control the way Versio interacts with a Git
 repository: you can have interact only locally, with a remote, or not at
 all. See the description in its [document](./docs/vcs_levels.md) for
 more information.
+
+### Version Chains
+
+Sometimes a version in one project will depend on a change in another
+project, even when both projects are in the same monorepo. Versio allows
+you to manage these dependencies, and automatically increment all
+dependent versions. See the [Version Chains](./docs/chains.md) document
+for more info.
 
 ## Troubleshooting
 

@@ -24,6 +24,11 @@ html {
   margin-top: 10px;
 }
 
+.dep {
+  margin-left: 10px;
+  margin-bottom: 10px;
+}
+
 .pr {
   margin-left: 10px;
   margin-bottom: 10px;
@@ -107,8 +112,13 @@ html {
 <!-- ### VERSIO BEGIN CONTENT ### -->
 <!-- ### VERSIO CONTENT {{release.date | date: "%Y-%m-%d" }} ### -->
 <div class="release">
-  <div class="release-head"><span class="caret caret-down"></span>Release {{release.date | date: "%Y-%m-%d"}}</div>
+  <div class="release-head"><span class="caret caret-down"></span>Release {{release.version}} : {{release.date | date: "%Y-%m-%d"}}</div>
   <div class="nested active">
+    {% for dep in release.deps %}
+      <div class="dep">
+        Depends on changes to project {{dep}}.
+      </div>
+    {% endfor %}
     {% for pr in release.prs %}
     <div class="pr">
       <div class="pr-head"><span class="caret"></span>{% if pr.link %}<a href="{{pr.href}}">{% endif %}{{pr.name}}{% if pr.link %}</a>{% endif %} ({{pr.size}}){% if pr.title != '' %}: {{pr.title}}{% endif %}</div>

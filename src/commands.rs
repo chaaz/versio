@@ -8,9 +8,9 @@ use crate::output::{Output, ProjLine};
 use crate::state::{CommitState, StateRead};
 use crate::vcs::{VcsLevel, VcsRange};
 use error_chain::bail;
+use std::collections::HashMap;
 use std::fs::{remove_file, File};
 use std::io::BufReader;
-// use std::iter::once;
 use std::path::{Path, PathBuf};
 
 pub fn early_info() -> Result<EarlyInfo> {
@@ -270,11 +270,8 @@ pub fn release(pref_vcs: Option<VcsRange>, all: bool, dry: bool, pause: bool) ->
     return output.commit();
   }
 
+  let mut final_sizes = HashMap::new();
   for (id, (size, changelog)) in plan.incrs() {
-    if let Some(wrote) = mono.write_changelog(id, changelog)? {
-      output.write_logged(wrote)?;
-    }
-
     let proj = mono.get_project(id)?;
     let name = proj.name().to_string();
     let curt_config = mono.config();
@@ -285,8 +282,9 @@ pub fn release(pref_vcs: Option<VcsRange>, all: bool, dry: bool, pause: bool) ->
       .unwrap_or_else(|| panic!("No such project {}.", id));
     let prev_vers = prev_config.get_value(id).chain_err(|| format!("Unable to find prev {} value.", id))?;
 
-    if size == &Size::Empty {
+    let new_vers = if size == &Size::Empty {
       output.write_no_change(all, name.clone(), prev_vers.clone(), curt_vers.clone())?;
+      curt_vers
     } else if let Some(prev_vers) = prev_vers {
       let target = size.apply(&prev_vers)?;
       if Size::less_than(&curt_vers, &target)? {
@@ -298,12 +296,22 @@ pub fn release(pref_vcs: Option<VcsRange>, all: bool, dry: bool, pause: bool) ->
         mono.forward_by_id(id, &curt_vers)?;
         output.write_forward(all, name.clone(), prev_vers.clone(), curt_vers.clone(), target.clone())?;
       }
+      target
     } else {
       proj.verify_restrictions(&curt_vers)?;
       mono.forward_by_id(id, &curt_vers)?;
       output.write_new(all, name.clone(), curt_vers.clone())?;
+      curt_vers
+    };
+
+    if let Some(wrote) = mono.write_changelog(id, changelog, &new_vers)? {
+      output.write_logged(wrote)?;
     }
+
+    final_sizes.insert(id.clone(), new_vers);
   }
+
+  mono.write_chains(plan.chain_writes(), &final_sizes)?;
 
   if !dry {
     mono.commit(true, pause)?;

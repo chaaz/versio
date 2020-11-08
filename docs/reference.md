@@ -286,10 +286,10 @@ sizes:
     files covered by `includes` and not by `excludes` are included.
     These patterns are used to determine which commits are applicable to
     a project.
-  - `depends`: (optional, default `[]`) A list of projects on which the
+  - `depends`: (optional, default `{}`) A list of projects on which the
     current project depends. Any version number increment in any
-    dependancy will result in at least that level of increment in the
-    current project.
+    dependancy will result in an increment in the current project. See
+    [Version Chains](./chains.md) for more info.
   - `changelog`: (optional) The file name where the changelog is
     located. Not providing this will cause no changelog to be
     created/updated.

@@ -5,6 +5,7 @@ use crate::commands::InfoShow;
 use crate::config::{Project, ProjectId, Size};
 use crate::errors::{Result, ResultExt};
 use crate::github::Changes;
+use crate::mono::ChangelogEntry;
 use crate::mono::{Mono, Plan};
 use crate::state::StateRead;
 use serde_json::json;
@@ -341,11 +342,6 @@ fn println_plan_incrs(plan: &Plan, mono: &Mono) -> Result<()> {
   for (id, (size, changelog)) in plan.incrs() {
     let curt_proj = mono.get_project(id).unwrap();
     println!("{} : {}", curt_proj.name(), size);
-    for dep in curt_proj.depends() {
-      let dep_size = plan.incrs().get(dep).unwrap().0;
-      let dep_proj = mono.get_project(dep).unwrap();
-      println!("  Depends on {} : {}", dep_proj.name(), dep_size);
-    }
 
     let curt_config = mono.config();
     let prev_config = curt_config.slice_to_prev(mono.repo())?;
@@ -368,25 +364,32 @@ fn println_plan_incrs(plan: &Plan, mono: &Mono) -> Result<()> {
       }
     }
 
-    for (pr, size) in changelog.entries() {
-      if !pr.commits().iter().any(|c| c.included()) {
-        continue;
-      }
-      if pr.number() == 0 {
-        // "PR zero" is the top-level set of commits.
-        println!("  Other commits : {}", size);
-      } else {
-        println!("  PR {} : {}", pr.number(), size);
-      }
-      for c in pr.commits().iter().filter(|c| c.included()) {
-        let symbol = if c.duplicate() {
-          "."
-        } else if c.applies() {
-          "*"
-        } else {
-          " "
-        };
-        println!("    {} commit {} ({}) : {}", symbol, &c.oid()[.. 7], c.size(), c.message().trim());
+    for entry in changelog.entries() {
+      match entry {
+        ChangelogEntry::Pr(pr, size) => {
+          if !pr.commits().iter().any(|c| c.included()) {
+            continue;
+          }
+          if pr.number() == 0 {
+            // "PR zero" is the top-level set of commits.
+            println!("  Other commits : {}", size);
+          } else {
+            println!("  PR {} : {}", pr.number(), size);
+          }
+          for c in pr.commits().iter().filter(|c| c.included()) {
+            let symbol = if c.duplicate() {
+              "."
+            } else if c.applies() {
+              "*"
+            } else {
+              " "
+            };
+            println!("    {} commit {} ({}) : {}", symbol, &c.oid()[.. 7], c.size(), c.message().trim());
+          }
+        }
+        ChangelogEntry::Dep(proj_id) => {
+          println!("  Depends on: {}", proj_id);
+        }
       }
     }
   }

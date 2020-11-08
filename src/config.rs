@@ -5,7 +5,7 @@ use crate::either::IterEither2 as E2;
 use crate::errors::{Result, ResultExt};
 use crate::git::{FromTagBuf, Repo, Slice};
 use crate::mark::{FilePicker, LinePicker, Picker, ScanningPicker};
-use crate::mono::Changelog;
+use crate::mono::{Changelog, ChangelogEntry};
 use crate::scan::parts::{deserialize_parts, Part};
 use crate::state::{CurrentFiles, CurrentState, FilesRead, OldTags, PickPath, PrevFiles, PrevState, StateRead,
                    StateWrite};
@@ -204,7 +204,7 @@ pub struct ConfigFile {
   options: Options,
   #[serde(default)]
   projects: Vec<Project>,
-  #[serde(deserialize_with = "deserialize_sizes", default)]
+  #[serde(deserialize_with = "deser_sizes", default)]
   sizes: HashMap<String, Size>
 }
 
@@ -319,11 +319,10 @@ pub struct Project {
   #[serde(default)]
   excludes: Vec<String>,
   #[serde(default)]
-  depends: Vec<ProjectId>,
+  depends: HashMap<ProjectId, Depends>,
   changelog: Option<String>,
-  #[serde(deserialize_with = "deserialize_version")]
   version: Location,
-  #[serde(default, deserialize_with = "deserialize_labels")]
+  #[serde(default, deserialize_with = "deser_labels")]
   labels: Vec<String>,
   tag_prefix: Option<String>,
   #[serde(default)]
@@ -335,7 +334,7 @@ pub struct Project {
 impl Project {
   pub fn id(&self) -> &ProjectId { &self.id }
   pub fn name(&self) -> &str { &self.name }
-  pub fn depends(&self) -> &[ProjectId] { &self.depends }
+  pub fn depends(&self) -> &HashMap<ProjectId, Depends> { &self.depends }
   pub fn root(&self) -> Option<&String> { self.root.as_ref().and_then(|r| if r == "." { None } else { Some(r) }) }
   pub fn hooks(&self) -> &HookSet { &self.hooks }
   pub fn labels(&self) -> &[String] { &self.labels }
@@ -367,7 +366,7 @@ impl Project {
   pub fn tag_prefix(&self) -> &Option<String> { &self.tag_prefix }
   pub fn tag_majors(&self) -> Option<&[u32]> { self.version.tag_majors() }
 
-  pub fn write_changelog(&self, write: &mut StateWrite, cl: &Changelog) -> Result<Option<PathBuf>> {
+  pub fn write_changelog(&self, write: &mut StateWrite, cl: &Changelog, new_vers: &str) -> Result<Option<PathBuf>> {
     if cl.is_empty() {
       return Ok(None);
     }
@@ -375,7 +374,7 @@ impl Project {
     if let Some(log_path) = self.changelog().as_ref() {
       let log_path = Path::new(log_path.as_ref()).to_path_buf();
       let old_content = extract_old_content(&log_path)?;
-      write.write_file(log_path.clone(), construct_changelog_html(cl, old_content)?, self.id())?;
+      write.write_file(log_path.clone(), construct_changelog_html(cl, new_vers, old_content)?, self.id())?;
       Ok(Some(log_path))
     } else {
       Ok(None)
@@ -547,6 +546,75 @@ impl Project {
   }
 }
 
+#[derive(Deserialize, Debug, Clone)]
+pub struct Depends {
+  #[serde(default)]
+  files: Vec<Location>,
+  #[serde(default = "default_relative_size")]
+  size: RelativeSize
+}
+
+impl Depends {
+  pub fn write_values(
+    &self, write: &mut StateWrite, root: Option<&String>, val: &str, proj_id: &ProjectId
+  ) -> Result<()> {
+    for file in &self.files {
+      file.write_value(write, root, val, proj_id)?;
+    }
+    Ok(())
+  }
+
+  pub fn size(&self) -> &RelativeSize { &self.size }
+}
+
+fn default_relative_size() -> RelativeSize { RelativeSize::Match }
+
+#[derive(Debug, Clone)]
+pub enum RelativeSize {
+  Match,
+  Exact(Size)
+}
+
+impl<'de> Deserialize<'de> for RelativeSize {
+  fn deserialize<D: Deserializer<'de>>(desr: D) -> std::result::Result<RelativeSize, D::Error> {
+    struct StrVisitor;
+
+    type DeResult<E> = std::result::Result<RelativeSize, E>;
+
+    impl<'de> Visitor<'de> for StrVisitor {
+      type Value = RelativeSize;
+
+      fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result { formatter.write_str("a relative size") }
+
+      fn visit_str<E: de::Error>(self, v: &str) -> DeResult<E> {
+        match v {
+          "match" => Ok(RelativeSize::Match),
+          "major" => Ok(RelativeSize::Exact(Size::Major)),
+          "minor" => Ok(RelativeSize::Exact(Size::Minor)),
+          "patch" => Ok(RelativeSize::Exact(Size::Patch)),
+          "none" => Ok(RelativeSize::Exact(Size::None)),
+          _ => Err(E::invalid_value(Unexpected::Str(v), &self))
+        }
+      }
+    }
+
+    desr.deserialize_str(StrVisitor)
+  }
+}
+
+impl RelativeSize {
+  pub fn convert(&self, size: Size) -> Size {
+    if size == Size::Empty {
+      Size::Empty
+    } else {
+      match self {
+        Self::Match => size,
+        Self::Exact(s) => *s
+      }
+    }
+  }
+}
+
 #[derive(Clone, Debug)]
 pub struct HookSet {
   hooks: HashMap<String, Hook>
@@ -636,11 +704,11 @@ fn expand_excludes(excludes: &[String], sub: &SubExtent) -> Vec<String> {
   result
 }
 
-fn expand_depends(depends: &[ProjectId], sub: &SubExtent) -> Vec<ProjectId> {
+fn expand_depends(depends: &HashMap<ProjectId, Depends>, sub: &SubExtent) -> HashMap<ProjectId, Depends> {
   if sub.is_largest() {
-    depends.to_vec()
+    depends.clone()
   } else {
-    Vec::new()
+    HashMap::new()
   }
 }
 
@@ -666,8 +734,8 @@ impl SubExtent {
   pub fn majors(&self) -> &[u32] { &self.majors }
 }
 
-#[derive(Clone, Deserialize, Debug)]
-#[serde(untagged)]
+#[derive(Clone, Debug)]
+// #[serde(untagged)]
 enum Location {
   File(FileLocation),
   Tag(TagLocation)
@@ -715,6 +783,98 @@ impl Location {
       Location::File(l) => &l.picker,
       _ => panic!("Not a file location")
     }
+  }
+}
+
+impl<'de> Deserialize<'de> for Location {
+  fn deserialize<D: Deserializer<'de>>(desr: D) -> std::result::Result<Location, D::Error> {
+    struct VecPartSeed;
+
+    impl<'de> DeserializeSeed<'de> for VecPartSeed {
+      type Value = Vec<Part>;
+      fn deserialize<D>(self, deslr: D) -> std::result::Result<Self::Value, D::Error>
+      where
+        D: Deserializer<'de>
+      {
+        deserialize_parts(deslr)
+      }
+    }
+
+    struct LocatorVisitor;
+
+    impl<'de> Visitor<'de> for LocatorVisitor {
+      type Value = Location;
+
+      fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result { formatter.write_str("a version location") }
+
+      fn visit_map<V>(self, mut map: V) -> std::result::Result<Self::Value, V::Error>
+      where
+        V: MapAccess<'de>
+      {
+        let mut file: Option<String> = None;
+        let mut pattern: Option<String> = None;
+        let mut parts: Option<Vec<Part>> = None;
+        let mut tags: Option<TagSpec> = None;
+        let mut code: Option<String> = None;
+        let mut format: Option<String> = None;
+
+        while let Some(key) = map.next_key::<String>()? {
+          match key.as_str() {
+            "file" => {
+              file = Some(map.next_value()?);
+            }
+            "tags" => {
+              tags = Some(map.next_value()?);
+            }
+            "json" | "yaml" | "toml" | "xml" => {
+              code = Some(key);
+              parts = Some(map.next_value_seed(VecPartSeed)?);
+            }
+            "pattern" => {
+              pattern = Some(map.next_value()?);
+            }
+            "format" => {
+              format = Some(map.next_value()?);
+            }
+            other => return Err(de::Error::invalid_value(Unexpected::Str(other), &"a location key"))
+          }
+        }
+
+        if let Some(file) = file {
+          if tags.is_some() {
+            Err(de::Error::custom("cant have both 'file' and 'tags' for location"))
+          } else if pattern.is_none() && parts.is_none() {
+            Ok(Location::File(FileLocation { file, format, picker: Picker::File(FilePicker {}) }))
+          } else if let Some(pattern) = pattern {
+            if parts.is_some() {
+              Err(de::Error::custom("can't have both 'pattern' and parts field"))
+            } else {
+              Ok(Location::File(FileLocation { file, format, picker: Picker::Line(LinePicker::new(pattern)) }))
+            }
+          } else {
+            let parts = parts.unwrap();
+            let loc = match code.unwrap().as_str() {
+              "json" => Location::File(FileLocation { file, format, picker: Picker::Json(ScanningPicker::new(parts)) }),
+              "yaml" => Location::File(FileLocation { file, format, picker: Picker::Yaml(ScanningPicker::new(parts)) }),
+              "toml" => Location::File(FileLocation { file, format, picker: Picker::Toml(ScanningPicker::new(parts)) }),
+              "xml" => Location::File(FileLocation { file, format, picker: Picker::Xml(ScanningPicker::new(parts)) }),
+              other => return Err(de::Error::custom(format!("unrecognized part {}", other)))
+            };
+            Ok(loc)
+          }
+        } else if let Some(tags) = tags {
+          if format.is_some() {
+            Err(de::Error::custom("cant have 'format' in 'tags' location"))
+          } else {
+            Ok(Location::Tag(TagLocation { tags }))
+          }
+        } else {
+          Err(de::Error::custom("must have 'file' or 'tags' for location"))
+        }
+      }
+    }
+
+    desr.deserialize_map(LocatorVisitor)
   }
 }
 
@@ -775,13 +935,25 @@ impl MajorTagSpec {
 struct FileLocation {
   file: String,
   #[serde(flatten)]
-  picker: Picker
+  picker: Picker,
+  format: Option<String>
 }
 
 impl FileLocation {
   pub fn write_value(&self, write: &mut StateWrite, root: Option<&String>, vers: &str, id: &ProjectId) -> Result<()> {
     let file = self.rooted(root);
-    write.update_mark(PickPath::new(file, self.picker.clone()), vers.to_string(), id)
+    let val = self.format_vers(vers)?;
+    write.update_mark(PickPath::new(file, self.picker.clone()), val, id)
+  }
+
+  fn format_vers(&self, vers: &str) -> Result<String> {
+    if let Some(format) = &self.format {
+      let tmpl = ParserBuilder::with_stdlib().build()?.parse(format)?;
+      let globals = liquid::object!({ "v": vers });
+      Ok(tmpl.render(&globals)?)
+    } else {
+      Ok(vers.to_string())
+    }
   }
 
   pub fn read_value<S: StateRead>(&self, read: &S, root: Option<&String>) -> Result<String> {
@@ -945,89 +1117,7 @@ fn default_includes() -> Vec<String> { vec!["**/*".into()] }
 fn default_prev_tag() -> String { "versio-prev".into() }
 fn default_branch() -> Option<String> { None }
 
-fn deserialize_version<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<Location, D::Error> {
-  struct VecPartSeed;
-
-  impl<'de> DeserializeSeed<'de> for VecPartSeed {
-    type Value = Vec<Part>;
-    fn deserialize<D>(self, deslr: D) -> std::result::Result<Self::Value, D::Error>
-    where
-      D: Deserializer<'de>
-    {
-      deserialize_parts(deslr)
-    }
-  }
-
-  struct LocatorVisitor;
-
-  impl<'de> Visitor<'de> for LocatorVisitor {
-    type Value = Location;
-
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result { formatter.write_str("a version location") }
-
-    fn visit_map<V>(self, mut map: V) -> std::result::Result<Self::Value, V::Error>
-    where
-      V: MapAccess<'de>
-    {
-      let mut file: Option<String> = None;
-      let mut pattern: Option<String> = None;
-      let mut parts: Option<Vec<Part>> = None;
-      let mut tags: Option<TagSpec> = None;
-      let mut code: Option<String> = None;
-
-      while let Some(key) = map.next_key::<String>()? {
-        match key.as_str() {
-          "file" => {
-            file = Some(map.next_value()?);
-          }
-          "tags" => {
-            tags = Some(map.next_value()?);
-          }
-          "json" | "yaml" | "toml" | "xml" => {
-            code = Some(key);
-            parts = Some(map.next_value_seed(VecPartSeed)?);
-          }
-          "pattern" => {
-            pattern = Some(map.next_value()?);
-          }
-          other => return Err(de::Error::invalid_value(Unexpected::Str(other), &"a location key"))
-        }
-      }
-
-      if let Some(file) = file {
-        if tags.is_some() {
-          Err(de::Error::custom("cant have both 'file' and 'tags' for location"))
-        } else if pattern.is_none() && parts.is_none() {
-          Ok(Location::File(FileLocation { file, picker: Picker::File(FilePicker {}) }))
-        } else if let Some(pattern) = pattern {
-          if parts.is_some() {
-            Err(de::Error::custom("can't have both 'pattern' and parts field"))
-          } else {
-            Ok(Location::File(FileLocation { file, picker: Picker::Line(LinePicker::new(pattern)) }))
-          }
-        } else {
-          let parts = parts.unwrap();
-          let loc = match code.unwrap().as_str() {
-            "json" => Location::File(FileLocation { file, picker: Picker::Json(ScanningPicker::new(parts)) }),
-            "yaml" => Location::File(FileLocation { file, picker: Picker::Yaml(ScanningPicker::new(parts)) }),
-            "toml" => Location::File(FileLocation { file, picker: Picker::Toml(ScanningPicker::new(parts)) }),
-            "xml" => Location::File(FileLocation { file, picker: Picker::Xml(ScanningPicker::new(parts)) }),
-            other => return Err(de::Error::custom(format!("unrecognized part {}", other)))
-          };
-          Ok(loc)
-        }
-      } else if let Some(tags) = tags {
-        Ok(Location::Tag(TagLocation { tags }))
-      } else {
-        Err(de::Error::custom("must have 'file' or 'tags' for location"))
-      }
-    }
-  }
-
-  desr.deserialize_map(LocatorVisitor)
-}
-
-fn deserialize_labels<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<Vec<String>, D::Error> {
+fn deser_labels<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<Vec<String>, D::Error> {
   struct StringsVisitor;
   type T = Vec<String>;
 
@@ -1048,7 +1138,7 @@ fn deserialize_labels<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result
   desr.deserialize_any(StringsVisitor)
 }
 
-fn deserialize_sizes<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<HashMap<String, Size>, D::Error> {
+fn deser_sizes<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<HashMap<String, Size>, D::Error> {
   struct MapVisitor;
 
   impl<'de> Visitor<'de> for MapVisitor {
@@ -1133,55 +1223,73 @@ fn extract_old_content(path: &Path) -> Result<String> {
   Ok(content)
 }
 
-fn construct_changelog_html(cl: &Changelog, old_content: String) -> Result<String> {
+fn construct_changelog_html(cl: &Changelog, new_vers: &str, old_content: String) -> Result<String> {
   let tmpl = include_str!("tmpl/changelog.liquid");
   let tmpl = ParserBuilder::with_stdlib().build()?.parse(tmpl)?;
   let nowymd = Utc::now().format("%Y-%m-%d").to_string();
 
-  let pr_count = cl.entries().iter().filter(|(pr, _)| pr.commits().iter().any(|c| c.included())).count();
+  let pr_count = cl
+    .entries()
+    .iter()
+    .filter(|entry| match entry {
+      ChangelogEntry::Pr(pr, _) => pr.commits().iter().any(|c| c.included()),
+      _ => false
+    })
+    .count();
 
   let mut prs = Vec::new();
-  for (pr, size) in cl.entries() {
-    if !pr.commits().iter().any(|c| c.included()) {
-      continue;
-    }
+  let mut dps = Vec::new();
 
-    let mut commits = Vec::new();
-    for c in pr.commits().iter().filter(|c| c.included()) {
-      commits.push(liquid::object!({
-        "href": c.url().as_deref().unwrap_or(""),
-        "link": c.url().is_some(),
-        "shorthash": c.oid()[.. 7].to_string(),
-        "size": c.size().to_string(),
-        "summary": c.summary(),
-        "message": c.message().trim()
-      }));
-    }
+  for entry in cl.entries() {
+    match entry {
+      ChangelogEntry::Pr(pr, size) => {
+        if !pr.commits().iter().any(|c| c.included()) {
+          continue;
+        }
 
-    let pr_name = if pr.number() == 0 {
-      if pr_count == 1 {
-        "Commits".to_string()
-      } else {
-        "Other commits".to_string()
+        let mut commits = Vec::new();
+        for c in pr.commits().iter().filter(|c| c.included()) {
+          commits.push(liquid::object!({
+            "href": c.url().as_deref().unwrap_or(""),
+            "link": c.url().is_some(),
+            "shorthash": c.oid()[.. 7].to_string(),
+            "size": c.size().to_string(),
+            "summary": c.summary(),
+            "message": c.message().trim()
+          }));
+        }
+
+        let pr_name = if pr.number() == 0 {
+          if pr_count == 1 {
+            "Commits".to_string()
+          } else {
+            "Other commits".to_string()
+          }
+        } else {
+          format!("PR {}", pr.number())
+        };
+
+        prs.push(liquid::object!({
+          "title": pr.title(),
+          "name": pr_name,
+          "size": size.to_string(),
+          "href": pr.url().as_deref().unwrap_or(""),
+          "link": pr.number() > 0 && pr.url().is_some(),
+          "commits": commits
+        }));
       }
-    } else {
-      format!("PR {}", pr.number())
-    };
-
-    prs.push(liquid::object!({
-      "title": pr.title(),
-      "name": pr_name,
-      "size": size.to_string(),
-      "href": pr.url().as_deref().unwrap_or(""),
-      "link": pr.number() > 0 && pr.url().is_some(),
-      "commits": commits
-    }));
+      ChangelogEntry::Dep(proj_id) => {
+        dps.push(proj_id.to_string());
+      }
+    }
   }
 
   let globals = liquid::object!({
     "release": {
       "date": nowymd,
-      "prs": prs
+      "prs": prs,
+      "deps": dps,
+      "version": new_vers
     },
     "old_content": old_content,
     "content_marker": format!("CONTENT {}", nowymd)

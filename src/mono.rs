@@ -1,7 +1,7 @@
 //! A monorepo can read and alter the current state of all projects.
 
 use crate::analyze::{analyze, Analysis};
-use crate::config::{Config, ConfigFile, FsConfig, Project, ProjectId, Size};
+use crate::config::{Config, ConfigFile, Depends, FsConfig, Project, ProjectId, Size};
 use crate::either::{IterEither2 as E2, IterEither3 as E3};
 use crate::errors::Result;
 use crate::git::{Auth, CommitInfoBuf, FromTag, FromTagBuf, FullPr, GithubInfo, Repo};
@@ -91,6 +91,17 @@ impl Mono {
     self.current.get_project(id).ok_or_else(|| bad!("No such project {}", id))
   }
 
+  pub fn write_chains(&mut self, ids: &[(ProjectId, ProjectId)], vers: &HashMap<ProjectId, String>) -> Result<()> {
+    for (id, dpid) in ids {
+      let dproj =
+        self.current.get_project(dpid).ok_or_else(|| bad!("No such dependent {} project for {}.", dpid, id))?;
+      let deps = dproj.depends().get(id).ok_or_else(|| bad!("No such depends {} in project {}.", id, dpid))?;
+      let val = vers.get(id).ok_or_else(|| bad!("No new value for {}.", id))?;
+      deps.write_values(&mut self.next, dproj.root(), &val, dpid)?;
+    }
+    Ok(())
+  }
+
   pub fn diff(&self) -> Result<Analysis> {
     let prev_config = self.current.slice_to_prev(&self.repo)?;
 
@@ -124,8 +135,8 @@ impl Mono {
     self.do_project_write(id, move |p, n| p.forward_tag(n, val))
   }
 
-  pub fn write_changelog(&mut self, id: &ProjectId, changelog: &Changelog) -> Result<Option<PathBuf>> {
-    self.do_project_write(id, move |p, n| p.write_changelog(n, changelog))
+  pub fn write_changelog(&mut self, id: &ProjectId, changelog: &Changelog, new_vers: &str) -> Result<Option<PathBuf>> {
+    self.do_project_write(id, move |p, n| p.write_changelog(n, changelog, new_vers))
   }
 
   fn do_project_write<F, T>(&mut self, id: &ProjectId, f: F) -> Result<T>
@@ -280,22 +291,30 @@ fn pr_keyed_files<'a>(repo: &'a Repo, pr: FullPr) -> impl Iterator<Item = Result
 
 pub struct Plan {
   incrs: HashMap<ProjectId, (Size, Changelog)>, // proj ID, incr size, changelog
-  ineffective: Vec<LoggedPr>                    // PRs that didn't apply to any project
+  ineffective: Vec<LoggedPr>,                   // PRs that didn't apply to any project
+  chain_writes: Vec<(ProjectId, ProjectId)>
 }
 
 impl Plan {
   pub fn incrs(&self) -> &HashMap<ProjectId, (Size, Changelog)> { &self.incrs }
   pub fn ineffective(&self) -> &[LoggedPr] { &self.ineffective }
+  pub fn chain_writes(&self) -> &[(ProjectId, ProjectId)] { &self.chain_writes }
 }
 
 pub struct Changelog {
-  entries: Vec<(LoggedPr, Size)>
+  entries: Vec<ChangelogEntry>
+}
+
+pub enum ChangelogEntry {
+  Pr(LoggedPr, Size),
+  Dep(ProjectId)
 }
 
 impl Changelog {
   pub fn empty() -> Changelog { Changelog { entries: Vec::new() } }
-  pub fn entries(&self) -> &[(LoggedPr, Size)] { &self.entries }
-  pub fn add_entry(&mut self, pr: LoggedPr, size: Size) { self.entries.push((pr, size)); }
+  pub fn entries(&self) -> &[ChangelogEntry] { &self.entries }
+  pub fn add_entry(&mut self, pr: LoggedPr, size: Size) { self.entries.push(ChangelogEntry::Pr(pr, size)); }
+  pub fn add_dep(&mut self, id: ProjectId) { self.entries.push(ChangelogEntry::Dep(id)); }
   pub fn is_empty(&self) -> bool { self.entries.is_empty() }
 }
 
@@ -361,7 +380,8 @@ struct PlanBuilder<'s> {
   current: &'s ConfigFile,
   incrs: HashMap<ProjectId, (Size, Changelog)>, // proj ID, incr size, changelog
   ineffective: Vec<LoggedPr>,                   // PRs that didn't apply to any project
-  github_info: Option<GithubInfo>
+  github_info: Option<GithubInfo>,
+  chain_writes: Vec<(ProjectId, ProjectId)>
 }
 
 impl<'s> PlanBuilder<'s> {
@@ -376,7 +396,8 @@ impl<'s> PlanBuilder<'s> {
       current,
       incrs: HashMap::new(),
       ineffective: Vec::new(),
-      github_info
+      github_info,
+      chain_writes: Vec::new()
     };
     Ok(builder)
   }
@@ -475,29 +496,34 @@ impl<'s> PlanBuilder<'s> {
     // Use a modified Kahn's algorithm to traverse deps in order.
     let mut queue: VecDeque<ProjectId> = VecDeque::new();
 
-    let mut dependents: HashMap<ProjectId, HashSet<ProjectId>> = HashMap::new();
+    let mut dependents: HashMap<ProjectId, HashMap<ProjectId, Depends>> = HashMap::new();
     for project in self.current.projects() {
-      for dep in project.depends() {
-        dependents.entry(dep.clone()).or_insert_with(HashSet::new).insert(project.id().clone());
+      for (dep_id, dep) in project.depends() {
+        dependents.entry(dep_id.clone()).or_insert_with(HashMap::new).insert(project.id().clone(), dep.clone());
       }
 
       if project.depends().is_empty() {
-        self.incrs.entry(project.id().clone()).or_insert((Size::Empty, Changelog::empty()));
         queue.push_back(project.id().clone());
       }
     }
 
     while let Some(id) = queue.pop_front() {
-      let size = self.incrs.get(&id).unwrap().0;
-      let depds: Option<HashSet<ProjectId>> = dependents.get(&id).cloned();
+      let size = self.incrs.get(&id).map(|s| s.0).unwrap_or(Size::Empty);
+      let depds: Option<HashMap<ProjectId, Depends>> = dependents.get(&id).cloned();
       if let Some(depds) = depds {
-        for depd in depds {
-          dependents.get_mut(&id).unwrap().remove(&depd);
-          let val = &mut self.incrs.entry(depd.clone()).or_insert((Size::Empty, Changelog::empty())).0;
-          *val = max(*val, size);
+        for (depd_id, dep) in depds {
+          dependents.get_mut(&id).unwrap().remove(&depd_id);
+          let converted_size = dep.size().convert(size);
+          if converted_size > Size::Empty {
+            let (val, ch_log) = &mut self.incrs.entry(depd_id.clone()).or_insert((Size::Empty, Changelog::empty()));
+            *val = max(*val, converted_size);
+            ch_log.add_dep(id.clone());
+          }
 
-          if dependents.values().all(|ds| !ds.contains(&depd)) {
-            queue.push_back(depd);
+          self.chain_writes.push((id.clone(), depd_id.clone()));
+
+          if dependents.values().all(|ds| !ds.contains_key(&depd_id)) {
+            queue.push_back(depd_id);
           }
         }
       }
@@ -508,23 +534,36 @@ impl<'s> PlanBuilder<'s> {
 
   pub fn sort_and_dedup(&mut self) -> Result<()> {
     for (.., changelog) in self.incrs.values_mut() {
-      changelog.entries.sort_by(|(pr1, _), (pr2, _)| pr2.discovery_order().cmp(&pr1.discovery_order()));
+      changelog.entries.sort_by(|entry1, entry2| match entry1 {
+        ChangelogEntry::Pr(pr1, _) => match entry2 {
+          ChangelogEntry::Pr(pr2, _) => pr2.discovery_order().cmp(&pr1.discovery_order()),
+          _ => Ordering::Greater
+        },
+        ChangelogEntry::Dep(pr_id1) => match entry2 {
+          ChangelogEntry::Dep(pr_id2) => pr_id1.to_string().cmp(&pr_id2.to_string()),
+          _ => Ordering::Less
+        }
+      });
 
       let mut seen_commits = HashSet::new();
-      for (pr, size) in &mut changelog.entries {
-        for LoggedCommit { oid, duplicate, .. } in &mut pr.commits {
-          if seen_commits.contains(oid) {
-            *duplicate = true;
+      for entry in &mut changelog.entries {
+        if let ChangelogEntry::Pr(pr, size) = entry {
+          for LoggedCommit { oid, duplicate, .. } in &mut pr.commits {
+            if seen_commits.contains(oid) {
+              *duplicate = true;
+            }
+            seen_commits.insert(oid.clone());
           }
-          seen_commits.insert(oid.clone());
+          *size = pr.commits().iter().filter(|c| c.included()).map(|c| c.size).max().unwrap_or(Size::Empty);
         }
-        *size = pr.commits().iter().filter(|c| c.included()).map(|c| c.size).max().unwrap_or(Size::Empty);
       }
     }
     Ok(())
   }
 
-  pub fn build(self) -> Plan { Plan { incrs: self.incrs, ineffective: self.ineffective } }
+  pub fn build(self) -> Plan {
+    Plan { incrs: self.incrs, ineffective: self.ineffective, chain_writes: self.chain_writes }
+  }
 }
 
 struct LastCommitBuilder<'s, C: StateRead> {
