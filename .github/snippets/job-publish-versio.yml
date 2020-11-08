@@ -5,17 +5,20 @@ value:
     matrix:
       include:
         - os: ubuntu-latest
-          target: x86_64-unknown-linux-gnu
+          target: 'x86_64-unknown-linux-gnu'
           root: '.'
           rustflags: '-D warnings -C link-args=-s'
+          bin_name: 'versio'
         - os: macos-latest
-          target: x86_64-apple-darwin
+          target: 'x86_64-apple-darwin'
           root: '.'
           rustflags: '-D warnings'
+          bin_name: 'versio'
         - os: windows-latest
-          target: x86_64-pc-win32
+          target: 'x86_64-pc-win32.exe'
           root: '.'
           rustflags: '-D warnings'
+          bin_name: 'versio.exe'
   if: SNIPPET_not-skip-ci
   runs-on: ${{ matrix.os }}
   steps:
@@ -33,6 +36,6 @@ value:
       uses: actions/upload-release-asset@v1
       with:
         upload_url: ${{ needs.github-publish.outputs.upload_url }}
-        asset_path: ./target/release/versio
+        asset_path: target/release/{{ matrix.bin_name }}
         asset_name: versio__${{ matrix.target }}
         asset_content_type: application/octet-stream

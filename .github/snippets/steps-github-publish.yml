@@ -30,7 +30,7 @@ value:
 
         **MacOS:** download `versio__x86_64-apple-darwin`, copy to `versio` in your PATH.
         **GNU Linux 64:** download `versio__x86_64-unknown-linux-gnu`, copy to `versio` in your PATH.
-        **Windows:** download `versio__x86_64-pc-win32`, copy to `versio` in your %PATH.
+        **Windows:** download `versio__x86_64-pc-win32.exe`, copy to `versio.exe` in your %PATH.
       draft: true
       prerelease: false
       commitish: main
