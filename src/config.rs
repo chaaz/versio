@@ -1290,7 +1290,7 @@ fn construct_changelog_html(cl: &Changelog, new_vers: &str, old_content: String)
 
 #[cfg(test)]
 mod test {
-  use super::{ConfigFile, FileLocation, Location, Picker, Project, ProjectId, ScanningPicker, Size};
+  use super::{ConfigFile, FileLocation, HashMap, Location, Picker, Project, ProjectId, ScanningPicker, Size};
   use crate::scan::parts::Part;
 
   #[test]
@@ -1334,7 +1334,7 @@ projects:
 
   - name: "build image"
     id: 4
-    depends: [2, 3]
+    depends: { 2: { size: match }, 3: { size: match } }
     version:
       file: "build/VERSION""#;
 
@@ -1480,11 +1480,12 @@ sizes:
       root: Some("base".into()),
       includes: vec!["**/*".into()],
       excludes: Vec::new(),
-      depends: Vec::new(),
+      depends: HashMap::new(),
       changelog: None,
       version: Location::File(FileLocation {
         file: "package.json".into(),
-        picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())]))
+        picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())])),
+        format: None
       }),
       tag_prefix: None,
       labels: Default::default(),
@@ -1504,11 +1505,12 @@ sizes:
       root: Some("base".into()),
       includes: vec!["**/*".into()],
       excludes: vec!["internal/**/*".into()],
-      depends: Vec::new(),
+      depends: HashMap::new(),
       changelog: None,
       version: Location::File(FileLocation {
         file: "package.json".into(),
-        picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())]))
+        picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())])),
+        format: None
       }),
       tag_prefix: None,
       labels: Default::default(),
@@ -1527,11 +1529,12 @@ sizes:
       root: Some("base".into()),
       includes: vec![],
       excludes: vec!["internal/**/*".into()],
-      depends: Vec::new(),
+      depends: HashMap::new(),
       changelog: None,
       version: Location::File(FileLocation {
         file: "package.json".into(),
-        picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())]))
+        picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())])),
+        format: None
       }),
       tag_prefix: None,
       labels: Default::default(),
