@@ -742,12 +742,7 @@ enum Location {
 }
 
 impl Location {
-  pub fn is_tags(&self) -> bool {
-    match self {
-      Location::Tag(_) => true,
-      _ => false
-    }
-  }
+  pub fn is_tags(&self) -> bool { matches!(self, Location::Tag(_)) }
 
   pub fn tag_majors(&self) -> Option<&[u32]> {
     match self {
@@ -770,12 +765,7 @@ impl Location {
     }
   }
 
-  pub fn is_tag(&self) -> bool {
-    match self {
-      Location::Tag(..) => true,
-      _ => false
-    }
-  }
+  pub fn is_tag(&self) -> bool { matches!(self, Location::Tag(..)) }
 
   #[cfg(test)]
   pub fn picker(&self) -> &Picker {

@@ -67,12 +67,7 @@ fn scan_xml<P: IntoPartVec>(data: &str, loc: P) -> Result<Mark> {
   bail!("Couldn't find version at end of XML: still expecting {:?}", parts)
 }
 
-fn is_ending(end: &ElementEnd) -> bool {
-  match end {
-    ElementEnd::Close(..) | ElementEnd::Empty => true,
-    _ => false
-  }
-}
+fn is_ending(end: &ElementEnd) -> bool { matches!(end, ElementEnd::Close(..) | ElementEnd::Empty) }
 
 #[cfg(test)]
 mod test {
