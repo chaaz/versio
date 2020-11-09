@@ -19,7 +19,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
       - name: Get versio
-        uses: chaaz/versio-actions/install@v1
+        uses: chaaz/versio-actions/install@v1.1
       - name: Find cargo matrix
         id: find-cargo-matrix
         run: "echo \"::set-output name=matrix::{\\\"include\\\":$(versio -l none info -l cargo -R -N)}\""
@@ -33,7 +33,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
       - name: Get versio
-        uses: chaaz/versio-actions/install@v1
+        uses: chaaz/versio-actions/install@v1.1
       - name: Fetch history
         run: git fetch --unshallow
       - name: Check projects
@@ -86,7 +86,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
       - name: Get versio
-        uses: chaaz/versio-actions/install@v1
+        uses: chaaz/versio-actions/install@v1.1
       - name: Get cargo stable
         uses: actions-rs/toolchain@v1
         with:
@@ -152,7 +152,7 @@ jobs:
         with:
           ref: main
       - name: Get versio
-        uses: chaaz/versio-actions/install@v1
+        uses: chaaz/versio-actions/install@v1.1
       - name: Find version
         id: find-version
         run: "echo ::set-output name=version::$(versio -l none info -i 0 -F | jq -r '.[0].full_version')"
@@ -220,6 +220,6 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: "${{ needs.github-publish.outputs.upload_url }}"
-          asset_path: "target/release/{{ matrix.bin_name }}"
+          asset_path: "target/release/${{ matrix.bin_name }}"
           asset_name: "versio__${{ matrix.target }}"
           asset_content_type: application/octet-stream

@@ -5,7 +5,7 @@ value:
     with:
       ref: main
   - name: Get versio
-    uses: chaaz/versio-actions/install@v1
+    uses: chaaz/versio-actions/install@v1.1
   - name: Find version
     id: find-version
     run: 'echo ::set-output name=version::$(versio -l none info -i 0 -F | jq -r ''.[0].full_version'')'

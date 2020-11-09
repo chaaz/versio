@@ -6,7 +6,7 @@ value:
     - name: Checkout code
       uses: actions/checkout@v2
     - name: Get versio
-      uses: chaaz/versio-actions/install@v1
+      uses: chaaz/versio-actions/install@v1.1
     - name: Fetch history
       run: git fetch --unshallow
     - name: Check projects
