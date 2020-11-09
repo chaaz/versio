@@ -153,6 +153,11 @@ file with each of those projects listed. If you change later add,
 remove, or change the location of your projects, you should edit this
 file by hand to keep it up-to-date.
 
+The `init` command will not scan hidden directories or file, or
+directories or files listed in any `.gitignore` files. If you want to
+include projects in hidden or ignored locations, you'll have to add
+those by hand to the resulting `.versio.yaml` file.
+
 ## CI/CD
 
 ### GitHub Action Matrixes

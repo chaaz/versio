@@ -194,7 +194,9 @@ along with their options and flags. You can always use `versio help` or
   It will search the repository for projects, and create a new
   `.versio.yaml` config based on what it finds. It will also append
   `/.versio-paused` to your `.gitignore` file, as a safety measure while
-  using the `release --pause` command.
+  using the `release --pause` command. `init` will skip any hidden
+  directories and files, as well as directories and files listed in
+  `.gitignore` files.
 
 ## Common project types
 [Common project types]: #common-project-types
@@ -240,6 +242,9 @@ projects:
     version:
       file: "package.json"
       json: "version"
+    also:
+      - file: "README.md"
+        pattern: "This is proj_1 version (\d+\.\d+\.\d+)"
     hooks:
       post_write: ./bin/my_script.sh --auto
 
@@ -248,6 +253,12 @@ projects:
     root: "proj_2"
     tag_prefix: ""
     labels: go
+    depends:
+      1:
+        size: match
+        files:
+          - file: 'go.mod'
+            pattern: 'myreg.io/proj_1 v(\d+\.\d+\.\d+)'
     version:
       tags:
         default: "0.0.0"
@@ -295,6 +306,8 @@ sizes:
     created/updated.
   - `version`: The location of the project version. See "Version config"
     below.
+  - `also`: Additional locations where the project version should be
+    written.
   - `tag_prefix`: (optional) (required when using version tags) The
     prefix to use when reading/writing tags for this project. Not
     providing this will result in no tags being written. Using the empty

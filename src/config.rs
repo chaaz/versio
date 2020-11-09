@@ -322,6 +322,8 @@ pub struct Project {
   depends: HashMap<ProjectId, Depends>,
   changelog: Option<String>,
   version: Location,
+  #[serde(default)]
+  also: Vec<Location>,
   #[serde(default, deserialize_with = "deser_labels")]
   labels: Vec<String>,
   tag_prefix: Option<String>,
@@ -459,7 +461,15 @@ impl Project {
 
   pub fn set_value(&self, write: &mut StateWrite, vers: &str) -> Result<()> {
     self.version.write_value(write, self.root(), vers, &self.id)?;
+    self.set_also(write, vers)?;
     self.forward_tag(write, vers)
+  }
+
+  fn set_also(&self, write: &mut StateWrite, vers: &str) -> Result<()> {
+    for loc in &self.also {
+      loc.write_value(write, self.root(), vers, &self.id)?;
+    }
+    Ok(())
   }
 
   pub fn forward_tag(&self, write: &mut StateWrite, vers: &str) -> Result<()> {
@@ -502,6 +512,7 @@ impl Project {
         depends: expand_depends(&self.depends, &sub),
         changelog: self.changelog.clone(),
         version: expand_version(&self.version, &sub),
+        also: expand_also(&self.also),
         labels: Default::default(),
         tag_prefix: self.tag_prefix.clone(),
         subs: None,
@@ -719,6 +730,8 @@ fn expand_version(version: &Location, sub: &SubExtent) -> Location {
     version.clone()
   }
 }
+
+fn expand_also(also: &[Location]) -> Vec<Location> { also.iter().filter(|l| !l.is_tags()).cloned().collect() }
 
 struct SubExtent {
   dir: Option<String>,
@@ -1487,6 +1500,7 @@ sizes:
         picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())])),
         format: None
       }),
+      also: Vec::new(),
       tag_prefix: None,
       labels: Default::default(),
       hooks: Default::default(),
@@ -1512,6 +1526,7 @@ sizes:
         picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())])),
         format: None
       }),
+      also: Vec::new(),
       tag_prefix: None,
       labels: Default::default(),
       hooks: Default::default(),
@@ -1536,6 +1551,7 @@ sizes:
         picker: Picker::Json(ScanningPicker::new(vec![Part::Map("version".into())])),
         format: None
       }),
+      also: Vec::new(),
       tag_prefix: None,
       labels: Default::default(),
       hooks: Default::default(),
