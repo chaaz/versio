@@ -1,17 +1,16 @@
 //! Simple implementation of the `init` command.
 
 use crate::config::CONFIG_FILENAME;
-use crate::either::IterEither2 as E2;
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::mark::Mark;
 use crate::scan::{find_reg_data, JsonScanner, Scanner, TomlScanner, XmlScanner};
 use error_chain::bail;
-use log::trace;
+use ignore::WalkBuilder;
 use log::warn;
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsStr;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::iter::once;
 use std::path::Path;
 
 pub fn init(max_depth: u16) -> Result<()> {
@@ -19,7 +18,11 @@ pub fn init(max_depth: u16) -> Result<()> {
     bail!("Versio is already initialized.");
   }
 
-  let projs = find_projects(Path::new("."), 0, max_depth)?;
+  let walk = WalkBuilder::new("./").max_depth(Some(max_depth as usize)).build();
+  let projs: Vec<_> = walk
+    .filter_map(|r| r.map_err(Error::from).and_then(|e| find_project(e.file_name(), e.path())).transpose())
+    .collect::<Result<_>>()?;
+
   if projs.is_empty() {
     println!("No projects found.");
   }
@@ -28,131 +31,80 @@ pub fn init(max_depth: u16) -> Result<()> {
   Ok(())
 }
 
-fn append_ignore() -> Result<()> {
-  let mut file = OpenOptions::new().create(true).append(true).open(".gitignore")?;
-  Ok(file.write_all(b"/.versio-paused\n")?)
-}
-
-fn find_projects(dir: &Path, depth: u16, max_depth: u16) -> Result<Vec<ProjSummary>> {
-  trace!("Finding projects in {}", dir.to_string_lossy());
-  if depth > max_depth {
-    return Ok(Vec::new());
-  }
-
-  let here = find_projects_in(dir);
-  let there = find_projects_under(dir, depth, max_depth);
-
-  here.chain(there).collect()
-}
-
-fn find_projects_under(dir: &Path, depth: u16, max_depth: u16) -> impl Iterator<Item = Result<ProjSummary>> {
-  let dir = match dir.read_dir() {
-    Ok(dir) => dir,
-    Err(e) => return E2::A(once(Err(e.into())))
+fn find_project(name: &OsStr, file: &Path) -> Result<Option<ProjSummary>> {
+  let fname = match name.to_str() {
+    Some(n) => n,
+    None => return Ok(None)
   };
 
-  E2::B(
-    dir
-      .filter_map(|e| e.ok())
-      .filter(|e| e.file_name().into_string().map(|n| !n.starts_with('.')).unwrap_or(false))
-      .filter(|e| e.file_type().map(|f| f.is_dir()).unwrap_or(false))
-      .map(|e| e.path())
-      .flat_map(move |p| match find_projects(&p, depth + 1, max_depth) {
-        Ok(proj) => E2::A(proj.into_iter().map(Ok)),
-        Err(e) => E2::B(once(Err(e)))
-      })
-  )
-}
-
-fn extract_name<F: FnOnce(String) -> Result<Mark>>(dir: &Path, file: impl AsRef<Path>, find: F) -> Result<String> {
-  std::fs::read_to_string(&dir.join(file.as_ref()))
-    .map_err(|e| e.into())
-    .and_then(find)
-    .map(|mark| mark.value().to_string())
-}
-
-fn find_projects_in(dir: &Path) -> impl Iterator<Item = Result<ProjSummary>> {
-  let mut summaries = Vec::new();
-
-  if dir.join("package.json").exists() {
-    let name = try_iter!(extract_name(dir, "package.json", |d| JsonScanner::new("name").find(&d)));
-    summaries.push(Ok(ProjSummary::new_file(name, dir.to_string_lossy(), "package.json", "json", "version", &["npm"])));
+  if fname == "package.json" {
+    let name = extract_name(file, |d| JsonScanner::new("name").find(&d))?;
+    let dir = file.parent().unwrap();
+    return Ok(Some(ProjSummary::new_file(name, dir.to_string_lossy(), "package.json", "json", "version", &["npm"])));
   }
 
-  if dir.join("Cargo.toml").exists() {
-    let name = try_iter!(extract_name(dir, "Cargo.toml", |d| TomlScanner::new("package.name").find(&d)));
+  if fname == "Cargo.toml" {
+    let name = extract_name(file, |d| TomlScanner::new("package.name").find(&d))?;
+    let dir = file.parent().unwrap();
     let mut proj =
       ProjSummary::new_file(name, dir.to_string_lossy(), "Cargo.toml", "toml", "package.version", &["cargo"]);
     proj.hook("post_write", "cargo fetch");
-    summaries.push(Ok(proj));
+    return Ok(Some(proj));
   }
 
-  if dir.join("go.mod").exists() {
-    let mut is_subdir = false;
-    if let Some(parent) = dir.parent() {
-      if parent.join("go.mod").exists() {
-        is_subdir = true;
-      }
-    }
+  if fname == "go.mod" {
+    let dir = file.parent().unwrap();
+    let is_subdir = if let Some(parent) = dir.parent() { parent.join("go.mod").exists() } else { false };
     if !is_subdir {
       let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("project");
-      summaries.push(Ok(ProjSummary::new_tags(name, dir.to_string_lossy(), true, &["go"])));
+      return Ok(Some(ProjSummary::new_tags(name, dir.to_string_lossy(), true, &["go"])));
     }
   }
 
-  if dir.join("pom.xml").exists() {
-    let name = try_iter!(extract_name(dir, "pom.xml", |d| XmlScanner::new("project.artifactId").find(&d)));
-    summaries.push(Ok(ProjSummary::new_file(
-      name,
-      dir.to_string_lossy(),
-      "pom.xml",
-      "xml",
-      "project.version",
-      &["mvn"]
-    )));
+  if fname == "pom.xml" {
+    let name = extract_name(file, |d| XmlScanner::new("project.artifactId").find(&d))?;
+    let dir = file.parent().unwrap().to_string_lossy();
+    return Ok(Some(ProjSummary::new_file(name, dir, "pom.xml", "xml", "project.version", &["mvn"])));
   }
 
-  if dir.join("setup.py").exists() {
+  if fname == "setup.py" {
     let name_reg = r#"name *= *['"]([^'"]*)['"]"#;
     let version_reg = r#"version *= *['"](\d+\.\d+\.\d+)['"]"#;
-    let name = try_iter!(extract_name(dir, "setup.py", |d| find_reg_data(&d, &name_reg)));
-    summaries.push(Ok(ProjSummary::new_file(
-      name,
-      dir.to_string_lossy(),
-      "setup.py",
-      "pattern",
-      version_reg,
-      &["pip"]
-    )));
+    let name = extract_name(file, |d| find_reg_data(&d, &name_reg))?;
+    let dir = file.parent().unwrap().to_string_lossy();
+    return Ok(Some(ProjSummary::new_file(name, dir, "setup.py", "pattern", version_reg, &["pip"])));
   }
 
-  if try_iter!(dir.read_dir())
-    .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
-    .any(|n| n.ends_with("*.tf"))
+  if file.is_dir()
+    && file
+      .read_dir()?
+      .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
+      .any(|n| n.ends_with("*.tf"))
   {
-    summaries.push(Ok(ProjSummary::new_tags("terraform", dir.to_string_lossy(), false, &["terraform"])));
+    return Ok(Some(ProjSummary::new_tags("terraform", file.to_string_lossy(), false, &["terraform"])));
   }
 
-  if dir.join("Dockerfile").exists() {
-    summaries.push(Ok(ProjSummary::new_tags("docker", dir.to_string_lossy(), false, &["docker"])));
+  if fname == "Dockerfile" {
+    let dir = file.parent().unwrap();
+    return Ok(Some(ProjSummary::new_tags("docker", dir.to_string_lossy(), false, &["docker"])));
   }
 
-  try_iter!(add_gemspecs(dir, &mut summaries));
+  if let Some(ps) = add_gemspec(fname, file)? {
+    return Ok(Some(ps));
+  }
 
-  E2::B(summaries.into_iter())
+  Ok(None)
 }
 
-fn add_gemspecs(dir: &Path, summaries: &mut Vec<Result<ProjSummary>>) -> Result<()> {
+fn add_gemspec(fname: &str, file: &Path) -> Result<Option<ProjSummary>> {
   let spec_suffix = ".gemspec";
-  for spec_file in dir
-    .read_dir()?
-    .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
-    .filter(|n| n.ends_with(spec_suffix))
-  {
+  if fname.ends_with(spec_suffix) {
     let name_reg = r#"spec\.name *= *['"]([^'"]*)['"]"#;
     let version_reg = r#"spec\.version *= *(\S*)"#;
-    let name = extract_name(dir, &spec_file, |d| find_reg_data(&d, &name_reg))?;
-    let mut vers = extract_name(dir, &spec_file, |d| find_reg_data(&d, &version_reg))?;
+    let name = extract_name(file, |d| find_reg_data(&d, &name_reg))?;
+    let mut vers = extract_name(file, |d| find_reg_data(&d, &version_reg))?;
+    let dir = file.parent().unwrap();
+    let dirn = dir.to_string_lossy();
 
     if (vers.starts_with('"') && vers.ends_with('"')) || (vers.starts_with('\'') && vers.ends_with('\'')) {
       vers = vers[1 .. vers.len() - 1].to_string();
@@ -161,46 +113,30 @@ fn add_gemspecs(dir: &Path, summaries: &mut Vec<Result<ProjSummary>>) -> Result<
     if Mark::new(vers.clone(), 0).validate_version().is_ok() {
       // Sometimes, the version is in the specfile.
       let version_reg = r#"spec\.version *= *['"](\d+\.\d+\.\d+)['"]"#;
-      summaries.push(Ok(ProjSummary::new_file(
-        name,
-        dir.to_string_lossy(),
-        spec_file,
-        "pattern",
-        version_reg,
-        &["gem"]
-      )));
+      return Ok(Some(ProjSummary::new_file(name, dirn, fname, "pattern", version_reg, &["gem"])));
     } else if vers.ends_with("::VERSION") {
       // But other times, the version is in the gem itself i.e. 'MyGem::VERSION'. Search the standard place.
-      let vers_file = Path::new("lib").join(&spec_file[.. spec_file.len() - spec_suffix.len()]).join("version.rb");
+      let vers_file = Path::new("lib").join(&fname[.. fname.len() - spec_suffix.len()]).join("version.rb");
       if dir.join(&vers_file).exists() {
         let version_reg = r#"VERSION *= *['"](\d+\.\d+\.\d+)['"]"#;
-        summaries.push(Ok(ProjSummary::new_file(
-          name,
-          dir.to_string_lossy(),
-          vers_file.to_string_lossy(),
-          "pattern",
-          version_reg,
-          &["gem"]
-        )));
+        let vfn = vers_file.to_string_lossy();
+        return Ok(Some(ProjSummary::new_file(name, dirn, vfn, "pattern", version_reg, &["gem"])));
       } else {
         warn!("Couldn't find VERSION file \"{}\". Please edit the .versio.yaml file.", vers_file.to_string_lossy());
-        summaries.push(Ok(ProjSummary::new_file(
-          name,
-          dir.to_string_lossy(),
-          "EDIT_ME",
-          "pattern",
-          "EDIT_ME",
-          &["gem"]
-        )));
+        return Ok(Some(ProjSummary::new_file(name, dirn, "EDIT_ME", "pattern", "EDIT_ME", &["gem"])));
       }
     } else {
       // Still other times, it's too tough to find.
-      warn!("Couldn't find version in \"{}\" from \"{}\". Please edit the .versio.yaml file.", spec_file, vers);
-      summaries.push(Ok(ProjSummary::new_file(name, dir.to_string_lossy(), "EDIT_ME", "pattern", "EDIT_ME", &["gem"])));
+      warn!("Couldn't find version in \"{}\" from \"{}\". Please edit the .versio.yaml file.", fname, vers);
+      return Ok(Some(ProjSummary::new_file(name, dir.to_string_lossy(), "EDIT_ME", "pattern", "EDIT_ME", &["gem"])));
     }
   }
 
-  Ok(())
+  Ok(None)
+}
+
+fn extract_name<F: FnOnce(String) -> Result<Mark>>(file: &Path, find: F) -> Result<String> {
+  std::fs::read_to_string(file).map_err(|e| e.into()).and_then(find).map(|mark| mark.value().to_string())
 }
 
 fn write_yaml(projs: &[ProjSummary]) -> Result<()> {
@@ -259,6 +195,11 @@ fn generate_yaml(projs: &[ProjSummary]) -> String {
   yaml.push_str("  fail: [\"*\"]\n");
 
   yaml
+}
+
+fn append_ignore() -> Result<()> {
+  let mut file = OpenOptions::new().create(true).append(true).open(".gitignore")?;
+  Ok(file.write_all(b"/.versio-paused\n")?)
 }
 
 struct ProjSummary {

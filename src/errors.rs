@@ -21,6 +21,7 @@ error_chain! {
     Log(log::SetLoggerError);
     Octo(octocrab::Error);
     Liquid(liquid::Error);
+    Ignore(ignore::Error);
   }
 }
 
@@ -47,7 +48,17 @@ macro_rules! try_iter {
   ($arg:expr) => {
     match $arg {
       Ok(x) => x,
-      Err(e) => return E2::A(once(Err(e.into())))
+      Err(e) => return $crate::either::IterEither2::A(once(Err(e.into())))
+    }
+  };
+}
+
+#[macro_export]
+macro_rules! try_iter3 {
+  ($arg:expr) => {
+    match $arg {
+      Ok(x) => x,
+      Err(e) => return E3::B(once(Err(e.into())))
     }
   };
 }
