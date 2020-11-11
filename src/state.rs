@@ -339,9 +339,9 @@ impl PickPath {
   pub fn new(file: PathBuf, picker: Picker) -> PickPath { PickPath { file, picker } }
 
   pub fn write_value(&self, val: &str) -> Result<()> {
-    let data = std::fs::read_to_string(&self.file)?;
+    let data =
+      std::fs::read_to_string(&self.file).chain_err(|| format!("Can't read file {}.", self.file.to_string_lossy()))?;
     let data = NamedData::new(self.file.clone(), data);
-
     let mut mark = self.picker.scan(data)?;
     mark.write_new_value(val)?;
     Ok(())
@@ -349,7 +349,8 @@ impl PickPath {
 }
 
 pub fn read_from_slice<P: AsRef<Path>>(slice: &Slice, path: P) -> Result<String> {
-  let blob = slice.blob(&path.as_ref().to_string_lossy().to_string())?;
-  let cont: &str = std::str::from_utf8(blob.content())?;
+  let path = path.as_ref().to_string_lossy().to_string();
+  let blob = slice.blob(&path)?;
+  let cont: &str = std::str::from_utf8(blob.content()).chain_err(|| format!("Not UTF8: {}", path))?;
   Ok(cont.to_string())
 }

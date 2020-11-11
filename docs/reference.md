@@ -95,6 +95,10 @@ $ versio <global options> [subcommand] <subcommand options>
 - `vcs-level` (`-l`), `vcs-level-min` (`-m`), `vcs-level-max` (`-x`):
   see the [VCS Levels](./vcs_levels.md) page for a description of these
   global options.
+- `no-current` (`-c`): when the calculated vcs level is "local",
+  commands that make no changes (`check`, `get`, `show`, `diff`,
+  `files`, `changes`, `plan`, `info`) will not verify that the repo is
+  current.
 
 ### Subcommands
 [Subcommands]: #subcommands
@@ -139,8 +143,8 @@ along with their options and flags. You can always use `versio help` or
 - `files`: See all files that have changed since the previous version.
 - `plan`: View the update plan.
 - `info`: Outputs a JSON document with information about projects:
-  - `--id` (`-i <ID>`): include an ID'd project in the document (you can
-    provide this option more than once).
+  - `--id` (`-i <ID>`): include a single project with the given ID (you
+    can provide this option more than once).
   - `--name` (`-n <name>`): include a named project in the document (you
     can provide this option more than once).
   - `--label` (`-l <label>`): include all projects with a label (you can
@@ -148,7 +152,13 @@ along with their options and flags. You can always use `versio help` or
   - `--all` (`-a`): include all projects.
   - `--show-root` (`-R`): include the projects' root directories in the
     document.
-  - `--show-name` (`-N`): include the projects' names in the document.
+  - `--show-name` (`-N`): include the projects' names.
+  - `--show-full-version` (`-F`): include the projects' full version
+    (including the tag prefix).
+  - `--show-version` (`-V`): include the projects' version numbers.
+  - `--show-tag-prefix` (`-T`): include the projects' tag prefixes.
+  - `--show-id` (`-I`): include the projects' ids.
+  - `--show-all` (`-A`): include all fields from the projects.
 
   This command is useful to generate a machine-consumable document of
   one or more of the project configurations. It's especially helpful to

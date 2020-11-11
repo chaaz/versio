@@ -48,6 +48,14 @@ pub fn execute(info: &EarlyInfo) -> Result<()> {
         .display_order(1)
         .help("The maximum VCS level")
     )
+    .arg(
+      Arg::with_name("ignorecurrent")
+        .short("c")
+        .long("no-current")
+        .takes_value(false)
+        .display_order(1)
+        .help("Accept local repo changes")
+    )
     .subcommand(
       SubCommand::with_name("check")
         .setting(AppSettings::UnifiedHelpMessage)
@@ -286,6 +294,14 @@ pub fn execute(info: &EarlyInfo) -> Result<()> {
           Arg::with_name("all").short("a").long("all").takes_value(false).display_order(1).help("Info on all projects")
         )
         .arg(
+          Arg::with_name("showall")
+            .short("A")
+            .long("show-all")
+            .takes_value(false)
+            .display_order(1)
+            .help("Show all fields")
+        )
+        .arg(
           Arg::with_name("showroot")
             .short("R")
             .long("show-root")
@@ -348,23 +364,25 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
   }
 
   let pref_vcs = parse_vcs(&m)?;
+  let ignore_current = m.is_present("ignorecurrent");
 
   match m.subcommand() {
-    ("check", _) => check(pref_vcs)?,
+    ("check", _) => check(pref_vcs, ignore_current)?,
     ("get", Some(m)) => get(
       pref_vcs,
       m.is_present("wide"),
       m.is_present("versiononly"),
       m.is_present("prev"),
       m.value_of("id"),
-      m.value_of("name")
+      m.value_of("name"),
+      ignore_current
     )?,
-    ("show", Some(m)) => show(pref_vcs, m.is_present("wide"), m.is_present("prev"))?,
+    ("show", Some(m)) => show(pref_vcs, m.is_present("wide"), m.is_present("prev"), ignore_current)?,
     ("set", Some(m)) => set(pref_vcs, m.value_of("id"), m.value_of("name"), m.value_of("value").unwrap())?,
-    ("diff", Some(_)) => diff(pref_vcs)?,
-    ("files", Some(_)) => files(pref_vcs)?,
-    ("changes", Some(_)) => changes(pref_vcs)?,
-    ("plan", Some(_)) => plan(pref_vcs)?,
+    ("diff", Some(_)) => diff(pref_vcs, ignore_current)?,
+    ("files", Some(_)) => files(pref_vcs, ignore_current)?,
+    ("changes", Some(_)) => changes(pref_vcs, ignore_current)?,
+    ("plan", Some(_)) => plan(pref_vcs, ignore_current)?,
     ("release", Some(m)) if m.is_present("abort") => abort()?,
     ("release", Some(m)) if m.is_present("resume") => resume(pref_vcs)?,
     ("release", Some(m)) => release(pref_vcs, m.is_present("all"), m.is_present("dry"), m.is_present("pause"))?,
@@ -380,14 +398,14 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
 
       let show = InfoShow::new()
         .pick_all(m.is_present("all"))
-        .show_name(m.is_present("showname"))
-        .show_root(m.is_present("showroot"))
-        .show_id(m.is_present("showid"))
-        .show_full_version(m.is_present("showfull"))
-        .show_version(m.is_present("showversion"))
-        .show_tag_prefix(m.is_present("showtagprefix"));
+        .show_name(m.is_present("showname") || m.is_present("showall"))
+        .show_root(m.is_present("showroot") || m.is_present("showall"))
+        .show_id(m.is_present("showid") || m.is_present("showall"))
+        .show_full_version(m.is_present("showfull") || m.is_present("showall"))
+        .show_version(m.is_present("showversion") || m.is_present("showall"))
+        .show_tag_prefix(m.is_present("showtagprefix") || m.is_present("showall"));
 
-      info(pref_vcs, ids, names, labels, show)?
+      info(pref_vcs, ids, names, labels, show, ignore_current)?
     }
     ("", _) => empty_cmd()?,
     (c, _) => unknown_cmd(c)?

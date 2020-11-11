@@ -54,7 +54,7 @@ can be a headache to resolve. And it can be inefficient to halt all
 contributions while a release is being built.
 -->
 
-Software go through a _release process_, where the software is
+Software goes through a _release process_, where the software is
 described, assigned a version number, and deployed to sites where it can
 be executed or distributed. This process occurs first when the
 application is created, and again whenever maintenance or improvements
@@ -129,9 +129,9 @@ Subdirectories](./docs/subs.md) page for a description.
 ### VCS Levels
 
 VCS Levels allow you to control the way Versio interacts with a Git
-repository: you can have interact only locally, with a remote, or not at
-all. See the description in its [document](./docs/vcs_levels.md) for
-more information.
+repository: you can interact only locally, with a remote, or not at all.
+See the description in its [document](./docs/vcs_levels.md) for more
+information.
 
 ### Version Chains
 

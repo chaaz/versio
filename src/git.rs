@@ -3,7 +3,7 @@
 use crate::config::CONFIG_FILENAME;
 use crate::either::IterEither2 as E2;
 use crate::errors::{Result, ResultExt};
-use crate::vcs::VcsLevel;
+use crate::vcs::{VcsLevel, VcsState};
 use chrono::{DateTime, FixedOffset};
 use error_chain::bail;
 use git2::build::CheckoutBuilder;
@@ -25,7 +25,8 @@ use std::iter::empty;
 use std::path::{Path, PathBuf};
 
 pub struct Repo {
-  vcs: GitVcsLevel
+  vcs: GitVcsLevel,
+  ignore_current: bool
 }
 
 impl Repo {
@@ -94,25 +95,26 @@ impl Repo {
     Ok(repo.workdir().ok_or_else(|| bad!("Repo has no working dir"))?.to_path_buf())
   }
 
-  pub fn open<P: AsRef<Path>>(path: P, vcs: VcsLevel) -> Result<Repo> {
-    if vcs == VcsLevel::None {
+  pub fn open<P: AsRef<Path>>(path: P, vcs: VcsState) -> Result<Repo> {
+    let ignore_current = vcs.ignore_current();
+    if vcs.level().is_none() {
       let root = find_root_blind(path)?;
-      return Ok(Repo { vcs: GitVcsLevel::None { root } });
+      return Ok(Repo { ignore_current, vcs: GitVcsLevel::None { root } });
     }
 
     let flags = RepositoryOpenFlags::empty();
     let repo = Repository::open_ext(path, flags, empty::<&OsStr>())?;
     let branch_name = find_branch_name(&repo)?;
 
-    if vcs == VcsLevel::Local {
-      return Ok(Repo { vcs: GitVcsLevel::Local { repo, branch_name } });
+    if vcs.level().is_local() {
+      return Ok(Repo { ignore_current, vcs: GitVcsLevel::Local { repo, branch_name } });
     }
 
     let remote_name = find_remote_name(&repo, &branch_name)?;
     let fetches = RefCell::new(HashMap::new());
     let root = repo.workdir().ok_or_else(|| bad!("Repo has no working dir."))?.to_path_buf();
 
-    Ok(Repo { vcs: GitVcsLevel::from(vcs, root, repo, branch_name, remote_name, fetches) })
+    Ok(Repo { ignore_current, vcs: GitVcsLevel::from(vcs.level(), root, repo, branch_name, remote_name, fetches) })
   }
 
   pub fn working_dir(&self) -> Result<&Path> {
@@ -126,7 +128,9 @@ impl Repo {
 
   pub fn revparse_oid(&self, spec: FromTag) -> Result<String> {
     let repo = self.repo()?;
-    verify_current(repo).chain_err(|| "Can't complete get.")?;
+    if !self.ignore_current {
+      verify_current(repo).chain_err(|| "Can't complete revparse.")?;
+    }
     Ok(repo.revparse_single(spec.tag())?.id().to_string())
   }
 
@@ -218,13 +222,17 @@ impl Repo {
     match &self.vcs {
       GitVcsLevel::None { .. } => bail!("Can't get OID at `none`."),
       GitVcsLevel::Local { repo, .. } => {
-        verify_current(repo).chain_err(|| "Can't complete get.")?;
+        if !self.ignore_current {
+          verify_current(repo).chain_err(|| "Can't complete get.")?;
+        }
         get_oid_local(repo, spec)
       }
       GitVcsLevel::Remote { repo, branch_name, remote_name, fetches }
       | GitVcsLevel::Smart { repo, branch_name, remote_name, fetches } => {
         if spec == "HEAD" {
-          verify_current(repo).chain_err(|| "Can't complete get.")?;
+          if !self.ignore_current {
+            verify_current(repo).chain_err(|| "Can't complete HEAD get.")?;
+          }
           get_oid_local(repo, spec)
         } else {
           // get_oid_remote() will verify current
@@ -689,7 +697,7 @@ enum GitVcsLevel {
 
 impl GitVcsLevel {
   fn from(
-    level: VcsLevel, root: PathBuf, repo: Repository, branch_name: Option<String>, remote_name: String,
+    level: &VcsLevel, root: PathBuf, repo: Repository, branch_name: Option<String>, remote_name: String,
     fetches: RefCell<HashMap<String, Oid>>
   ) -> GitVcsLevel {
     match level {
@@ -801,8 +809,8 @@ fn find_branch_name(repo: &Repository) -> Result<Option<String>> {
     match head_ref.symbolic_target() {
       None => Ok(None),
       Some(branch_name) => {
-        if branch_name.starts_with("refs/heads/") {
-          Ok(Some(branch_name[11 ..].to_string()))
+        if let Some(bname_suff) = branch_name.strip_prefix("refs/heads/") {
+          Ok(Some(bname_suff.to_string()))
         } else {
           return err!("Current {} is not a branch.", branch_name);
         }
@@ -815,10 +823,10 @@ fn find_github_info(repo: &Repository, remote_name: &str, auth: &Auth) -> Result
   let remote = repo.find_remote(remote_name)?;
 
   let url = remote.url().ok_or_else(|| bad!("Invalid utf8 remote url."))?;
-  let path = if url.starts_with("https://github.com/") {
-    &url[19 ..]
-  } else if url.starts_with("git@github.com:") {
-    &url[15 ..]
+  let path = if let Some(url_suff) = url.strip_prefix("https://github.com/") {
+    url_suff
+  } else if let Some(url_suff) = url.strip_prefix("git@github.com:") {
+    url_suff
   } else {
     return err!("Can't find github in remote url {}", url);
   };

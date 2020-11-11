@@ -6,7 +6,7 @@ use crate::git::Repo;
 use crate::mono::Mono;
 use crate::output::{Output, ProjLine};
 use crate::state::{CommitState, StateRead};
-use crate::vcs::{VcsLevel, VcsRange};
+use crate::vcs::{VcsLevel, VcsRange, VcsState};
 use error_chain::bail;
 use std::collections::HashMap;
 use std::fs::{remove_file, File};
@@ -34,8 +34,8 @@ impl EarlyInfo {
   pub fn working_dir(&self) -> &Path { &self.working_dir }
 }
 
-pub fn check(pref_vcs: Option<VcsRange>) -> Result<()> {
-  let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Local, VcsLevel::None, VcsLevel::Smart)?;
+pub fn check(pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
+  let mono = with_opts(pref_vcs, VcsLevel::None, VcsLevel::Local, VcsLevel::None, VcsLevel::Smart, ignore_current)?;
   let output = Output::new();
   let mut output = output.check();
 
@@ -46,9 +46,10 @@ pub fn check(pref_vcs: Option<VcsRange>) -> Result<()> {
 }
 
 pub fn get(
-  pref_vcs: Option<VcsRange>, wide: bool, versonly: bool, prev: bool, id: Option<&str>, name: Option<&str>
+  pref_vcs: Option<VcsRange>, wide: bool, versonly: bool, prev: bool, id: Option<&str>, name: Option<&str>,
+  ignore_current: bool
 ) -> Result<()> {
-  let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Local, VcsLevel::None, VcsLevel::Smart)?;
+  let mono = with_opts(pref_vcs, VcsLevel::None, VcsLevel::Local, VcsLevel::None, VcsLevel::Smart, ignore_current)?;
 
   if prev {
     get_using_cfg(&mono.config().slice_to_prev(mono.repo())?, wide, versonly, id, name)
@@ -83,8 +84,8 @@ fn get_using_cfg<R: StateRead>(
   output.commit()
 }
 
-pub fn show(pref_vcs: Option<VcsRange>, wide: bool, prev: bool) -> Result<()> {
-  let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Local, VcsLevel::None, VcsLevel::Smart)?;
+pub fn show(pref_vcs: Option<VcsRange>, wide: bool, prev: bool, ignore_current: bool) -> Result<()> {
+  let mono = with_opts(pref_vcs, VcsLevel::None, VcsLevel::Local, VcsLevel::None, VcsLevel::Smart, ignore_current)?;
 
   if prev {
     show_using_cfg(&mono.config().slice_to_prev(mono.repo())?, wide)
@@ -115,8 +116,8 @@ pub fn set(pref_vcs: Option<VcsRange>, id: Option<&str>, name: Option<&str>, val
   mono.commit(false, false)
 }
 
-pub fn diff(pref_vcs: Option<VcsRange>) -> Result<()> {
-  let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Local, VcsLevel::Local, VcsLevel::Smart)?;
+pub fn diff(pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
+  let mono = with_opts(pref_vcs, VcsLevel::None, VcsLevel::Local, VcsLevel::Local, VcsLevel::Smart, ignore_current)?;
   let output = Output::new();
   let mut output = output.diff();
 
@@ -126,8 +127,8 @@ pub fn diff(pref_vcs: Option<VcsRange>) -> Result<()> {
   output.commit()
 }
 
-pub fn files(pref_vcs: Option<VcsRange>) -> Result<()> {
-  let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
+pub fn files(pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
+  let mono = with_opts(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart, ignore_current)?;
   let output = Output::new();
   let mut output = output.files();
 
@@ -135,8 +136,8 @@ pub fn files(pref_vcs: Option<VcsRange>) -> Result<()> {
   output.commit()
 }
 
-pub fn changes(pref_vcs: Option<VcsRange>) -> Result<()> {
-  let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
+pub fn changes(pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
+  let mono = with_opts(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart, ignore_current)?;
   let output = Output::new();
   let mut output = output.changes();
 
@@ -144,8 +145,8 @@ pub fn changes(pref_vcs: Option<VcsRange>) -> Result<()> {
   output.commit()
 }
 
-pub fn plan(pref_vcs: Option<VcsRange>) -> Result<()> {
-  let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
+pub fn plan(pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
+  let mono = with_opts(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart, ignore_current)?;
   let output = Output::new();
   let mut output = output.plan();
 
@@ -154,9 +155,10 @@ pub fn plan(pref_vcs: Option<VcsRange>) -> Result<()> {
 }
 
 pub fn info(
-  pref_vcs: Option<VcsRange>, ids: Vec<ProjectId>, names: Vec<&str>, labels: Vec<&str>, show: InfoShow
+  pref_vcs: Option<VcsRange>, ids: Vec<ProjectId>, names: Vec<&str>, labels: Vec<&str>, show: InfoShow,
+  ignore_current: bool
 ) -> Result<()> {
-  let mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::None, VcsLevel::Smart)?;
+  let mono = with_opts(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::None, VcsLevel::Smart, ignore_current)?;
   let output = Output::new();
   let all = show.all();
   let mut output = output.info(show);
@@ -331,7 +333,7 @@ pub fn release(pref_vcs: Option<VcsRange>, all: bool, dry: bool, pause: bool) ->
 
 pub fn resume(user_pref_vcs: Option<VcsRange>) -> Result<()> {
   let vcs = combine_vcs(user_pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
-  let repo = Repo::open(".", vcs.max())?;
+  let repo = Repo::open(".", VcsState::new(vcs.max(), false))?;
   let output = Output::new();
   let mut output = output.resume();
 
@@ -366,12 +368,19 @@ pub fn sanity_check() -> Result<()> {
   }
 }
 
+fn with_opts(
+  user_pref_vcs: Option<VcsRange>, my_pref_lo: VcsLevel, my_pref_hi: VcsLevel, my_reqd_lo: VcsLevel,
+  my_reqd_hi: VcsLevel, ignore_current: bool
+) -> Result<Mono> {
+  let vcs = combine_vcs(user_pref_vcs, my_pref_lo, my_pref_hi, my_reqd_lo, my_reqd_hi)?;
+  Mono::here(VcsState::new(vcs.max(), ignore_current))
+}
+
 fn build(
   user_pref_vcs: Option<VcsRange>, my_pref_lo: VcsLevel, my_pref_hi: VcsLevel, my_reqd_lo: VcsLevel,
   my_reqd_hi: VcsLevel
 ) -> Result<Mono> {
-  let vcs = combine_vcs(user_pref_vcs, my_pref_lo, my_pref_hi, my_reqd_lo, my_reqd_hi)?;
-  Mono::here(vcs.max())
+  with_opts(user_pref_vcs, my_pref_lo, my_pref_hi, my_reqd_lo, my_reqd_hi, false)
 }
 
 fn combine_vcs(

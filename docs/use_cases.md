@@ -10,7 +10,7 @@ Get up and running quickly with Versio, and get a brief introduction to
 what it does. This example assumes a standard Node.js/NPM layout, but
 Versio can handle lots of different project types.
 
-If you don't have rust installed, you can't use `cargo install`.
+If you don't have Rust installed, you can't use `cargo install`.
 Instead, download a binary for your platform directly from the [Releases
 page](https://github.com/chaaz/versio/releases).
 

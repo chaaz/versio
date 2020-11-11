@@ -7,7 +7,7 @@ use crate::errors::Result;
 use crate::git::{Auth, CommitInfoBuf, FromTag, FromTagBuf, FullPr, GithubInfo, Repo};
 use crate::github::{changes, line_commits_head, Changes};
 use crate::state::{CommitArgs, CurrentState, OldTags, PrevFiles, PrevTagMessage, StateRead, StateWrite};
-use crate::vcs::VcsLevel;
+use crate::vcs::VcsState;
 use chrono::{DateTime, FixedOffset};
 use error_chain::bail;
 use log::trace;
@@ -30,9 +30,9 @@ pub struct Mono {
 }
 
 impl Mono {
-  pub fn here(vcs: VcsLevel) -> Result<Mono> { Mono::open(".", vcs) }
+  pub fn here(vcs: VcsState) -> Result<Mono> { Mono::open(".", vcs) }
 
-  pub fn open<P: AsRef<Path>>(dir: P, vcs: VcsLevel) -> Result<Mono> {
+  pub fn open<P: AsRef<Path>>(dir: P, vcs: VcsState) -> Result<Mono> {
     let repo = Repo::open(dir.as_ref(), vcs)?;
     let root = repo.working_dir()?;
 

@@ -7,6 +7,18 @@ use log::debug;
 use std::cmp::{max, min};
 use std::str::FromStr;
 
+#[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug)]
+pub struct VcsState {
+  level: VcsLevel,
+  ignore_current: bool
+}
+
+impl VcsState {
+  pub fn new(level: VcsLevel, ignore_current: bool) -> VcsState { VcsState { level, ignore_current } }
+  pub fn level(&self) -> &VcsLevel { &self.level }
+  pub fn ignore_current(&self) -> bool { self.ignore_current }
+}
+
 #[derive(Debug)]
 pub struct VcsRange {
   min: VcsLevel,
@@ -62,6 +74,12 @@ pub enum VcsLevel {
   Local = 1,
   Remote = 2,
   Smart = 3
+}
+
+impl VcsLevel {
+  pub fn is_none(&self) -> bool { matches!(self, Self::None) }
+  pub fn is_local(&self) -> bool { matches!(self, Self::Local) }
+  pub fn is_network(&self) -> bool { matches!(self, Self::Remote | Self::Smart) }
 }
 
 impl FromStr for VcsLevel {

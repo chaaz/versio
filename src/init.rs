@@ -98,7 +98,7 @@ fn find_project(name: &OsStr, file: &Path) -> Result<Option<ProjSummary>> {
 
 fn add_gemspec(fname: &str, file: &Path) -> Result<Option<ProjSummary>> {
   let spec_suffix = ".gemspec";
-  if fname.ends_with(spec_suffix) {
+  if let Some(fname_pref) = fname.strip_suffix(spec_suffix) {
     let name_reg = r#"spec\.name *= *['"]([^'"]*)['"]"#;
     let version_reg = r#"spec\.version *= *(\S*)"#;
     let name = extract_name(file, |d| find_reg_data(&d, &name_reg))?;
@@ -116,7 +116,7 @@ fn add_gemspec(fname: &str, file: &Path) -> Result<Option<ProjSummary>> {
       return Ok(Some(ProjSummary::new_file(name, dirn, fname, "pattern", version_reg, &["gem"])));
     } else if vers.ends_with("::VERSION") {
       // But other times, the version is in the gem itself i.e. 'MyGem::VERSION'. Search the standard place.
-      let vers_file = Path::new("lib").join(&fname[.. fname.len() - spec_suffix.len()]).join("version.rb");
+      let vers_file = Path::new("lib").join(fname_pref).join("version.rb");
       if dir.join(&vers_file).exists() {
         let version_reg = r#"VERSION *= *['"](\d+\.\d+\.\d+)['"]"#;
         let vfn = vers_file.to_string_lossy();
@@ -148,7 +148,7 @@ fn generate_yaml(projs: &[ProjSummary]) -> String {
   let mut yaml = String::new();
   yaml.push_str("options:\n");
   yaml.push_str("  prev_tag: \"versio-prev\"\n");
-  yaml.push_str("\n");
+  yaml.push('\n');
 
   if !projs.is_empty() {
     yaml.push_str("projects:\n");
@@ -187,7 +187,7 @@ fn generate_yaml(projs: &[ProjSummary]) -> String {
     if proj.subs() {
       yaml.push_str("    subs: {}\n");
     }
-    yaml.push_str("\n");
+    yaml.push('\n');
   }
 
   yaml.push_str("sizes:\n");

@@ -14,7 +14,7 @@ There are four such levels, ordered from minimal to maximal:
   level: no network or remote interaction is allowed. Fetches, pulls
   and pushes are not done: not even with tags. No effort is made to
   ensure that the local repository is synchronized with any remote.
-  
+
 - **Remote**: The command interacts fully with the VCS system, including
   a guarantee that the local repository is fully synced with the remote
   both before and after the command executes.
@@ -48,6 +48,20 @@ You could, for example, run `versio -l smart release --pause commit` to
 gather information and write a new versions and changelogs based on pull
 request information from the remote GitHub API, but then run `versio -l
 local release --resume` to commit and tag only the local repo.
+
+### Vs Current
+
+The `--no-current` flag only works on some commands, and only when the
+final VCS level is calculated as "local" (see "Calculation" below).
+Normally all commands at the "local" level will verify that the repo is
+current: i.e., it does not contain local modifications or untracked
+files. These commands don't make any changes though, so it may be safe
+to run them without this check, depending on your workflow.
+
+At a VCS level of "remote" or higher, the check is always done (the
+`--no-current` flag is ignored) because only a current repo can be
+reconciled with remote changes. At the level of "none", the VCS isn't
+consulted in any case, so the flag is effectively ignored.
 
 ## Calculation
 
