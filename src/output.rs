@@ -387,8 +387,8 @@ fn println_plan_incrs(plan: &Plan, mono: &Mono) -> Result<()> {
             println!("    {} commit {} ({}) : {}", symbol, &c.oid()[.. 7], c.size(), c.message().trim());
           }
         }
-        ChangelogEntry::Dep(proj_id) => {
-          println!("  Depends on: {}", proj_id);
+        ChangelogEntry::Dep(proj_id, proj_name) => {
+          println!("  Depends on: {} ({})", proj_name, proj_id);
         }
       }
     }

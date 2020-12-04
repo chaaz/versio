@@ -116,7 +116,7 @@ html {
   <div class="nested active">
     {% for dep in release.deps %}
       <div class="dep">
-        Depends on changes to project {{dep}}.
+        Depends on changes to project {{dep.name}} ({{dep.id}}).
       </div>
     {% endfor %}
     {% for pr in release.prs %}

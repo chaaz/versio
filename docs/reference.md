@@ -42,6 +42,10 @@ $ git config credential.helper
 osxkeychain
 ```
 
+On Windows, you may need to install the "Git Credential Manager",
+available
+[here](https://github.com/microsoft/Git-Credential-Manager-Core/)
+
 You'll need authorization to push to and pull from the remote if you
 expect Versio to keep your remote in sync. Make sure that commands like
 e.g. `git fetch` work from the command-line if versio is having trouble.
@@ -49,9 +53,9 @@ e.g. `git fetch` work from the command-line if versio is having trouble.
 If you don't have an agent set up, or if your agent is unable to
 negotiate credentials, you can set the environment variables
 `GITHUB_USER` and `GITHUB_TOKEN` to use more traditional user/password
-authorization. Note that the `GITHUB_TOKEN` can be the github password
-for this user, or (suggested) an access token generated for this user
-and appropriately scoped for versio operations.
+authorization. `GITHUB_TOKEN` can be the github password for this user,
+or (suggested) an access token generated for this user and appropriately
+scoped for versio operations.
 
 ### GitHub API
 [GitHub API]: #github-api
@@ -254,7 +258,7 @@ projects:
       json: "version"
     also:
       - file: "README.md"
-        pattern: "This is proj_1 version (\d+\.\d+\.\d+)"
+        pattern: 'This is proj_1 version (\d+\.\d+\.\d+)'
     hooks:
       post_write: ./bin/my_script.sh --auto
 
@@ -268,7 +272,7 @@ projects:
         size: match
         files:
           - file: 'go.mod'
-            pattern: 'myreg.io/proj_1 v(\d+\.\d+\.\d+)'
+            pattern: 'myregistry.io/proj_1 v(\d+\.\d+\.\d+)'
     version:
       tags:
         default: "0.0.0"
@@ -291,10 +295,10 @@ sizes:
   doesn't have any projects. Each project has the following properties:
 
   - `name`: (required) The name of the project.
-  - `id`: (required) The numeric ID of the project. By maintaining a
-    unique ID for each project, you can track the continuity of a
-    project over multiple commits, even if the project name or location
-    changes.
+  - `id`: (required) The numeric ID of the project. **Don't change a
+    project's ID!** By maintaining a consistent ID over the life of the
+    project, you can track its continuity over multiple commits, even if
+    the project name or location changes.
   - `root`: (optional, default `"."`) The location, relative to the base
     of the repo, where the project is located. The `changelog`,
     `includes`, `excludes`, and `version: file` properties are all
@@ -309,15 +313,15 @@ sizes:
     a project.
   - `depends`: (optional, default `{}`) A list of projects on which the
     current project depends. Any version number increment in any
-    dependancy will result in an increment in the current project. See
+    dependency will result in an increment in the current project. See
     [Version Chains](./chains.md) for more info.
   - `changelog`: (optional) The file name where the changelog is
-    located. Not providing this will cause no changelog to be
-    created/updated.
-  - `version`: The location of the project version. See "Version config"
-    below.
-  - `also`: Additional locations where the project version should be
-    written.
+    located. If this property is not provided, no changelog will be
+    created or updated.
+  - `version`: (required) The location of the project version. See
+    "Version config" below.
+  - `also`: (optional: default `[]`) Additional locations where the
+    project version should be written. See "Also" below.
   - `tag_prefix`: (optional) (required when using version tags) The
     prefix to use when reading/writing tags for this project. Not
     providing this will result in no tags being written. Using the empty
@@ -457,6 +461,26 @@ version:
 
 See [Version Tags](./version_tags.md) for more info on the benefits and
 pitfalls of this technique.
+
+### Also
+
+When the `release` command runs, it will detect and write the new
+version in the location specified by the `version` property. You may
+want to write the new version in additional locations, for example,
+documentation, examples, or other versioned files. You can use the
+`also` property for this purpose:
+
+```
+also:
+  - file: "examples/simple/main.tf"
+    pattern: 'source = .*/g2c-compute-gcp-(\d+\.\d+\.\d+)\.zip'
+```
+
+Files in the `also` property are listed relative to the `root` of the
+project, and should only be used to update additional files in the same
+project. If you want to update files in other projects in your repo, you
+might want to use the `depends` property in those other projects. The
+[Version Chains](./chains.md) doc explains how that works.
 
 ### File parsing
 [File parsing]: #file-parsing

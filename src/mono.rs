@@ -307,14 +307,18 @@ pub struct Changelog {
 
 pub enum ChangelogEntry {
   Pr(LoggedPr, Size),
-  Dep(ProjectId)
+  Dep(ProjectId, String)
 }
 
 impl Changelog {
   pub fn empty() -> Changelog { Changelog { entries: Vec::new() } }
   pub fn entries(&self) -> &[ChangelogEntry] { &self.entries }
   pub fn add_entry(&mut self, pr: LoggedPr, size: Size) { self.entries.push(ChangelogEntry::Pr(pr, size)); }
-  pub fn add_dep(&mut self, id: ProjectId) { self.entries.push(ChangelogEntry::Dep(id)); }
+
+  pub fn add_dep(&mut self, id: ProjectId, name: impl ToString) {
+    self.entries.push(ChangelogEntry::Dep(id, name.to_string()));
+  }
+
   pub fn is_empty(&self) -> bool { self.entries.is_empty() }
 }
 
@@ -517,7 +521,8 @@ impl<'s> PlanBuilder<'s> {
           if converted_size > Size::Empty {
             let (val, ch_log) = &mut self.incrs.entry(depd_id.clone()).or_insert((Size::Empty, Changelog::empty()));
             *val = max(*val, converted_size);
-            ch_log.add_dep(id.clone());
+            let project = self.current.projects().iter().find(|p| p.id() == &id).unwrap();
+            ch_log.add_dep(id.clone(), project.name());
           }
 
           self.chain_writes.push((id.clone(), depd_id.clone()));
@@ -539,8 +544,8 @@ impl<'s> PlanBuilder<'s> {
           ChangelogEntry::Pr(pr2, _) => pr2.discovery_order().cmp(&pr1.discovery_order()),
           _ => Ordering::Greater
         },
-        ChangelogEntry::Dep(pr_id1) => match entry2 {
-          ChangelogEntry::Dep(pr_id2) => pr_id1.to_string().cmp(&pr_id2.to_string()),
+        ChangelogEntry::Dep(pr_id1, _) => match entry2 {
+          ChangelogEntry::Dep(pr_id2, _) => pr_id1.to_string().cmp(&pr_id2.to_string()),
           _ => Ordering::Less
         }
       });

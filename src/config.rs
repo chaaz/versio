@@ -1281,8 +1281,11 @@ fn construct_changelog_html(cl: &Changelog, new_vers: &str, old_content: String)
           "commits": commits
         }));
       }
-      ChangelogEntry::Dep(proj_id) => {
-        dps.push(proj_id.to_string());
+      ChangelogEntry::Dep(proj_id, name) => {
+        dps.push(liquid::object!({
+          "id": proj_id.to_string(),
+          "name": name
+        }));
       }
     }
   }
