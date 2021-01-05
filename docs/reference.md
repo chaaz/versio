@@ -295,10 +295,10 @@ sizes:
   doesn't have any projects. Each project has the following properties:
 
   - `name`: (required) The name of the project.
-  - `id`: (required) The numeric ID of the project. **Don't change a
-    project's ID!** By maintaining a consistent ID over the life of the
-    project, you can track its continuity over multiple commits, even if
-    the project name or location changes.
+  - `id`: (required) The numeric ID of the project.
+    **Don't change a project's ID!** By maintaining a consistent ID over
+    the life of the project, you can track its continuity over multiple
+    commits, even if the project name or location changes.
   - `root`: (optional, default `"."`) The location, relative to the base
     of the repo, where the project is located. The `changelog`,
     `includes`, `excludes`, and `version: file` properties are all

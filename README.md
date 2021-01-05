@@ -3,8 +3,7 @@
 Versio (pronounced _vir_-zhee-oh) is a tool that manages your project's
 advancement. It intelligently updates version numbers based on
 [conventional commits](https://www.conventionalcommits.org/), generates
-changelogs, and tags your code. Future version will publish your project
-to a variety of distribution targets.
+changelogs, and tags your code.
 
 Versio is especially intelligent when dealing with
 [monorepos](https://en.wikipedia.org/wiki/Monorepo), allowing not only
