@@ -11,7 +11,7 @@ projects:
       file: "Cargo.toml"
       toml: "package.version"
     hooks:
-      post_write: cargo fetch
+      post_write: cargo update --workspace
 
 sizes:
   use_angular: true

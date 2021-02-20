@@ -48,7 +48,7 @@ fn find_project(name: &OsStr, file: &Path) -> Result<Option<ProjSummary>> {
     let dir = file.parent().unwrap();
     let mut proj =
       ProjSummary::new_file(name, dir.to_string_lossy(), "Cargo.toml", "toml", "package.version", &["cargo"]);
-    proj.hook("post_write", "cargo fetch");
+    proj.hook("post_write", "cargo update --workspace");
     return Ok(Some(proj));
   }
 
