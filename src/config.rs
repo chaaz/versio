@@ -1194,11 +1194,9 @@ fn insert_angular(result: &mut HashMap<String, Size>) {
   insert_if_missing(result, "feat", Size::Minor);
   insert_if_missing(result, "fix", Size::Patch);
   insert_if_missing(result, "docs", Size::None);
-  insert_if_missing(result, "style", Size::None);
   insert_if_missing(result, "refactor", Size::None);
   insert_if_missing(result, "perf", Size::None);
   insert_if_missing(result, "test", Size::None);
-  insert_if_missing(result, "chore", Size::None);
   insert_if_missing(result, "build", Size::None);
 }
 
@@ -1452,6 +1450,25 @@ projects:
     "#;
 
     assert!(ConfigFile::read(config).is_ok());
+  }
+
+  #[test]
+  fn test_angular_sizes() {
+    let config = r#"
+projects: []
+sizes:
+  use_angular: true
+"#;
+
+    let config = ConfigFile::read(config).unwrap();
+    assert_eq!(&Size::Major, config.sizes.get("!").unwrap());
+    assert_eq!(&Size::Minor, config.sizes.get("feat").unwrap());
+    assert_eq!(&Size::Patch, config.sizes.get("fix").unwrap());
+    assert_eq!(&Size::None, config.sizes.get("docs").unwrap());
+    assert_eq!(&Size::None, config.sizes.get("refactor").unwrap());
+    assert_eq!(&Size::None, config.sizes.get("perf").unwrap());
+    assert_eq!(&Size::None, config.sizes.get("test").unwrap());
+    assert_eq!(&Size::None, config.sizes.get("build").unwrap());
   }
 
   #[test]
