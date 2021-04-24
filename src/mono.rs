@@ -679,7 +679,15 @@ fn find_old_tags<'s, I: Iterator<Item = &'s Project>>(projects: I, prev_tag: &st
 fn pull_from_annotation(repo: &Repo, prev_tag: &str) -> Result<HashMap<ProjectId, String>> {
   repo
     .annotation_of(prev_tag)
-    .map(|anno| serde_json::from_str::<PrevTagMessage>(&anno))
+    .map(|anno| {
+      // search for and exclude trailing signature
+      let clip = if let Some(p) = anno.find("\n-----BEGIN PGP SIGNATURE-----") {
+        &anno[.. p]
+      } else {
+        anno.as_str()
+      };
+      serde_json::from_str::<PrevTagMessage>(clip)
+    })
     .transpose()
     .map_err(|e| e.into())
     .map(|o| o.unwrap_or_default().into_versions())
