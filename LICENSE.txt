@@ -4,7 +4,7 @@ This code is made available "AS IS" without warranties of any kind. Your
 use of this software code is at your own risk and you waive any claim
 against Charles Ozinga with respect to your use of this software code.
 
-Copyright (c) 2020 Charles Ozinga, all rights reserved
+Copyright (c) 2020,2021 Charles Ozinga, all rights reserved
 
 Permission is granted to make and distribute verbatim copies of this
 document provided that the copyright notice and this permission notice
