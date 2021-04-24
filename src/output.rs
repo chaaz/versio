@@ -174,13 +174,13 @@ impl DiffOutput {
 
   pub fn commit(&mut self) -> Result<()> {
     if let Some(analysis) = &self.analysis {
-      println_analysis(analysis)?;
+      println_analysis(analysis);
     }
     Ok(())
   }
 }
 
-fn println_analysis(analysis: &Analysis) -> Result<()> {
+fn println_analysis(analysis: &Analysis) {
   if !analysis.older().is_empty() {
     println!("Removed projects:");
     for mark in analysis.older() {
@@ -224,8 +224,6 @@ fn println_analysis(analysis: &Analysis) -> Result<()> {
       println!();
     }
   }
-
-  Ok(())
 }
 
 pub struct FilesOutput {
@@ -268,17 +266,16 @@ impl ChangesOutput {
     Ok(())
   }
 
-  pub fn commit(&mut self) -> Result<()> {
+  pub fn commit(&mut self) {
     if let Some(changes) = &self.changes {
       println_changes(changes)
     } else {
       println!("No changes.");
-      Ok(())
     }
   }
 }
 
-fn println_changes(changes: &Changes) -> Result<()> {
+fn println_changes(changes: &Changes) {
   println!("\ngroups:");
   for g in changes.groups().values() {
     let head_oid = g.head_oid().as_ref().map(|o| o.to_string()).unwrap_or_else(|| "<not found>".to_string());
@@ -297,8 +294,6 @@ fn println_changes(changes: &Changes) -> Result<()> {
   for oid in changes.commits() {
     println!("  {}", oid);
   }
-
-  Ok(())
 }
 
 pub struct PlanOutput {
@@ -329,7 +324,7 @@ impl PlanOutput {
 
 fn println_plan(plan: &Plan, mono: &Mono) -> Result<()> {
   println_plan_incrs(plan, mono)?;
-  println_plan_ineff(plan)?;
+  println_plan_ineff(plan);
   Ok(())
 }
 
@@ -397,7 +392,7 @@ fn println_plan_incrs(plan: &Plan, mono: &Mono) -> Result<()> {
   Ok(())
 }
 
-fn println_plan_ineff(plan: &Plan) -> Result<()> {
+fn println_plan_ineff(plan: &Plan) {
   for pr in plan.ineffective() {
     if !pr.commits().iter().any(|c| c.included()) {
       continue;
@@ -418,8 +413,6 @@ fn println_plan_ineff(plan: &Plan) -> Result<()> {
       println!("    {} commit {} ({}) : {}", symbol, &c.oid()[.. 7], c.size(), c.message());
     }
   }
-
-  Ok(())
 }
 
 pub struct ReleaseOutput {
@@ -438,29 +431,27 @@ impl ReleaseOutput {
     Ok(())
   }
 
-  pub fn write_logged(&mut self, path: PathBuf) -> Result<()> { self.result.append_logged(path) }
-  pub fn write_done(&mut self) -> Result<()> { self.result.append_done() }
-  pub fn write_commit(&mut self) -> Result<()> { self.result.append_commit() }
-  pub fn write_pause(&mut self) -> Result<()> { self.result.append_pause() }
-  pub fn write_dry(&mut self) -> Result<()> { self.result.append_dry() }
+  pub fn write_logged(&mut self, path: PathBuf) { self.result.append_logged(path); }
+  pub fn write_done(&mut self) { self.result.append_done(); }
+  pub fn write_commit(&mut self) { self.result.append_commit(); }
+  pub fn write_pause(&mut self) { self.result.append_pause(); }
+  pub fn write_dry(&mut self) { self.result.append_dry(); }
 
-  pub fn write_changed(&mut self, name: String, prev: String, curt: String, targ: String) -> Result<()> {
-    self.result.append_changed(name, prev, curt, targ)
+  pub fn write_changed(&mut self, name: String, prev: String, curt: String, targ: String) {
+    self.result.append_changed(name, prev, curt, targ);
   }
 
-  pub fn write_forward(&mut self, all: bool, name: String, prev: String, curt: String, targ: String) -> Result<()> {
-    self.result.append_forward(all, name, prev, curt, targ)
+  pub fn write_forward(&mut self, all: bool, name: String, prev: String, curt: String, targ: String) {
+    self.result.append_forward(all, name, prev, curt, targ);
   }
 
-  pub fn write_no_change(&mut self, all: bool, name: String, prev: Option<String>, curt: String) -> Result<()> {
-    self.result.append_no_change(all, name, prev, curt)
+  pub fn write_no_change(&mut self, all: bool, name: String, prev: Option<String>, curt: String) {
+    self.result.append_no_change(all, name, prev, curt);
   }
 
-  pub fn write_new(&mut self, all: bool, name: String, curt: String) -> Result<()> {
-    self.result.append_new(all, name, curt)
-  }
+  pub fn write_new(&mut self, all: bool, name: String, curt: String) { self.result.append_new(all, name, curt); }
 
-  pub fn commit(&mut self) -> Result<()> { self.result.commit() }
+  pub fn commit(&mut self) { self.result.commit(); }
 }
 
 enum ReleaseResult {
@@ -469,29 +460,27 @@ enum ReleaseResult {
 }
 
 impl ReleaseResult {
-  fn append_logged(&mut self, path: PathBuf) -> Result<()> { self.append(ReleaseEvent::Logged(path)) }
-  fn append_done(&mut self) -> Result<()> { self.append(ReleaseEvent::Done) }
-  fn append_commit(&mut self) -> Result<()> { self.append(ReleaseEvent::Commit) }
-  fn append_pause(&mut self) -> Result<()> { self.append(ReleaseEvent::Pause) }
-  fn append_dry(&mut self) -> Result<()> { self.append(ReleaseEvent::Dry) }
+  fn append_logged(&mut self, path: PathBuf) { self.append(ReleaseEvent::Logged(path)); }
+  fn append_done(&mut self) { self.append(ReleaseEvent::Done); }
+  fn append_commit(&mut self) { self.append(ReleaseEvent::Commit); }
+  fn append_pause(&mut self) { self.append(ReleaseEvent::Pause); }
+  fn append_dry(&mut self) { self.append(ReleaseEvent::Dry); }
 
-  fn append_changed(&mut self, name: String, prev: String, curt: String, targ: String) -> Result<()> {
-    self.append(ReleaseEvent::Changed(name, prev, curt, targ))
+  fn append_changed(&mut self, name: String, prev: String, curt: String, targ: String) {
+    self.append(ReleaseEvent::Changed(name, prev, curt, targ));
   }
 
-  fn append_forward(&mut self, all: bool, name: String, prev: String, curt: String, targ: String) -> Result<()> {
-    self.append(ReleaseEvent::Forward(all, name, prev, curt, targ))
+  fn append_forward(&mut self, all: bool, name: String, prev: String, curt: String, targ: String) {
+    self.append(ReleaseEvent::Forward(all, name, prev, curt, targ));
   }
 
-  fn append_no_change(&mut self, all: bool, name: String, prev: Option<String>, curt: String) -> Result<()> {
-    self.append(ReleaseEvent::NoChange(all, name, prev, curt))
+  fn append_no_change(&mut self, all: bool, name: String, prev: Option<String>, curt: String) {
+    self.append(ReleaseEvent::NoChange(all, name, prev, curt));
   }
 
-  fn append_new(&mut self, all: bool, name: String, curt: String) -> Result<()> {
-    self.append(ReleaseEvent::New(all, name, curt))
-  }
+  fn append_new(&mut self, all: bool, name: String, curt: String) { self.append(ReleaseEvent::New(all, name, curt)); }
 
-  fn append(&mut self, ev: ReleaseEvent) -> Result<()> {
+  fn append(&mut self, ev: ReleaseEvent) {
     match self {
       ReleaseResult::Empty => {
         let mut releases = WroteReleases::new();
@@ -502,16 +491,11 @@ impl ReleaseResult {
         releases.push(ev);
       }
     }
-
-    Ok(())
   }
 
-  fn commit(&mut self) -> Result<()> {
+  fn commit(&mut self) {
     match self {
-      ReleaseResult::Empty => {
-        println!("No release: no projects.");
-        Ok(())
-      }
+      ReleaseResult::Empty => println!("No release: no projects."),
       ReleaseResult::Wrote(w) => w.commit()
     }
   }
@@ -525,11 +509,10 @@ impl WroteReleases {
   pub fn new() -> WroteReleases { WroteReleases { events: Vec::new() } }
   pub fn push(&mut self, path: ReleaseEvent) { self.events.push(path); }
 
-  pub fn commit(&mut self) -> Result<()> {
+  pub fn commit(&mut self) {
     for ev in &mut self.events {
-      ev.commit()?;
+      ev.commit();
     }
-    Ok(())
   }
 }
 
@@ -546,7 +529,7 @@ enum ReleaseEvent {
 }
 
 impl ReleaseEvent {
-  fn commit(&mut self) -> Result<()> {
+  fn commit(&mut self) {
     match self {
       ReleaseEvent::Logged(p) => println!("Wrote changelog at {}.", p.to_string_lossy()),
       ReleaseEvent::Done => println!("Release complete."),
@@ -590,6 +573,5 @@ impl ReleaseEvent {
         }
       }
     }
-    Ok(())
   }
 }

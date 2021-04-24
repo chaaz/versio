@@ -224,13 +224,12 @@ impl<'a> CommitArgs<'a> {
   }
 }
 
-fn fill_from_old(old: &HashMap<ProjectId, String>, new_tags: &mut HashMap<ProjectId, String>) -> Result<()> {
+fn fill_from_old(old: &HashMap<ProjectId, String>, new_tags: &mut HashMap<ProjectId, String>) {
   for (proj_id, tag) in old {
     if !new_tags.contains_key(proj_id) {
       new_tags.insert(proj_id.clone(), tag.clone());
     }
   }
-  Ok(())
 }
 
 /// A command to commit, tag, and push everything
@@ -284,7 +283,7 @@ impl CommitState {
     self.write.tag_commit.clear();
 
     if self.advance_prev {
-      fill_from_old(&self.old_tags, &mut self.write.new_tags)?;
+      fill_from_old(&self.old_tags, &mut self.write.new_tags);
       let msg =
         serde_json::to_string(&PrevTagMessage::new(std::mem::replace(&mut self.write.new_tags, HashMap::new())))?;
       repo.update_tag_head_anno(&self.prev_tag, &msg)?;

@@ -154,7 +154,7 @@ impl Mono {
     Ok(())
   }
 
-  pub fn keyed_files<'a>(&'a self) -> Result<impl Iterator<Item = Result<(String, String)>> + 'a> {
+  pub fn keyed_files(&self) -> Result<impl Iterator<Item = Result<(String, String)>> + '_> {
     let changes = self.changes()?;
     let prs = changes.into_groups().into_iter().map(|(_, v)| v).filter(|pr| !pr.best_guess());
 
@@ -167,7 +167,7 @@ impl Mono {
   }
 
   pub fn build_plan(&self) -> Result<Plan> {
-    let mut plan = PlanBuilder::create(&self.repo, self.current.file(), self.user_prefs.auth())?;
+    let mut plan = PlanBuilder::create(&self.repo, self.current.file(), self.user_prefs.auth());
 
     // Consider the grouped, unsquashed commits to determine project sizing and changelogs.
     for pr in self.changes()?.groups().values() {
@@ -239,7 +239,7 @@ impl UserPrefs {
 /// Find the last covering commit ID, if any, for each current project.
 fn find_last_commits(current: &Config<CurrentState>, repo: &Repo) -> Result<HashMap<ProjectId, String>> {
   let prev_spec = current.prev_tag();
-  let mut last_commits = LastCommitBuilder::create(repo, &current)?;
+  let mut last_commits = LastCommitBuilder::create(repo, &current);
 
   // Consider the in-line commits to determine the last commit (if any) for each project.
   for commit in line_commits_head(repo, FromTag::new(prev_spec, true))? {
@@ -256,7 +256,7 @@ fn find_last_commits(current: &Config<CurrentState>, repo: &Repo) -> Result<Hash
   result
 }
 
-fn pr_keyed_files<'a>(repo: &'a Repo, pr: FullPr) -> impl Iterator<Item = Result<(String, String)>> + 'a {
+fn pr_keyed_files(repo: &Repo, pr: FullPr) -> impl Iterator<Item = Result<(String, String)>> + '_ {
   let head_oid = match pr.head_oid() {
     Some(oid) => *oid,
     None => return E3::C(empty())
@@ -389,10 +389,10 @@ struct PlanBuilder<'s> {
 }
 
 impl<'s> PlanBuilder<'s> {
-  fn create(repo: &'s Repo, current: &'s ConfigFile, auth: &Auth) -> Result<PlanBuilder<'s>> {
+  fn create(repo: &'s Repo, current: &'s ConfigFile, auth: &Auth) -> PlanBuilder<'s> {
     let prev = Slicer::init(repo);
     let github_info = repo.github_info(auth).ok();
-    let builder = PlanBuilder {
+    PlanBuilder {
       on_pr_sizes: HashMap::new(),
       on_ineffective: None,
       on_commit: None,
@@ -402,8 +402,7 @@ impl<'s> PlanBuilder<'s> {
       ineffective: Vec::new(),
       github_info,
       chain_writes: Vec::new()
-    };
-    Ok(builder)
+    }
   }
 
   pub fn start_pr(&mut self, pr: &FullPr) -> Result<()> {
@@ -579,10 +578,9 @@ struct LastCommitBuilder<'s, C: StateRead> {
 }
 
 impl<'s, C: StateRead> LastCommitBuilder<'s, C> {
-  fn create(repo: &'s Repo, current: &'s Config<C>) -> Result<LastCommitBuilder<'s, C>> {
+  fn create(repo: &'s Repo, current: &'s Config<C>) -> LastCommitBuilder<'s, C> {
     let prev = Slicer::init(repo);
-    let builder = LastCommitBuilder { on_line_commit: None, last_commits: HashMap::new(), prev, current };
-    Ok(builder)
+    LastCommitBuilder { on_line_commit: None, last_commits: HashMap::new(), prev, current }
   }
 
   pub fn start_line_commit(&mut self, commit: &CommitInfoBuf) -> Result<()> {
@@ -671,7 +669,7 @@ fn find_old_tags<'s, I: Iterator<Item = &'s Project>>(projects: I, prev_tag: &st
   }
 
   let prev = pull_from_annotation(repo, prev_tag)?;
-  fill_from_prev(&prev, &proj_ids, &mut current)?;
+  fill_from_prev(&prev, &proj_ids, &mut current);
 
   let old_tags = OldTags::new(current, prev);
   trace!("Found old tags: {:?}", old_tags);
@@ -689,7 +687,7 @@ fn pull_from_annotation(repo: &Repo, prev_tag: &str) -> Result<HashMap<ProjectId
 
 fn fill_from_prev(
   prev: &HashMap<ProjectId, String>, proj_ids: &HashSet<ProjectId>, current: &mut HashMap<ProjectId, String>
-) -> Result<()> {
+) {
   for id in proj_ids {
     if !current.contains_key(id) {
       if let Some(tag) = prev.get(id) {
@@ -697,7 +695,6 @@ fn fill_from_prev(
       }
     }
   }
-  Ok(())
 }
 
 /// Construct a fnmatch pattern for a project that can be used to retrieve the project's tags.

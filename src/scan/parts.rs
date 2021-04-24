@@ -59,11 +59,8 @@ impl Part {
 }
 
 pub fn is_match_str(key: &str, part: Option<&Part>) -> bool {
-  if let Some(part) = part {
-    match part {
-      Part::Map(k) => key == k,
-      _ => false
-    }
+  if let Some(Part::Map(k)) = part {
+    key == k
   } else {
     false
   }

@@ -719,14 +719,18 @@ pub struct FromTag<'a> {
 
 impl<'a> FromTag<'a> {
   pub fn new(tag: &'a str, else_none: bool) -> FromTag<'a> { FromTag { tag, else_none } }
-  pub fn to_from_tag_buf(&self) -> FromTagBuf { FromTagBuf::new(self.tag.to_string(), self.else_none) }
   pub fn tag(&self) -> &'a str { self.tag }
-  pub fn is_else_none(&self) -> bool { self.else_none }
+  // pub fn is_else_none(&self) -> bool { self.else_none }
+  // pub fn to_from_tag_buf(&self) -> FromTagBuf { FromTagBuf::new(self.tag.to_string(), self.else_none) }
 }
 
-impl<'a> Into<FromTag<'a>> for &'a str {
-  fn into(self) -> FromTag<'a> { FromTag::new(self, false) }
+impl<'a> From<&'a str> for FromTag<'a> {
+  fn from(a: &'a str) -> FromTag<'a> { FromTag::new(a, false) }
 }
+
+// impl<'a> Into<FromTag<'a>> for &'a str {
+//   fn into(self) -> FromTag<'a> { FromTag::new(self, false) }
+// }
 
 impl<'a> fmt::Display for FromTag<'a> {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -744,7 +748,7 @@ impl FromTagBuf {
   pub fn new(tag: String, else_none: bool) -> FromTagBuf { FromTagBuf { tag, else_none } }
   pub fn as_from_tag(&self) -> FromTag { FromTag::new(&self.tag, self.else_none) }
   pub fn tag(&self) -> &str { &self.tag }
-  pub fn is_else_none(&self) -> bool { self.else_none }
+  // pub fn is_else_none(&self) -> bool { self.else_none }
 }
 
 impl fmt::Display for FromTagBuf {

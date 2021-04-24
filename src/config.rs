@@ -774,7 +774,7 @@ impl Location {
   pub fn read_value<S: StateRead>(&self, read: &S, root: Option<&String>, proj: &ProjectId) -> Result<String> {
     match self {
       Location::File(l) => l.read_value(read, root),
-      Location::Tag(l) => l.read_value(read, proj)
+      Location::Tag(l) => Ok(l.read_value(read, proj))
     }
   }
 
@@ -889,8 +889,8 @@ struct TagLocation {
 impl TagLocation {
   pub fn majors(&self) -> Option<&[u32]> { self.tags.majors() }
 
-  fn read_value<S: StateRead>(&self, read: &S, proj: &ProjectId) -> Result<String> {
-    Ok(read.latest_tag(proj).cloned().unwrap_or_else(|| self.tags.default_value()))
+  fn read_value<S: StateRead>(&self, read: &S, proj: &ProjectId) -> String {
+    read.latest_tag(proj).cloned().unwrap_or_else(|| self.tags.default_value())
   }
 }
 

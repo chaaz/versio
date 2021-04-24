@@ -142,7 +142,8 @@ pub fn changes(pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
   let mut output = output.changes();
 
   output.write_changes(mono.changes()?)?;
-  output.commit()
+  output.commit();
+  Ok(())
 }
 
 pub fn plan(pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
@@ -269,7 +270,8 @@ pub fn release(pref_vcs: Option<VcsRange>, all: bool, dry: bool, pause: bool) ->
 
   if plan.incrs().is_empty() {
     output.write_empty()?;
-    return output.commit();
+    output.commit();
+    return Ok(());
   }
 
   let mut final_sizes = HashMap::new();
@@ -285,29 +287,29 @@ pub fn release(pref_vcs: Option<VcsRange>, all: bool, dry: bool, pause: bool) ->
     let prev_vers = prev_config.get_value(id).chain_err(|| format!("Unable to find prev {} value.", id))?;
 
     let new_vers = if size == &Size::Empty {
-      output.write_no_change(all, name.clone(), prev_vers.clone(), curt_vers.clone())?;
+      output.write_no_change(all, name.clone(), prev_vers.clone(), curt_vers.clone());
       curt_vers
     } else if let Some(prev_vers) = prev_vers {
       let target = size.apply(&prev_vers)?;
       if Size::less_than(&curt_vers, &target)? {
         proj.verify_restrictions(&target)?;
         mono.set_by_id(id, &target)?;
-        output.write_changed(name.clone(), prev_vers.clone(), curt_vers.clone(), target.clone())?;
+        output.write_changed(name.clone(), prev_vers.clone(), curt_vers.clone(), target.clone());
       } else {
         proj.verify_restrictions(&curt_vers)?;
         mono.forward_by_id(id, &curt_vers)?;
-        output.write_forward(all, name.clone(), prev_vers.clone(), curt_vers.clone(), target.clone())?;
+        output.write_forward(all, name.clone(), prev_vers.clone(), curt_vers.clone(), target.clone());
       }
       target
     } else {
       proj.verify_restrictions(&curt_vers)?;
       mono.forward_by_id(id, &curt_vers)?;
-      output.write_new(all, name.clone(), curt_vers.clone())?;
+      output.write_new(all, name.clone(), curt_vers.clone());
       curt_vers
     };
 
     if let Some(wrote) = mono.write_changelog(id, changelog, &new_vers)? {
-      output.write_logged(wrote)?;
+      output.write_logged(wrote);
     }
 
     final_sizes.insert(id.clone(), new_vers);
@@ -318,16 +320,16 @@ pub fn release(pref_vcs: Option<VcsRange>, all: bool, dry: bool, pause: bool) ->
   if !dry {
     mono.commit(true, pause)?;
     if pause {
-      output.write_pause()?;
+      output.write_pause();
     } else {
-      output.write_commit()?;
-      output.write_done()?;
+      output.write_commit();
+      output.write_done();
     }
   } else {
-    output.write_dry()?;
+    output.write_dry();
   }
 
-  output.commit()?;
+  output.commit();
   Ok(())
 }
 

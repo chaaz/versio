@@ -148,17 +148,16 @@ impl MarkedData {
   pub fn start(&self) -> usize { self.mark.start() }
 
   pub fn write_new_value(&mut self, new_val: &str) -> Result<()> {
-    self.set_value(new_val)?;
+    self.set_value(new_val);
     self.write()?;
     Ok(())
   }
 
-  fn set_value(&mut self, new_val: &str) -> Result<()> {
+  fn set_value(&mut self, new_val: &str) {
     let st = self.start();
     let ed = st + self.value().len();
     self.data.replace_range(st .. ed, &new_val);
     self.mark.set_value(new_val.to_string());
-    Ok(())
   }
 
   fn write(&self) -> Result<()> { Ok(std::fs::write(&self.writeable_path, &self.data)?) }
