@@ -1,7 +1,7 @@
 ---
 # DO NOT EDIT
 # Created from template "github-publish.yml".
-name: release
+name: publish
 "on":
   - workflow_dispatch
 env:

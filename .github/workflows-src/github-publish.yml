@@ -1,7 +1,7 @@
 ---
 # Edit this file, and then use `yambler`
 # (github.com/chaaz/versio-actions/tree/main/yambler) to stitch.
-name: release
+name: publish
 on:
   - workflow_dispatch
 env: SNIPPET_common-env
