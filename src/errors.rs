@@ -31,6 +31,10 @@ impl<'a, T: ?Sized> From<std::sync::PoisonError<std::sync::MutexGuard<'a, T>>> f
   }
 }
 
+impl From<gpgme::Error> for Error {
+  fn from(err: gpgme::Error) -> Error { format!("gpgme error {:?}", err).into() }
+}
+
 #[macro_export]
 macro_rules! err {
   ($($arg:tt)*) => (

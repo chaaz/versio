@@ -681,11 +681,7 @@ fn pull_from_annotation(repo: &Repo, prev_tag: &str) -> Result<HashMap<ProjectId
     .annotation_of(prev_tag)
     .map(|anno| {
       // search for and exclude trailing signature
-      let clip = if let Some(p) = anno.find("\n-----BEGIN PGP SIGNATURE-----") {
-        &anno[.. p]
-      } else {
-        anno.as_str()
-      };
+      let clip = if let Some(p) = anno.find("\n-----BEGIN PGP SIGNATURE-----") { &anno[.. p] } else { anno.as_str() };
       serde_json::from_str::<PrevTagMessage>(clip)
     })
     .transpose()

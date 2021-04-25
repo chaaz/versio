@@ -53,15 +53,18 @@ can be a headache to resolve. And it can be inefficient to halt all
 contributions while a release is being built.
 -->
 
-Software goes through a _release process_, where the software is
-described, assigned a version number, and deployed to sites where it can
-be executed or distributed. This process occurs first when the
-application is created, and again whenever maintenance or improvements
-are applied, so a single piece of software can incur many releases over
-its lifetime. Versio can help automate the release process by updating
-version numbers automatically from [conventional
+Versio can help automate the release process by updating
+[semver](https://semver.org/) version numbers from [conventional
 commits](https://www.conventionalcommits.org/), generating a changelog,
-and managing dependencies between projects.
+and managing dependencies between projects. This frees developers from
+having to coordinate among themselves what versions should be assigned.
+
+Versio can also deliver a machine-readable listing of your projects:
+where they live, how they're related, what their tags are--this can be
+used to help construct other parts of your release process: such as when
+you build, test, publish, and deploy.
+
+## How It Works
 
 Many software projects declare their version number in some sort of
 manifest file. Node/NPM projects have a "package.json" file, Rust/Cargo
@@ -71,8 +74,6 @@ modules, among others, opt to keep version numbers in VCS tags instead
 of a file. However your project is structured, you can list the location
 of your projects' version numbers in a Versio config file, and
 thenceforth Versio will be able to manage them.
-
-## How It Works
 
 - Versio reads a config file (by default named `.versio.yaml`) in your
   repository, and finds the version number of each project referenced
@@ -139,6 +140,14 @@ project, even when both projects are in the same monorepo. Versio allows
 you to manage these dependencies, and automatically increment all
 dependent versions. See the [Version Chains](./docs/chains.md) document
 for more info.
+
+### VCS Signing
+
+You might like to sign your commits or your tags to provide more
+security to your users and co-workers. Versio likes security, too!
+Versio can read tags and commits that have been signed, and with the
+right configuration, will sign its own commits and tags. See the
+[Signing](./docs/signing.md) page for how to do this.
 
 ## Troubleshooting
 

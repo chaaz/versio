@@ -11,6 +11,7 @@ use git2::string_array::StringArray;
 use git2::{AnnotatedCommit, AutotagOption, Blob, Commit, Cred, CredentialType, Diff, DiffOptions, FetchOptions, Index,
            Object, ObjectType, Oid, PushOptions, Reference, ReferenceType, Remote, RemoteCallbacks, Repository,
            RepositoryOpenFlags, RepositoryState, ResetType, Revwalk, Signature, Sort, Status, StatusOptions, Time};
+use gpgme::{Context, Protocol};
 use log::{error, info, trace, warn};
 use regex::Regex;
 use serde::Deserialize;
@@ -303,7 +304,32 @@ impl Repo {
     let head = Some("HEAD");
     let msg = "build(deploy): Versio update versions";
 
-    let commit_oid = repo.commit(head, &sig, &sig, msg, &tree, &[&parent_commit])?;
+    let commit_oid = if repo.config()?.get_bool("commit.gpgSign").unwrap_or(false) {
+      let mut ctx = Context::from_protocol(Protocol::OpenPgp)?;
+
+      let signid = repo.config()?.get_string("user.signingKey").ok();
+      if let Some(signid) = signid {
+        let key = ctx
+          .keys()?
+          .find(|k| k.as_ref().map(|k| k.id().map(|id| id == signid).unwrap_or(false)).unwrap_or(false))
+          .ok_or_else(|| bad!("No key found with ID: {}", signid))??;
+        ctx.add_signer(&key)?;
+      }
+
+      let buf = repo.commit_create_buffer(&sig, &sig, msg, &tree, &[&parent_commit])?;
+
+      let mut outbuf = Vec::new();
+      ctx.set_armor(true);
+      ctx.sign_detached(&*buf, &mut outbuf)?;
+
+      let contents = buf.as_str().ok_or("Buffer was not valid UTF-8")?;
+      let out = std::str::from_utf8(&outbuf)?;
+
+      repo.commit_signed(&contents, &out, Some("gpgsig"))?
+    } else {
+      repo.commit(head, &sig, &sig, msg, &tree, &[&parent_commit])?
+    };
+
     repo.reset(&repo.find_object(commit_oid, Some(ObjectType::Commit))?, ResetType::Mixed, None)?;
 
     Ok(())
@@ -339,7 +365,50 @@ impl Repo {
     let repo = self.repo()?;
     let obj = repo.revparse_single(spec)?;
     let tagger = Signature::now("Versio", "github.com/chaaz/versio")?;
-    repo.tag(tag, &obj, &tagger, msg, true)?;
+
+    let config = repo.config()?;
+    let fsa = config.get_bool("tag.forceSignAnnotated").unwrap_or(false);
+    let gsign = config.get_bool("tag.gpgSign").unwrap_or(false);
+
+    if fsa || gsign {
+      // There's no tag_create_buffer() in libgit2, so we'll do this:
+      //   - tag it
+      //   - read the raw tag data
+      //   - sign that (`git tag -s` signs the entire buffer, so this should be good)
+      //   - get the detached signature, and put that at the bottom of the msg
+      //   - re-tag with everything the same, having changed only the message.
+      //
+      // This leaves an old tag lying around, but that should eventually be garbage collected.
+
+      // make the msg end with a newline, so that the signature starts on a new line
+      let msg_string = if msg.ends_with('\n') { msg.to_string() } else { format!("{}\n", msg) };
+
+      let first_oid = repo.tag(tag, &obj, &tagger, &msg_string, true)?;
+      let odb = repo.odb()?;
+      let tag_obj = odb.read(first_oid)?;
+      let raw = std::str::from_utf8(tag_obj.data())?;
+
+      let mut ctx = Context::from_protocol(Protocol::OpenPgp)?;
+
+      let signid = repo.config()?.get_string("user.signingKey").ok();
+      if let Some(signid) = signid {
+        let key = ctx
+          .keys()?
+          .find(|k| k.as_ref().map(|k| k.id().map(|id| id == signid).unwrap_or(false)).unwrap_or(false))
+          .ok_or_else(|| bad!("No key found with ID: {}", signid))??;
+        ctx.add_signer(&key)?;
+      }
+
+      let mut outbuf = Vec::new();
+      ctx.set_armor(true);
+      ctx.sign_detached(raw, &mut outbuf)?;
+
+      let detached_sig = std::str::from_utf8(&outbuf)?;
+
+      repo.tag(tag, &obj, &tagger, &format!("{}{}", msg_string, detached_sig), true)?;
+    } else {
+      repo.tag(tag, &obj, &tagger, msg, true)?;
+    }
     self.push_tag(tag)?;
     Ok(())
   }
