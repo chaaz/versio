@@ -52,6 +52,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgpg-error-dev libgpgme-dev
       - name: Get cargo stable
         uses: actions-rs/toolchain@v1
         with:
@@ -87,6 +89,8 @@ jobs:
         uses: actions/checkout@v2
       - name: Get versio
         uses: chaaz/versio-actions/install@v1.1
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgpg-error-dev libgpgme-dev
       - name: Get cargo stable
         uses: actions-rs/toolchain@v1
         with:
@@ -116,6 +120,8 @@ jobs:
         uses: actions/checkout@v2
         with:
           ref: main
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgpg-error-dev libgpgme-dev
       - name: Get cargo stable
         uses: actions-rs/toolchain@v1
         with:
@@ -193,6 +199,8 @@ jobs:
         uses: actions/checkout@v2
         with:
           ref: main
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y libgpg-error-dev libgpgme-dev
       - name: Get cargo stable
         uses: actions-rs/toolchain@v1
         with:

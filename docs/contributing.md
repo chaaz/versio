@@ -193,6 +193,14 @@ the resulting executable is a reasonable size: without that option, the
 binary easily expand to over 100M. If you forget to include this option,
 you should manually run `strip` on the resulting executable.
 
+You need to have some gpg libraries installed to build this:
+
+```
+sudo apt update
+sudo apt install libgpg-error-dev
+sudo apt install libgpgme-dev
+```
+
 ### Windows
 
 [windows]: #windows
