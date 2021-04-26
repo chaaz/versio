@@ -1176,8 +1176,8 @@ fn deser_sizes<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<HashMa
         }
       }
 
-      // Based on the angular standard:
-      // https://github.com/angular/angular.js/blob/main/DEVELOPERS.md#-git-commit-guidelines
+      // Based on [angular.js](https://github.com/angular/angular.js/blob/master/DEVELOPERS.md#type) and
+      // [angular](https://github.com/angular/angular/blob/master/CONTRIBUTING.md#type)
       if using_angular {
         insert_angular(&mut result);
       }
@@ -1200,6 +1200,7 @@ fn insert_angular(result: &mut HashMap<String, Size>) {
   insert_if_missing(result, "test", Size::None);
   insert_if_missing(result, "chore", Size::None);
   insert_if_missing(result, "build", Size::None);
+  insert_if_missing(result, "ci", Size::None);
 }
 
 fn insert_if_missing(result: &mut HashMap<String, Size>, key: &str, val: Size) {
@@ -1562,5 +1563,28 @@ sizes:
     };
 
     assert!(proj.check_excludes().is_err());
+  }
+
+  #[test]
+  fn test_angular_size() {
+    let config = r#"
+projects: []
+sizes:
+  use_angular: true
+"#;
+
+    let config = ConfigFile::read(config).unwrap();
+
+    assert_eq!(&Size::Major, config.sizes.get("!").unwrap());
+    assert_eq!(&Size::None, config.sizes.get("build").unwrap());
+    assert_eq!(&Size::None, config.sizes.get("chore").unwrap());
+    assert_eq!(&Size::None, config.sizes.get("ci").unwrap());
+    assert_eq!(&Size::None, config.sizes.get("docs").unwrap());
+    assert_eq!(&Size::Minor, config.sizes.get("feat").unwrap());
+    assert_eq!(&Size::Patch, config.sizes.get("fix").unwrap());
+    assert_eq!(&Size::None, config.sizes.get("perf").unwrap());
+    assert_eq!(&Size::None, config.sizes.get("refactor").unwrap());
+    assert_eq!(&Size::None, config.sizes.get("style").unwrap());
+    assert_eq!(&Size::None, config.sizes.get("test").unwrap());
   }
 }

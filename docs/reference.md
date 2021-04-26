@@ -357,11 +357,14 @@ sizes:
   ```
 
   If you include the `use_angular: true` key in your sizes, then the
-  following angular conventions will be added to your sizes: `major: [
-  "!" ]`, `minor: [ feat ]`, `patch: [ fix ]`, and `none: [ docs,
-  style, refactor, perf, test, chore, build ]`. You can override these
-  by placing those specific types in different properties (as `docs` is
-  done here).
+  following angular conventions (from the
+  [angular](https://github.com/angular/angular/blob/master/CONTRIBUTING.md#type)
+  and
+  [angular.js](https://github.com/angular/angular.js/blob/master/DEVELOPERS.md#type)
+  specifications) will be added to your sizes: `major: [ "!" ]`, `minor:
+  [ feat ]`, `patch: [ fix ]`, and `none: [ build, chore, ci, docs,
+  perf, refactor, style, test ]`. You can override these by placing
+  those specific types in different properties (as `docs` is done here).
 
   "!" is a special type which matches a commit whose type ends with "!"
   (as in `refactor!: remove NodeJS 6 support` or `chore(toil)!: delete
