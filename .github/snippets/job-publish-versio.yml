@@ -26,7 +26,7 @@ value:
       uses: actions/checkout@v2
       with:
         ref: main
-    - SNIPPET_get-cargo
+    - SNIPPET_get-cargo-os
     - name: Build binary
       run: cargo build --release
       working-directory: ${{ matrix.root }}

@@ -1,0 +1,50 @@
+key: get-cargo-os
+value:
+  - name: Install Ubuntu dependencies
+    if: matrix.os == 'ubuntu-latest'
+    run: sudo apt-get update && sudo apt-get install -y libgpg-error-dev libgpgme-dev
+  - name: Install MacOS dependencies
+    if: matrix.os == 'macos-latest'
+    run: brew update; brew install gpgme
+  - name: Install Windows dependencies
+    if: matrix.os == 'windows-latest'
+    run: choco install -y gpg4win
+  - name: Get cargo stable
+    if: matrix.os != 'windows-latest'
+    uses: actions-rs/toolchain@v1
+    with:
+      toolchain: stable
+      components: clippy
+  - name: Get cargo nightly
+    if: matrix.os != 'windows-latest'
+    uses: actions-rs/toolchain@v1
+    with:
+      toolchain: nightly
+      components: rustfmt
+  - name: Get Windows cargo stable
+    # Windows uses gpg4win, which only has a 32-bit version
+    if: matrix.os == 'windows-latest'
+    uses: actions-rs/toolchain@v1
+    with:
+      toolchain: stable
+      target: i686-pc-windows-gnu
+      components: clippy
+      default: true
+  - name: Get Windows cargo nightly
+    if: matrix.os == 'windows-latest'
+    uses: actions-rs/toolchain@v1
+    with:
+      toolchain: nightly
+      target: i686-pc-windows-gnu
+      components: rustfmt
+  - name: Find paths
+    id: cargo-find-paths
+    run: 'echo ::set-output name=cargo-lock-glob::"${{ matrix.root }}"/**/Cargo.lock'
+  - name: Cache cargo and target
+    uses: actions/cache@v1
+    with:
+      path: |
+        ~/.cargo/registry
+        ~/.cargo/git
+        ${{ matrix.root }}/target
+      key: ${{ runner.os }}-cargo-${{ hashFiles(steps.cargo-find-paths.outputs.cargo-lock-glob) }}
