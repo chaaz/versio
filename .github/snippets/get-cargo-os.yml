@@ -13,12 +13,8 @@ value:
       RUNNER_TEMP: ${{ runner.temp }}
     run: |
       curl -L https://gnupg.org/ftp/gcrypt/binary/gnupg-w32-2.3.1_20210420.exe -o "$RUNNER_TEMP/gnupg.exe"
-      $RUNNER_TEMP\gnupg.exe /S
-      # $env:PATH = "C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\ProgramData\chocolatey\bin"
-      # [Environment]::SetEnvironmentVariable("Path", $env:PATH, "Machine")
-      # choco install -y gpg4win
-      # echo "C:\Program Files (x86)\Gpg4win\..\GnuPG\bin" >> $env:GITHUB_PATH
-      # choco install -y gnupg
+      $env:PATH = "C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;$RUNNER_TEMP"
+      gnupg.exe /S
       echo "C:\Program Files (x86)\GnuPG\bin" >> $env:GITHUB_PATH
   - name: Get cargo stable
     if: matrix.os != 'windows-latest'
