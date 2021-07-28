@@ -207,7 +207,7 @@ jobs:
         run: brew update; brew install gpgme
       - name: Install Windows dependencies
         if: "matrix.os == 'windows-latest'"
-        run: "$env:PATH = \"C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\ProgramData\\chocolatey\\bin\"\n[Environment]::SetEnvironmentVariable(\"Path\", $env:PATH, \"Machine\")\nchoco install -y gpg4win\necho \"C:\\Program Files (x86)\\Gpg4win\\..\\GnuPG\\bin\" >> $env:GITHUB_PATH\n"
+        run: "$env:PATH = \"C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\ProgramData\\chocolatey\\bin\"\n[Environment]::SetEnvironmentVariable(\"Path\", $env:PATH, \"Machine\")\nchoco install -y gpg4win\necho \"C:\\Program Files (x86)\\Gpg4win\\..\\GnuPG\\bin\" >> $env:GITHUB_PATH\nchoco install -y gnupg\necho \"C:\\Program Files (x86)\\GnuPG\\bin\" >> $env:GITHUB_PATH\n"
       - name: Get cargo stable
         if: "matrix.os != 'windows-latest'"
         uses: actions-rs/toolchain@v1

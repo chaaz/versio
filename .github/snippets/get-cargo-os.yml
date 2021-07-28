@@ -14,6 +14,8 @@ value:
       [Environment]::SetEnvironmentVariable("Path", $env:PATH, "Machine")
       choco install -y gpg4win
       echo "C:\Program Files (x86)\Gpg4win\..\GnuPG\bin" >> $env:GITHUB_PATH
+      choco install -y gnupg
+      echo "C:\Program Files (x86)\GnuPG\bin" >> $env:GITHUB_PATH
   - name: Get cargo stable
     if: matrix.os != 'windows-latest'
     uses: actions-rs/toolchain@v1
