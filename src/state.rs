@@ -284,8 +284,7 @@ impl CommitState {
 
     if self.advance_prev {
       fill_from_old(&self.old_tags, &mut self.write.new_tags);
-      let msg =
-        serde_json::to_string(&PrevTagMessage::new(std::mem::replace(&mut self.write.new_tags, HashMap::new())))?;
+      let msg = serde_json::to_string(&PrevTagMessage::new(std::mem::take(&mut self.write.new_tags)))?;
       repo.update_tag_head_anno(&self.prev_tag, &msg)?;
     }
 

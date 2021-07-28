@@ -72,7 +72,7 @@ impl<'de> Visitor<'de> for NthElement {
         let nth = if self.remains.is_empty() {
           map.next_value()?
         } else {
-          let next = pop(std::mem::replace(&mut self.remains, Vec::new()));
+          let next = pop(std::mem::take(&mut self.remains));
           map.next_value_seed(next)?
         };
 
@@ -107,7 +107,7 @@ impl<'de> Visitor<'de> for NthElement {
     let nth = if self.remains.is_empty() {
       seq.next_element()?.ok_or_else(|| de::Error::invalid_length(n, &self))?
     } else {
-      let next = pop(std::mem::replace(&mut self.remains, Vec::new()));
+      let next = pop(std::mem::take(&mut self.remains));
       seq.next_element_seed(next)?.ok_or_else(|| de::Error::invalid_length(n, &self))?
     };
 

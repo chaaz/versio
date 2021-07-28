@@ -82,7 +82,7 @@ impl<'de> Visitor<'de> for NthElement {
           self.trace.lock().unwrap().set_active(false);
           r
         } else {
-          let next = pop(std::mem::replace(&mut self.remains, Vec::new()), self.trace.clone());
+          let next = pop(std::mem::take(&mut self.remains), self.trace.clone());
           map.next_value_seed(next)?
         };
 
@@ -120,7 +120,7 @@ impl<'de> Visitor<'de> for NthElement {
       self.trace.lock().unwrap().set_active(false);
       r
     } else {
-      let next = pop(std::mem::replace(&mut self.remains, Vec::new()), self.trace.clone());
+      let next = pop(std::mem::take(&mut self.remains), self.trace.clone());
       seq.next_element_seed(next)?.ok_or_else(|| de::Error::invalid_length(n, &self))?
     };
 

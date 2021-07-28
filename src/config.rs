@@ -702,10 +702,7 @@ fn expand_root(root: Option<&String>, sub: &SubExtent) -> Option<String> {
       Some(subdir) => Some(Path::new(root).join(subdir).to_string_lossy().into_owned()),
       None => Some(Path::new(root).to_string_lossy().into_owned())
     },
-    None => match sub.dir() {
-      Some(subdir) => Some(Path::new(subdir).to_string_lossy().into_owned()),
-      None => None
-    }
+    None => sub.dir().as_ref().map(|subdir| Path::new(subdir).to_string_lossy().into_owned())
   }
 }
 

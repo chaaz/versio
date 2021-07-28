@@ -14,7 +14,6 @@ use log::trace;
 use serde::Deserialize;
 use std::cmp::{max, Ordering};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::convert::identity;
 use std::iter::{empty, once};
 use std::path::{Path, PathBuf};
 
@@ -48,7 +47,7 @@ impl Mono {
 
     let user_prefs = read_env_prefs()?;
 
-    Ok(Mono { user_prefs, current, next, last_commits, repo })
+    Ok(Mono { current, next, last_commits, repo, user_prefs })
   }
 
   pub fn check_branch(&self) -> std::result::Result<(), (String, String)> {
@@ -644,7 +643,7 @@ fn find_old_tags<'s, I: Iterator<Item = &'s Project>>(projects: I, prev_tag: &st
     proj_ids.insert(proj.id().clone());
     for fnmatch in tag_fnmatches(proj) {
       trace!("Searching tags for proj {} matching \"{}\".", proj.id(), fnmatch);
-      for tag in repo.tag_names(Some(fnmatch.as_str()))?.iter().filter_map(identity) {
+      for tag in repo.tag_names(Some(fnmatch.as_str()))?.iter().flatten() {
         let oid = repo.revparse_oid(FromTag::new(&format!("{}^{{}}", tag), false))?;
         trace!("Found proj {} tag {} at {}.", proj.id(), tag, oid);
         let by_id = by_proj_oid.entry(proj.id().clone()).or_insert_with(HashMap::new);
