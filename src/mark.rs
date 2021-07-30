@@ -156,7 +156,7 @@ impl MarkedData {
   fn set_value(&mut self, new_val: &str) {
     let st = self.start();
     let ed = st + self.value().len();
-    self.data.replace_range(st .. ed, &new_val);
+    self.data.replace_range(st .. ed, new_val);
     self.mark.set_value(new_val.to_string());
   }
 

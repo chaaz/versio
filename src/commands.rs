@@ -72,13 +72,13 @@ fn get_using_cfg<R: StateRead>(
     output.write_project(ProjLine::from(cfg.get_project(&id).ok_or_else(&ensure)?, reader)?)?;
   } else if let Some(name) = name {
     let id = cfg.find_unique(name)?;
-    output.write_project(ProjLine::from(cfg.get_project(&id).ok_or_else(&ensure)?, reader)?)?;
+    output.write_project(ProjLine::from(cfg.get_project(id).ok_or_else(&ensure)?, reader)?)?;
   } else {
     if cfg.projects().len() != 1 {
       bail!("No solo project.");
     }
     let id = cfg.projects().get(0).unwrap().id();
-    output.write_project(ProjLine::from(cfg.get_project(&id).ok_or_else(&ensure)?, reader)?)?;
+    output.write_project(ProjLine::from(cfg.get_project(id).ok_or_else(&ensure)?, reader)?)?;
   }
 
   output.commit()

@@ -145,7 +145,7 @@ impl<S: StateRead> Config<S> {
 
   pub fn file(&self) -> &ConfigFile { &self.file }
   pub fn state_read(&self) -> &S { &self.state }
-  pub fn projects(&self) -> &[Project] { &self.file.projects() }
+  pub fn projects(&self) -> &[Project] { self.file.projects() }
   pub fn get_project(&self, id: &ProjectId) -> Option<&Project> { self.file.get_project(id) }
   pub fn branch(&self) -> &Option<String> { self.file.branch() }
 

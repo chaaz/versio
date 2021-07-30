@@ -68,7 +68,7 @@ impl FilesRead for CurrentFiles {
     Path::new(root)
       .read_dir()?
       .filter_map(|e| e.map(|e| e.file_name().into_string().ok()).transpose())
-      .filter(|n| n.as_ref().map(|n| filter.is_match(&n)).unwrap_or(true))
+      .filter(|n| n.as_ref().map(|n| filter.is_match(n)).unwrap_or(true))
       .map(|r| r.map_err(|e| e.into()))
       .collect()
   }
@@ -265,7 +265,7 @@ impl CommitState {
     self.write.tag_head.clear();
 
     for (tag, proj_id) in &self.write.tag_head_or_last {
-      if self.write.proj_writes.contains(&proj_id) {
+      if self.write.proj_writes.contains(proj_id) {
         repo.update_tag_head(tag)?;
       } else if let Some(oid) = self.last_commits.get(proj_id) {
         repo.update_tag(tag, oid)?;

@@ -70,7 +70,7 @@ fn find_project(name: &OsStr, file: &Path) -> Result<Option<ProjSummary>> {
   if fname == "setup.py" {
     let name_reg = r#"name *= *['"]([^'"]*)['"]"#;
     let version_reg = r#"version *= *['"](\d+\.\d+\.\d+)['"]"#;
-    let name = extract_name(file, |d| find_reg_data(&d, &name_reg))?;
+    let name = extract_name(file, |d| find_reg_data(&d, name_reg))?;
     let dir = file.parent().unwrap().to_string_lossy();
     return Ok(Some(ProjSummary::new_file(name, dir, "setup.py", "pattern", version_reg, &["pip"])));
   }
@@ -101,8 +101,8 @@ fn add_gemspec(fname: &str, file: &Path) -> Result<Option<ProjSummary>> {
   if let Some(fname_pref) = fname.strip_suffix(spec_suffix) {
     let name_reg = r#"spec\.name *= *['"]([^'"]*)['"]"#;
     let version_reg = r#"spec\.version *= *(\S*)"#;
-    let name = extract_name(file, |d| find_reg_data(&d, &name_reg))?;
-    let mut vers = extract_name(file, |d| find_reg_data(&d, &version_reg))?;
+    let name = extract_name(file, |d| find_reg_data(&d, name_reg))?;
+    let mut vers = extract_name(file, |d| find_reg_data(&d, version_reg))?;
     let dir = file.parent().unwrap();
     let dirn = dir.to_string_lossy();
 

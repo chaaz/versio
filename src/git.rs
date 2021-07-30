@@ -325,7 +325,7 @@ impl Repo {
       let contents = buf.as_str().ok_or("Buffer was not valid UTF-8")?;
       let out = std::str::from_utf8(&outbuf)?;
 
-      repo.commit_signed(&contents, &out, Some("gpgsig"))?
+      repo.commit_signed(contents, out, Some("gpgsig"))?
     } else {
       repo.commit(head, &sig, &sig, msg, &tree, &[&parent_commit])?
     };
@@ -486,7 +486,7 @@ impl<'r> Slice<'r> {
     let obj = self.object(path)?;
     let tree = obj.into_tree().map_err(|_| bad!("Not a tree: {}", path))?;
     let filter = Regex::new(regex)?;
-    Ok(tree.iter().filter_map(|entry| entry.name().map(|n| n.to_string())).filter(|n| filter.is_match(&n)).collect())
+    Ok(tree.iter().filter_map(|entry| entry.name().map(|n| n.to_string())).filter(|n| filter.is_match(n)).collect())
   }
 
   fn object(&self, path: &str) -> Result<Object> {
@@ -569,7 +569,7 @@ impl<'a> CommitInfo<'a> {
   pub fn summary(&self) -> &str { self.commit.summary().unwrap_or("-") }
   pub fn message(&self) -> &str { self.commit.message().unwrap_or("-") }
   pub fn kind(&self) -> String { extract_kind(self.message()) }
-  pub fn files(&self) -> Result<impl Iterator<Item = String> + 'a> { files_from_commit(&self.repo, &self.commit) }
+  pub fn files(&self) -> Result<impl Iterator<Item = String> + 'a> { files_from_commit(self.repo, &self.commit) }
 
   pub fn buffer(self) -> Result<CommitInfoBuf> {
     Ok(CommitInfoBuf::new(
@@ -916,7 +916,7 @@ fn find_github_info(repo: &Repository, remote_name: &str, auth: &Auth) -> Result
 /// `else_none` is true.
 fn hide_from<'r>(repo: &'r Repository, revwalk: &mut Revwalk<'r>, from: FromTag) -> Result<()> {
   let FromTag { tag, else_none } = from;
-  match repo.revparse_single(&tag) {
+  match repo.revparse_single(tag) {
     Ok(oid) => Ok(revwalk.hide(oid.id())?),
     Err(err) => {
       if !else_none {
@@ -930,7 +930,7 @@ fn hide_from<'r>(repo: &'r Repository, revwalk: &mut Revwalk<'r>, from: FromTag)
 
 fn hide_from_parents<'r>(repo: &'r Repository, revwalk: &mut Revwalk<'r>, from: FromTag) -> Result<()> {
   let FromTag { tag, else_none } = from;
-  match repo.revparse_single(&tag).and_then(|obj| obj.peel_to_commit()) {
+  match repo.revparse_single(tag).and_then(|obj| obj.peel_to_commit()) {
     Ok(commit) => {
       for pid in commit.parent_ids() {
         revwalk.hide(pid)?;

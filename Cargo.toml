@@ -15,7 +15,9 @@ chrono = "0.4"
 dirs = "3.0"
 env_logger = "0.7"
 error-chain = "0.12"
-gpgme = "0.9"
+# We need the latest from the repo--the published 0.9.2 on crates.io
+# doesn't compile on Windows
+gpgme = { version = "0.9", git = "https://github.com/gpg-rs/gpgme" }
 git2 = "0.12"
 ignore = "0.4.16"
 glob = "0.3"

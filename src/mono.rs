@@ -78,7 +78,7 @@ impl Mono {
       CommitArgs::new(
         self.current.prev_tag(),
         &self.last_commits,
-        &self.current.old_tags().current(),
+        self.current.old_tags().current(),
         advance_prev,
         &self.current.hooks(),
         pause
@@ -96,7 +96,7 @@ impl Mono {
         self.current.get_project(dpid).ok_or_else(|| bad!("No such dependent {} project for {}.", dpid, id))?;
       let deps = dproj.depends().get(id).ok_or_else(|| bad!("No such depends {} in project {}.", id, dpid))?;
       let val = vers.get(id).ok_or_else(|| bad!("No new value for {}.", id))?;
-      deps.write_values(&mut self.next, dproj.root(), &val, dpid)?;
+      deps.write_values(&mut self.next, dproj.root(), val, dpid)?;
     }
     Ok(())
   }
@@ -238,7 +238,7 @@ impl UserPrefs {
 /// Find the last covering commit ID, if any, for each current project.
 fn find_last_commits(current: &Config<CurrentState>, repo: &Repo) -> Result<HashMap<ProjectId, String>> {
   let prev_spec = current.prev_tag();
-  let mut last_commits = LastCommitBuilder::create(repo, &current);
+  let mut last_commits = LastCommitBuilder::create(repo, current);
 
   // Consider the in-line commits to determine the last commit (if any) for each project.
   for commit in line_commits_head(repo, FromTag::new(prev_spec, true))? {
@@ -457,7 +457,7 @@ impl<'s> PlanBuilder<'s> {
 
     for (proj_id, logged_pr) in &mut self.on_pr_sizes {
       if let Some(cur_project) = self.current.get_project(proj_id) {
-        let size = cur_project.size(&self.current.sizes(), &kind)?;
+        let size = cur_project.size(self.current.sizes(), &kind)?;
         logged_pr.commits.push(LoggedCommit::new(id.clone(), summary.clone(), msg.clone(), size, url.clone()));
       }
     }
@@ -476,7 +476,7 @@ impl<'s> PlanBuilder<'s> {
     let commit_id = commit.id();
 
     for prev_project in self.prev.file()?.projects() {
-      if let Some(logged_pr) = self.on_pr_sizes.get_mut(&prev_project.id()) {
+      if let Some(logged_pr) = self.on_pr_sizes.get_mut(prev_project.id()) {
         trace!("      vs current project {}.", prev_project.id());
         if prev_project.does_cover(path)? {
           let LoggedCommit { applies, .. } = logged_pr.commits.iter_mut().find(|c| c.oid == commit_id).unwrap();

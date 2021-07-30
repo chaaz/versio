@@ -597,8 +597,7 @@ dependencies = [
 [[package]]
 name = "gpgme"
 version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "528b8b981855eb0c74696a408919b1bf5dbe7f4cd99261bb1b47097d9bf3478f"
+source = "git+https://github.com/gpg-rs/gpgme#707a701d5bd0692d52286bbf820e8c1ae462f296"
 dependencies = [
  "bitflags",
  "conv",
@@ -614,11 +613,11 @@ dependencies = [
 [[package]]
 name = "gpgme-sys"
 version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b293be40a67cf00d4cdbefc8bc87c10d2b9581fcb9ac226084c53a556f2e31f"
+source = "git+https://github.com/gpg-rs/gpgme#707a701d5bd0692d52286bbf820e8c1ae462f296"
 dependencies = [
  "libc",
  "libgpg-error-sys",
+ "winreg",
 ]
 
 [[package]]
