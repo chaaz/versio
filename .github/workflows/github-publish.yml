@@ -143,7 +143,7 @@ jobs:
         if: "matrix.os == 'windows-latest'"
         env:
           RUNNER_TEMP: "${{ runner.temp }}"
-        run: "curl -L https://gnupg.org/ftp/gcrypt/binary/gnupg-w32-2.3.1_20210420.exe -o \"$env:RUNNER_TEMP/gnupg.exe\"\necho \"Installing gnupg\"\n$env:PATH += \";$env:RUNNER_TEMP\"\nGet-Command gnupg\ngnupg.exe /S\nls 'C:\\Program Files (x86)\\gnupg\\include'\necho \"Done installing gnupg\"\necho \"C:\\Program Files (x86)\\GnuPG\\bin\" >> $env:GITHUB_PATH\n"
+        run: "curl -L https://gnupg.org/ftp/gcrypt/binary/gnupg-w32-2.3.1_20210420.exe -o \"$env:RUNNER_TEMP/gnupg.exe\"\necho \"Installing gnupg\"\n$env:PATH += \";$env:RUNNER_TEMP\"\nGet-Command gnupg\ngnupg.exe /S\nls 'C:\\Program Files (x86)'\necho \"Done installing gnupg\"\necho \"C:\\Program Files (x86)\\GnuPG\\bin\" >> $env:GITHUB_PATH\n"
       - name: Get cargo stable
         if: "matrix.os != 'windows-latest'"
         uses: actions-rs/toolchain@v1
