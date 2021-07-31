@@ -13,8 +13,10 @@ value:
       RUNNER_TEMP: ${{ runner.temp }}
     run: |
       curl -L https://gnupg.org/ftp/gcrypt/binary/gnupg-w32-2.3.1_20210420.exe -o "$env:RUNNER_TEMP/gnupg.exe"
+      echo "Installing gnupg"
       $env:PATH += ";$env:RUNNER_TEMP"
       gnupg.exe /S
+      echo "Done installing gnupg"
       echo "C:\Program Files (x86)\GnuPG\bin" >> $env:GITHUB_PATH
   - name: Get cargo stable
     if: matrix.os != 'windows-latest'
