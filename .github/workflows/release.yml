@@ -248,6 +248,8 @@ jobs:
         with:
           path: "~/.cargo/registry\n~/.cargo/git\n${{ matrix.root }}/target\n"
           key: "${{ runner.os }}-cargo-${{ hashFiles(steps.cargo-find-paths.outputs.cargo-lock-glob) }}"
+      - name: Examine GnuPG include
+        run: "ls 'C:\\Program Files (x86)\\gnupg\\include'"
       - name: Build binary
         run: cargo build --release
         working-directory: "${{ matrix.root }}"

@@ -27,6 +27,8 @@ value:
       with:
         ref: main
     - SNIPPET_get-cargo-os
+    - name: Examine GnuPG include
+      run: ls 'C:\Program Files (x86)\gnupg\include'
     - name: Build binary
       run: cargo build --release
       working-directory: ${{ matrix.root }}
