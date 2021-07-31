@@ -248,7 +248,8 @@ jobs:
         with:
           path: "~/.cargo/registry\n~/.cargo/git\n${{ matrix.root }}/target\n"
           key: "${{ runner.os }}-cargo-${{ hashFiles(steps.cargo-find-paths.outputs.cargo-lock-glob) }}"
-      - name: Examine GnuPG include
+      - name: Examine GnuPG include Windows
+        if: "matrix.os == 'windows-latest'"
         run: "ls 'C:\\Program Files (x86)\\gnupg\\include'"
       - name: Build binary
         run: cargo build --release
