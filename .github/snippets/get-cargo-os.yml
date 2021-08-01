@@ -9,14 +9,11 @@ value:
   - name: Install Windows dependencies
     if: matrix.os == 'windows-latest'
     # see https://github.com/actions/virtual-environments/issues/2876
-    env:
-      RUNNER_TEMP: ${{ runner.temp }}
     run: |
-      curl -L https://gnupg.org/ftp/gcrypt/binary/gnupg-w32-2.3.1_20210420.exe -o "$env:RUNNER_TEMP/gnupg.exe"
       echo "Installing gnupg"
-      $env:PATH += ";$env:RUNNER_TEMP"
-      Get-Command gnupg
-      gnupg.exe /S
+      $env:PATH = "C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\ProgramData\chocolatey\bin"
+      [Environment]::SetEnvironmentVariable("Path", $env:PATH, "Machine")
+      choco install -y gnupg
       ls 'C:\Program Files (x86)'
       echo "Done installing gnupg"
       echo "C:\Program Files (x86)\GnuPG\bin" >> $env:GITHUB_PATH
