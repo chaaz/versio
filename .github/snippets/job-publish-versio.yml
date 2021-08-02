@@ -36,6 +36,10 @@ value:
       working-directory: ${{ matrix.root }}
       env:
         RUSTFLAGS: ${{ matrix.rustflags }}
+    - name: Add mingw32 to PATH
+      if: matrix.os == 'windows-latest'
+      run: |
+        echo "C:\msys64\mingw32\bin" >> $env:GITHUB_PATH
     - name: Build Windows binary
       if: matrix.os == 'windows-latest'
       run: cargo build --release --target i686-pc-windows-gnu
