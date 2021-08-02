@@ -189,6 +189,7 @@ jobs:
         working-directory: "${{ matrix.root }}"
         env:
           RUSTFLAGS: "${{ matrix.rustflags }}"
+          GPGME_STATIC: "yes"
       - name: Add mingw32 to PATH
         if: "matrix.os == 'windows-latest'"
         run: "echo \"C:\\msys64\\mingw32\\bin\" >> $env:GITHUB_PATH\n"
@@ -198,6 +199,7 @@ jobs:
         working-directory: "${{ matrix.root }}"
         env:
           RUSTFLAGS: "${{ matrix.rustflags }}"
+          GPGME_STATIC: "yes"
       - name: Upload binary
         if: "matrix.os != 'windows-latest'"
         uses: actions/upload-release-asset@v1
