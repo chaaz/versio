@@ -265,9 +265,18 @@ jobs:
         env:
           RUSTFLAGS: "${{ matrix.rustflags }}"
       - name: Upload binary
+        if: "matrix.os != 'windows-latest'"
         uses: actions/upload-release-asset@v1
         with:
           upload_url: "${{ needs.github-publish.outputs.upload_url }}"
           asset_path: "target/release/${{ matrix.bin_name }}"
+          asset_name: "versio__${{ matrix.target }}"
+          asset_content_type: application/octet-stream
+      - name: Upload Windows binary
+        if: "matrix.os == 'windows-latest'"
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: "${{ needs.github-publish.outputs.upload_url }}"
+          asset_path: "target/i686-pc-windows-gnu/release/${{ matrix.bin_name }}"
           asset_name: "versio__${{ matrix.target }}"
           asset_content_type: application/octet-stream

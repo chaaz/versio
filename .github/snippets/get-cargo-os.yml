@@ -8,7 +8,13 @@ value:
     run: brew update; brew install gpgme
   - name: Install Windows dependencies
     if: matrix.os == 'windows-latest'
-    # see https://github.com/actions/virtual-environments/issues/2876
+    # The solution here is to use choco to install gnupg; directly
+    # downloading + running the .exe installer silently fails after
+    # setting the registry, but before/during writing to the `C:\Program
+    # Fiels (x86)\gnupg` filesystem. Also: see
+    # https://github.com/actions/virtual-environments/issues/2876 to
+    # ensure that the $env:PATH doesn't run out of characters when
+    # running choco.
     run: |
       echo "Installing gnupg"
       $env:PATH = "C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\ProgramData\chocolatey\bin"
@@ -30,7 +36,48 @@ value:
       toolchain: nightly
       components: rustfmt
   - name: Get Windows cargo stable
-    # Windows uses gpg4win, which only has a 32-bit version
+    # There's lots of issues here:
+    #
+    # 1. You can't use a msvc target to build gnupg; the gpg libraries
+    #   are built with the GNU toolchain, and are apparently nigh-on
+    #   impossible to build in Studio.
+    # 2. GnuPG is only available as 32-bit libraries for some reason.
+    # 3. The 32-bit GNU toolchain included in the Windows runner is
+    #   different than the builtin rust installation. That *shouldn't*
+    #   be a problem (as of 2020-02, rust is supposed to by favor the
+    #   system toolchain), but somehow it is--maybe because it's not as
+    #   flexible with 32 bit targets?
+    # 4. The 32-bit GNU toolchain (at least as accessed by rustc/cargo)
+    #   still seems to be half-baked, and is missing libraries,
+    #   including the very important 'ntdll.a'
+    # 5. The 32-bit GNU compiler (named something like
+    #   `mingw-w64-i686-gcc`) is not actually included in the runner's
+    #   PATH, making it impossible for cargo to find, and thus to
+    #   include its associated libs. You can't even build 32-bit GNU C
+    #   programs without explicitly adding it yourself, just before you
+    #   compile. See
+    #   https://github.com/actions/virtual-environments/issues/2549
+    #
+    # Bleh! After sooo many different attempts (some 20 odd different
+    # attempts in the runner, and multiple manual tries on various
+    # Windows 2019 VMs), it looks like the best way to build this is to
+    # use the 32-bit msvc toolchain to cross-compile to the 32-bit gnu
+    # target. This was actually recommended by various reputable
+    # internet sources (none of which I can find again). Also, we need
+    # to ensure that the correct target is selected on Windows builds,
+    # and that the cross-compile toolchain can be found. So for Windows
+    # builds only, we need to
+    #
+    # - ensure that the stable- or nightly-i686-pc-windows-msvc
+    #   cargo toolchain is installed and selected.
+    # - ensure that the cross-compile i686-pc-windows-gnu target is
+    #   installed.
+    # - ensure that the cross-compile toolchain is installed
+    #   (`windows-latest` does satisfy this with msys2/mingw)
+    # - include "C:\msys64\mingw32\bin" to the PATH before compiling.
+    # - use `--release --target i686-pc-windows-gnu` for `cargo build`
+    # - remember that this will build to the
+    #   `target/i686-pc-windows-gnu/release` directory.
     if: matrix.os == 'windows-latest'
     uses: actions-rs/toolchain@v1
     with:
