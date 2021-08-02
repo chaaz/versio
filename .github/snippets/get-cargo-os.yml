@@ -34,7 +34,7 @@ value:
     if: matrix.os == 'windows-latest'
     uses: actions-rs/toolchain@v1
     with:
-      toolchain: stable-i686-pc-windows-gnu
+      toolchain: stable-i686-pc-windows-msvc
       target: i686-pc-windows-gnu
       components: clippy
       default: true
@@ -42,7 +42,7 @@ value:
     if: matrix.os == 'windows-latest'
     uses: actions-rs/toolchain@v1
     with:
-      toolchain: nightly-i686-pc-windows-gnu
+      toolchain: nightly-i686-pc-windows-msvc
       target: i686-pc-windows-gnu
       components: rustfmt
   - name: Update Windows target configuration

@@ -158,7 +158,7 @@ jobs:
         if: "matrix.os == 'windows-latest'"
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable-i686-pc-windows-gnu
+          toolchain: stable-i686-pc-windows-msvc
           target: i686-pc-windows-gnu
           components: clippy
           default: true
@@ -166,7 +166,7 @@ jobs:
         if: "matrix.os == 'windows-latest'"
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly-i686-pc-windows-gnu
+          toolchain: nightly-i686-pc-windows-msvc
           target: i686-pc-windows-gnu
           components: rustfmt
       - name: Update Windows target configuration
@@ -184,7 +184,14 @@ jobs:
         if: "matrix.os == 'windows-latest'"
         run: "ls 'C:\\Program Files (x86)\\gnupg\\include'"
       - name: Build binary
+        if: "matrix.os != 'windows-latest'"
         run: cargo build --release
+        working-directory: "${{ matrix.root }}"
+        env:
+          RUSTFLAGS: "${{ matrix.rustflags }}"
+      - name: Build Windows binary
+        if: "matrix.os == 'windows-latest'"
+        run: cargo build --release --target i686-pc-windows-gnu
         working-directory: "${{ matrix.root }}"
         env:
           RUSTFLAGS: "${{ matrix.rustflags }}"
