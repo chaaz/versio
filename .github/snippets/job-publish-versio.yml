@@ -48,12 +48,10 @@ value:
         # env. We also only call out static only for the specific
         # libgpg-error and gpgme libs, because other linked libs
         # (notably: pthread) cannot reliably be linked statically.
-        LIBGPG_ERROR_VERSION: 1.38
-        LIBGPG_ERROR_INCLUDE: /usr/include
+        LIBGPG_ERROR_INCLUDE: /usr/include/i686-linux-gnu
         LIBGPG_ERROR_LIB_DIR: /usr/lib/i686-linux-gnu
         LIBGPG_ERROR_LIBS: static=gpg-error
         # LIBGPG_ERROR_STATIC: yes
-        GPGME_VERSION: 1.14.0
         GPGME_INCLUDE: /usr/include
         GPGME_LIB_DIR: /usr/lib/i686-linux-gnu
         GPGME_LIBS: static=gpgme:static=assuan
@@ -65,11 +63,9 @@ value:
       env:
         RUSTFLAGS: ${{ matrix.rustflags }}
         # See comments in the "Build Ubuntu binary" step to explain these env.
-        LIBGPG_ERROR_VERSION: 1.38
         LIBGPG_ERROR_INCLUDE: /usr/local/opt/libgpg-error/include
         LIBGPG_ERROR_LIB_DIR: /usr/local/opt/libgpg-error/lib
         LIBGPG_ERROR_LIBS: static=gpg-error
-        GPGME_VERSION: 1.14.0
         GPGME_INCLUDE: /usr/local/opt/libassuan/include:/usr/local/opt/gpgme/include
         GPGME_LIB_DIR: /usr/local/opt/libassuan/lib:/usr/local/opt/gpgme/lib
         GPGME_LIBS: static=gpgme:static=assuan
@@ -80,11 +76,9 @@ value:
       env:
         RUSTFLAGS: ${{ matrix.rustflags }}
         # See comments in the "Build Ubuntu binary" step to explain these env.
-        LIBGPG_ERROR_VERSION: 1.38
         LIBGPG_ERROR_INCLUDE: 'C:\Program Files (x86)\gnupg\include'
         LIBGPG_ERROR_LIB_DIR: 'C:\Program Files (x86)\gnupg\lib'
         LIBGPG_ERROR_LIBS: static=gpg-error
-        GPGME_VERSION: 1.14.0
         GPGME_INCLUDE: 'C:\Program Files (x86)\gnupg\include'
         GPGME_LIB_DIR: 'C:\Program Files (x86)\gnupg\lib'
         GPGME_LIBS: static=gpgme:static=assuan
