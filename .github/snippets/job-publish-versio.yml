@@ -48,12 +48,12 @@ value:
         # env. We also only call out static only for the specific
         # libgpg-error and gpgme libs, because other linked libs
         # (notably: pthread) cannot reliably be linked statically.
-        LIBGPG_ERROR_INCLUDE: /usr/include/i686-linux-gnu
-        LIBGPG_ERROR_LIB_DIR: /usr/lib/i686-linux-gnu
+        LIBGPG_ERROR_INCLUDE: /usr/include/x86_64-linux-gnu
+        LIBGPG_ERROR_LIB_DIR: /usr/lib/x86_64-linux-gnu
         LIBGPG_ERROR_LIBS: static=gpg-error
         # LIBGPG_ERROR_STATIC: yes
         GPGME_INCLUDE: /usr/include
-        GPGME_LIB_DIR: /usr/lib/i686-linux-gnu
+        GPGME_LIB_DIR: /usr/lib/x86_64-linux-gnu
         GPGME_LIBS: static=gpgme:static=assuan
         # GPGME_STATIC: yes
     - name: Build MacOS binary

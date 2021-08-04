@@ -258,11 +258,11 @@ jobs:
         working-directory: "${{ matrix.root }}"
         env:
           RUSTFLAGS: "${{ matrix.rustflags }}"
-          LIBGPG_ERROR_INCLUDE: /usr/include/i686-linux-gnu
-          LIBGPG_ERROR_LIB_DIR: /usr/lib/i686-linux-gnu
+          LIBGPG_ERROR_INCLUDE: /usr/include/x86_64-linux-gnu
+          LIBGPG_ERROR_LIB_DIR: /usr/lib/x86_64-linux-gnu
           LIBGPG_ERROR_LIBS: static=gpg-error
           GPGME_INCLUDE: /usr/include
-          GPGME_LIB_DIR: /usr/lib/i686-linux-gnu
+          GPGME_LIB_DIR: /usr/lib/x86_64-linux-gnu
           GPGME_LIBS: "static=gpgme:static=assuan"
       - name: Build MacOS binary
         if: "matrix.os == 'macos-latest'"
