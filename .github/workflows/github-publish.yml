@@ -141,7 +141,10 @@ jobs:
         run: brew update; brew install gpgme
       - name: Install Windows dependencies
         if: "matrix.os == 'windows-latest'"
-        run: "echo \"Installing gnupg\"\n$env:PATH = \"C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\ProgramData\\chocolatey\\bin\"\n[Environment]::SetEnvironmentVariable(\"Path\", $env:PATH, \"Machine\")\nchoco install -y gnupg\nls 'C:\\Program Files (x86)'\necho \"Done installing gnupg\"\necho \"C:\\Program Files (x86)\\GnuPG\\bin\" >> $env:GITHUB_PATH\n"
+        env:
+          RUNNER_TEMP: "${{ runner.temp }}"
+        working-directory: "${{ runner.temp }}"
+        run: "curl https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.42.tar.bz2 -o ./libgpg-error-1.42.tar.bz2\ntar -jxf libgpg-error-1.42.tar.bz2\ncurl https://gnupg.org/ftp/gcrypt/libassuan/libassuan-2.5.5.tar.bz2 -o ./libassuan-2.5.5.tar.bz2\ntar -jxf libassuan-2.5.5.tar.bz2\ncurl https://gnupg.org/ftp/gcrypt/gpgme/gpgme-1.16.0.tar.bz2 -o gpgme-1.16.0.tar.bz2\ntar -jxf gpgme-1.16.0.tar.bz2\npushd libgpg-error-1.42\n./configure --enable-static\nmake\nmake install\npopd\npushd libassuan-2.5.5\n./configure --enable-static\nmake\nmake install\npopd\npushd gpgme-1.16.0\n./configure --enable-static\nmake\nmake install\npopd\n"
       - name: Get cargo stable
         if: "matrix.os != 'windows-latest'"
         uses: actions-rs/toolchain@v1
@@ -158,20 +161,20 @@ jobs:
         if: "matrix.os == 'windows-latest'"
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable-i686-pc-windows-msvc
-          target: i686-pc-windows-gnu
+          toolchain: stable-x86_64-pc-windows-msvc
+          target: x86_64-pc-windows-gnu
           components: clippy
           default: true
       - name: Get Windows cargo nightly
         if: "matrix.os == 'windows-latest'"
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly-i686-pc-windows-msvc
-          target: i686-pc-windows-gnu
+          toolchain: nightly-x86_64-pc-windows-msvc
+          target: x86_64-pc-windows-gnu
           components: rustfmt
       - name: Update Windows target configuration
         if: "matrix.os == 'windows-latest'"
-        run: rustup set default-host i686-pc-windows-gnu
+        run: rustup set default-host x86_64-pc-windows-gnu
       - name: Find paths
         id: cargo-find-paths
         run: "echo ::set-output name=cargo-lock-glob::\"${{ matrix.root }}\"/**/Cargo.lock"
@@ -183,9 +186,9 @@ jobs:
       - name: Examine GnuPG include Windows
         if: "matrix.os == 'windows-latest'"
         run: "ls 'C:\\Program Files (x86)\\gnupg\\include'"
-      - name: Add mingw32 to PATH
+      - name: Add mingw64 to PATH
         if: "matrix.os == 'windows-latest'"
-        run: "echo \"C:\\msys64\\mingw32\\bin\" >> $env:GITHUB_PATH\n"
+        run: "echo \"C:\\msys64\\mingw64\\bin\" >> $env:GITHUB_PATH\n"
       - name: Build Ubuntu binary
         if: "matrix.os == 'ubuntu-latest'"
         run: cargo build --release
@@ -212,15 +215,15 @@ jobs:
           GPGME_LIBS: "static=gpgme:static=assuan"
       - name: Build Windows binary
         if: "matrix.os == 'windows-latest'"
-        run: cargo build --release --target i686-pc-windows-gnu
+        run: cargo build --release --target x86_64-pc-windows-gnu
         working-directory: "${{ matrix.root }}"
         env:
           RUSTFLAGS: "${{ matrix.rustflags }}"
-          LIBGPG_ERROR_INCLUDE: "C:\\Program Files (x86)\\gnupg\\include"
-          LIBGPG_ERROR_LIB_DIR: "C:\\Program Files (x86)\\gnupg\\lib"
+          LIBGPG_ERROR_INCLUDE: "C:\\msys64\\mingw64\\include"
+          LIBGPG_ERROR_LIB_DIR: "C:\\msys64\\mingw64\\lib"
           LIBGPG_ERROR_LIBS: static=gpg-error
-          GPGME_INCLUDE: "C:\\Program Files (x86)\\gnupg\\include"
-          GPGME_LIB_DIR: "C:\\Program Files (x86)\\gnupg\\lib"
+          GPGME_INCLUDE: "C:\\msys64\\mingw64\\include"
+          GPGME_LIB_DIR: "C:\\msys64\\mingw64\\lib"
           GPGME_LIBS: "static=gpgme:static=assuan"
       - name: Upload binary
         if: "matrix.os != 'windows-latest'"
@@ -235,6 +238,6 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: "${{ needs.github-publish.outputs.upload_url }}"
-          asset_path: "target/i686-pc-windows-gnu/release/${{ matrix.bin_name }}"
+          asset_path: "target/x86_64-pc-windows-gnu/release/${{ matrix.bin_name }}"
           asset_name: "versio__${{ matrix.target }}"
           asset_content_type: application/octet-stream

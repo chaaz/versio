@@ -8,21 +8,52 @@ value:
     run: brew update; brew install gpgme
   - name: Install Windows dependencies
     if: matrix.os == 'windows-latest'
-    # The solution here is to use choco to install gnupg; directly
-    # downloading + running the .exe installer silently fails after
-    # setting the registry, but before/during writing to the `C:\Program
-    # Fiels (x86)\gnupg` filesystem. Also: see
-    # https://github.com/actions/virtual-environments/issues/2876 to
-    # ensure that the $env:PATH doesn't run out of characters when
-    # running choco.
+    env:
+      RUNNER_TEMP: ${{ runner.temp }}
+    working-directory: ${{ runner.temp }}
+    # Short version, the choco install only provideds 32-bit dynamic
+    # libraries for some reason. We want to try 64-bit static links, so
+    # we have to build it ourselves.
     run: |
-      echo "Installing gnupg"
-      $env:PATH = "C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\ProgramData\chocolatey\bin"
-      [Environment]::SetEnvironmentVariable("Path", $env:PATH, "Machine")
-      choco install -y gnupg
-      ls 'C:\Program Files (x86)'
-      echo "Done installing gnupg"
-      echo "C:\Program Files (x86)\GnuPG\bin" >> $env:GITHUB_PATH
+      curl https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.42.tar.bz2 -o ./libgpg-error-1.42.tar.bz2
+      tar -jxf libgpg-error-1.42.tar.bz2
+      curl https://gnupg.org/ftp/gcrypt/libassuan/libassuan-2.5.5.tar.bz2 -o ./libassuan-2.5.5.tar.bz2
+      tar -jxf libassuan-2.5.5.tar.bz2
+      curl https://gnupg.org/ftp/gcrypt/gpgme/gpgme-1.16.0.tar.bz2 -o gpgme-1.16.0.tar.bz2
+      tar -jxf gpgme-1.16.0.tar.bz2
+      pushd libgpg-error-1.42
+      ./configure --enable-static
+      make
+      make install
+      popd
+      pushd libassuan-2.5.5
+      ./configure --enable-static
+      make
+      make install
+      popd
+      pushd gpgme-1.16.0
+      ./configure --enable-static
+      make
+      make install
+      popd
+
+  # - name: Install Windows dependencies
+  #   if: matrix.os == 'windows-latest'
+  #   # The solution here is to use choco to install gnupg; directly
+  #   # downloading + running the .exe installer silently fails after
+  #   # setting the registry, but before/during writing to the `C:\Program
+  #   # Fiels (x86)\gnupg` filesystem. Also: see
+  #   # https://github.com/actions/virtual-environments/issues/2876 to
+  #   # ensure that the $env:PATH doesn't run out of characters when
+  #   # running choco.
+  #   run: |
+  #     echo "Installing gnupg"
+  #     $env:PATH = "C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\ProgramData\chocolatey\bin"
+  #     [Environment]::SetEnvironmentVariable("Path", $env:PATH, "Machine")
+  #     choco install -y gnupg
+  #     ls 'C:\Program Files (x86)'
+  #     echo "Done installing gnupg"
+  #     echo "C:\Program Files (x86)\GnuPG\bin" >> $env:GITHUB_PATH
   - name: Get cargo stable
     if: matrix.os != 'windows-latest'
     uses: actions-rs/toolchain@v1
@@ -42,19 +73,23 @@ value:
     #   are built with the GNU toolchain, and are apparently nigh-on
     #   impossible to build in Studio.
     # 2. GnuPG is only available as 32-bit libraries for some reason.
+    #   (edit: now availble as 64-bit, since we're building them
+    #   ourselves)
     # 3. The 32-bit GNU toolchain included in the Windows runner is
     #   different than the builtin rust installation. That *shouldn't*
     #   be a problem (as of 2020-02, rust is supposed to by favor the
     #   system toolchain), but somehow it is--maybe because it's not as
-    #   flexible with 32 bit targets?
+    #   flexible with 32 bit targets?  Even though we're on the 64 bit
+    #   train, we'll still assuming that we have the same problem.
     # 4. The 32-bit GNU toolchain (at least as accessed by rustc/cargo)
-    #   still seems to be half-baked, and is missing libraries,
-    #   including the very important 'ntdll.a'
+    #    (and the 64-bit toolchain?) still seems to be half-baked, and
+    #    is missing libraries, including the very important 'ntdll.a'
     # 5. The 32-bit GNU compiler (named something like
-    #   `mingw-w64-i686-gcc`) is not actually included in the runner's
-    #   PATH, making it impossible for cargo to find, and thus to
-    #   include its associated libs. You can't even build 32-bit GNU C
-    #   programs without explicitly adding it yourself, just before you
+    #   `mingw-w64-i686-gcc`) (and the 64-bit compiler
+    #   `mingw-w64-x86_64-gcc` ?) is not actually included in the
+    #   runner's PATH, making it impossible for cargo to find, and thus
+    #   to include its associated libs. You can't even build 32-bit GNU
+    #   C programs without explicitly adding it yourself before you
     #   compile. See
     #   https://github.com/actions/virtual-environments/issues/2549
     #
@@ -66,7 +101,7 @@ value:
     # internet sources (none of which I can find again). Also, we need
     # to ensure that the correct target is selected on Windows builds,
     # and that the cross-compile toolchain can be found. So for Windows
-    # builds only, we need to
+    # builds, we need to
     #
     # - ensure that the stable- or nightly-i686-pc-windows-msvc
     #   cargo toolchain is installed and selected.
@@ -78,23 +113,27 @@ value:
     # - use `--release --target i686-pc-windows-gnu` for `cargo build`
     # - remember that this will build to the
     #   `target/i686-pc-windows-gnu/release` directory.
+    #
+    # Now that we're building the GnuPG Windows libs ourselves, we can
+    # safely use the 64-bit (x86_64) toolchain, instead of the 32-bit
+    # (i686) toolchain. Everything else remains the same, though.
     if: matrix.os == 'windows-latest'
     uses: actions-rs/toolchain@v1
     with:
-      toolchain: stable-i686-pc-windows-msvc
-      target: i686-pc-windows-gnu
+      toolchain: stable-x86_64-pc-windows-msvc
+      target: x86_64-pc-windows-gnu
       components: clippy
       default: true
   - name: Get Windows cargo nightly
     if: matrix.os == 'windows-latest'
     uses: actions-rs/toolchain@v1
     with:
-      toolchain: nightly-i686-pc-windows-msvc
-      target: i686-pc-windows-gnu
+      toolchain: nightly-x86_64-pc-windows-msvc
+      target: x86_64-pc-windows-gnu
       components: rustfmt
   - name: Update Windows target configuration
     if: matrix.os == 'windows-latest'
-    run: rustup set default-host i686-pc-windows-gnu
+    run: rustup set default-host x86_64-pc-windows-gnu
   - name: Find paths
     id: cargo-find-paths
     run: 'echo ::set-output name=cargo-lock-glob::"${{ matrix.root }}"/**/Cargo.lock'
