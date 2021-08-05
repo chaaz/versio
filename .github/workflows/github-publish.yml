@@ -139,6 +139,7 @@ jobs:
         if: "matrix.os == 'windows-latest'"
         env:
           RUNNER_TEMP: "${{ runner.temp }}"
+          MSYS_NO_PATHCONV: 1
         working-directory: "${{ runner.temp }}"
         shell: bash
         run: "curl https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.42.tar.bz2 -o libgpg-error-1.42.tar.bz2\ntar -jxf libgpg-error-1.42.tar.bz2\ncurl https://gnupg.org/ftp/gcrypt/libassuan/libassuan-2.5.5.tar.bz2 -o libassuan-2.5.5.tar.bz2\ntar -jxf libassuan-2.5.5.tar.bz2\ncurl https://gnupg.org/ftp/gcrypt/gpgme/gpgme-1.16.0.tar.bz2 -o gpgme-1.16.0.tar.bz2\ntar -jxf gpgme-1.16.0.tar.bz2\npushd libgpg-error-1.42\n./configure --enable-static\nmake\nmake install\npopd\npushd libassuan-2.5.5\n./configure --enable-static\nmake\nmake install\npopd\npushd gpgme-1.16.0\n./configure --enable-static\nmake\nmake install\npopd\n"

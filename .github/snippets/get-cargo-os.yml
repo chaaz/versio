@@ -10,6 +10,7 @@ value:
     if: matrix.os == 'windows-latest'
     env:
       RUNNER_TEMP: ${{ runner.temp }}
+      MSYS_NO_PATHCONV: 1
     working-directory: ${{ runner.temp }}
     shell: bash
     # Short version, the choco install only provideds 32-bit dynamic
