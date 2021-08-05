@@ -11,13 +11,14 @@ value:
     env:
       RUNNER_TEMP: ${{ runner.temp }}
     working-directory: ${{ runner.temp }}
+    shell: bash
     # Short version, the choco install only provideds 32-bit dynamic
     # libraries for some reason. We want to try 64-bit static links, so
     # we have to build it ourselves.
     run: |
-      curl https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.42.tar.bz2 -o ./libgpg-error-1.42.tar.bz2
+      curl https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.42.tar.bz2 -o libgpg-error-1.42.tar.bz2
       tar -jxf libgpg-error-1.42.tar.bz2
-      curl https://gnupg.org/ftp/gcrypt/libassuan/libassuan-2.5.5.tar.bz2 -o ./libassuan-2.5.5.tar.bz2
+      curl https://gnupg.org/ftp/gcrypt/libassuan/libassuan-2.5.5.tar.bz2 -o libassuan-2.5.5.tar.bz2
       tar -jxf libassuan-2.5.5.tar.bz2
       curl https://gnupg.org/ftp/gcrypt/gpgme/gpgme-1.16.0.tar.bz2 -o gpgme-1.16.0.tar.bz2
       tar -jxf gpgme-1.16.0.tar.bz2
