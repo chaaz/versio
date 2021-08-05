@@ -87,6 +87,7 @@ value:
         GPGME_INCLUDE: 'C:\msys64\mingw64\include'
         GPGME_LIB_DIR: 'C:\msys64\mingw64\lib'
         GPGME_LIBS: static=gpgme:static=assuan
+        MSYS_NO_PATHCONV: 1
     - name: Upload binary
       if: matrix.os != 'windows-latest'
       uses: actions/upload-release-asset@v1
