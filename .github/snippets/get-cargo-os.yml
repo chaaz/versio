@@ -38,17 +38,17 @@ value:
       curl https://gnupg.org/ftp/gcrypt/gpgme/gpgme-1.16.0.tar.bz2 -o gpgme-1.16.0.tar.bz2
       tar -jxf gpgme-1.16.0.tar.bz2
       pushd libgpg-error-1.42
-      ./configure --enable-static
+      LDFLAGS="-L/usr/lib" CPPFLAGS="-I/usr/include" ./configure --enable-static
       make
       make install
       popd
       pushd libassuan-2.5.5
-      ./configure --enable-static
+      LDFLAGS="-L/usr/lib" CPPFLAGS="-I/usr/include" ./configure --enable-static
       make
       make install
       popd
       pushd gpgme-1.16.0
-      ./configure --enable-static
+      LDFLAGS="-L/usr/lib" CPPFLAGS="-I/usr/include" ./configure --enable-static
       make
       make install
       popd
