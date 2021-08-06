@@ -6,25 +6,23 @@ value:
   - name: Install MacOS dependencies
     if: matrix.os == 'macos-latest'
     run: brew update; brew install gpgme
-  - name: What is PATH
-    if: matrix.os != 'windows-latest'
-    run: echo $PATH
-  - name: What is Windows PATH
+  - name: Windows spaces in paths problems in the Year of our Lord 2021 I swear
     if: matrix.os == 'windows-latest'
-    run: echo $env:PATH
-  - name: What is env
-    run: env
+    run: |
+      New-Item -Path "C:\" -Name "pf" -ItemType "directory"
+      Copy-Item -Path "C:\Program Files\Git" -Destination "C:\pf" -Recurse
+      @("C:\pf\Git\bin", "C:\pf\Git\cmd", "C:\pf\Git\mingw64\bin", "C:\pf\Git\usr\bin") + (Get-Content $env:GITHUB_PATH) | Set-Content $env:GITHUB_PATH
   - name: Install Windows dependencies
     if: matrix.os == 'windows-latest'
     env:
       RUNNER_TEMP: ${{ runner.temp }}
-      MSYS_NO_PATHCONV: 1
     working-directory: ${{ runner.temp }}
     shell: bash
     # Short version, the choco install only provideds 32-bit dynamic
     # libraries for some reason. We want to try 64-bit static links, so
     # we have to build it ourselves.
     run: |
+      export PATH="/c/pf/Git/bin:/c/pf/Git/cmd:/c/pf/Git/mingw64/bin:/c/pf/Git/usr/bin:$PATH"
       curl https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.42.tar.bz2 -o libgpg-error-1.42.tar.bz2
       tar -jxf libgpg-error-1.42.tar.bz2
       curl https://gnupg.org/ftp/gcrypt/libassuan/libassuan-2.5.5.tar.bz2 -o libassuan-2.5.5.tar.bz2
@@ -46,24 +44,6 @@ value:
       make
       make install
       popd
-
-  # - name: Install Windows dependencies
-  #   if: matrix.os == 'windows-latest'
-  #   # The solution here is to use choco to install gnupg; directly
-  #   # downloading + running the .exe installer silently fails after
-  #   # setting the registry, but before/during writing to the `C:\Program
-  #   # Fiels (x86)\gnupg` filesystem. Also: see
-  #   # https://github.com/actions/virtual-environments/issues/2876 to
-  #   # ensure that the $env:PATH doesn't run out of characters when
-  #   # running choco.
-  #   run: |
-  #     echo "Installing gnupg"
-  #     $env:PATH = "C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\ProgramData\chocolatey\bin"
-  #     [Environment]::SetEnvironmentVariable("Path", $env:PATH, "Machine")
-  #     choco install -y gnupg
-  #     ls 'C:\Program Files (x86)'
-  #     echo "Done installing gnupg"
-  #     echo "C:\Program Files (x86)\GnuPG\bin" >> $env:GITHUB_PATH
   - name: Get cargo stable
     if: matrix.os != 'windows-latest'
     uses: actions-rs/toolchain@v1
