@@ -30,6 +30,7 @@ value:
     # LDFLAGS="-L/c/pf/Git/usr/lib" CPPFLAGS="-I/c/pf/Git/usr/include" ./configure --enable-static
     run: |
       export PATH="/c/msys64/usr/bin:$PATH"
+      pacman --noconfirm -S msys2-runtime-devel
       curl https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.42.tar.bz2 -o libgpg-error-1.42.tar.bz2
       tar -jxf libgpg-error-1.42.tar.bz2
       curl https://gnupg.org/ftp/gcrypt/libassuan/libassuan-2.5.5.tar.bz2 -o libassuan-2.5.5.tar.bz2
