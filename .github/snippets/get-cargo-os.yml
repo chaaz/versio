@@ -6,6 +6,14 @@ value:
   - name: Install MacOS dependencies
     if: matrix.os == 'macos-latest'
     run: brew update; brew install gpgme
+  - name: What is PATH
+    if: matrix.os != 'windows-latest'
+    run: echo $PATH
+  - name: What is Windows PATH
+    if: matrix.os == 'windows-latest'
+    run: echo $env:PATH
+  - name: What is env
+    run: env
   - name: Install Windows dependencies
     if: matrix.os == 'windows-latest'
     env:
