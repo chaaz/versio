@@ -6,16 +6,12 @@ value:
   - name: Install MacOS dependencies
     if: matrix.os == 'macos-latest'
     run: brew update; brew install gpgme
-  # - name: Windows spaces in paths problems in the Year of our Lord 2021 I swear
-  #   if: matrix.os == 'windows-latest'
-  #   run: |
-  #     New-Item -Path "C:\" -Name "pf" -ItemType "directory"
-  #     Copy-Item -Path "C:\Program Files\Git" -Destination "C:\pf" -Recurse
-  #     @("C:\pf\Git\bin", "C:\pf\Git\cmd", "C:\pf\Git\mingw64\bin", "C:\pf\Git\usr\bin") + (Get-Content $env:GITHUB_PATH) | Set-Content $env:GITHUB_PATH
-  - name: Try to use msys2
+  - name: Windows spaces in paths problems in the Year of our Lord 2021 I swear
     if: matrix.os == 'windows-latest'
     run: |
-      @("C:\msys64\usr\bin") + (Get-Content $env:GITHUB_PATH) | Set-Content $env:GITHUB_PATH
+      New-Item -Path "C:\" -Name "pf" -ItemType "directory"
+      Copy-Item -Path "C:\Program Files\Git" -Destination "C:\pf" -Recurse
+      @("C:\pf\Git\bin", "C:\pf\Git\cmd", "C:\pf\Git\mingw64\bin", "C:\pf\Git\usr\bin") + (Get-Content $env:GITHUB_PATH) | Set-Content $env:GITHUB_PATH
   - name: Install Windows dependencies
     if: matrix.os == 'windows-latest'
     env:
@@ -25,12 +21,8 @@ value:
     # Short version, the choco install only provideds 32-bit dynamic
     # libraries for some reason. We want to try 64-bit static links, so
     # we have to build it ourselves.
-    #
-    # Maybe msys2 doesn't need things like the following:
-    # LDFLAGS="-L/c/pf/Git/usr/lib" CPPFLAGS="-I/c/pf/Git/usr/include" ./configure --enable-static
     run: |
-      export PATH="/c/msys64/usr/bin:$PATH"
-      pacman --noconfirm -S msys2-runtime-devel
+      export PATH="/c/pf/Git/bin:/c/pf/Git/cmd:/c/pf/Git/mingw64/bin:/c/pf/Git/usr/bin:$PATH"
       curl https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.42.tar.bz2 -o libgpg-error-1.42.tar.bz2
       tar -jxf libgpg-error-1.42.tar.bz2
       curl https://gnupg.org/ftp/gcrypt/libassuan/libassuan-2.5.5.tar.bz2 -o libassuan-2.5.5.tar.bz2
@@ -38,17 +30,17 @@ value:
       curl https://gnupg.org/ftp/gcrypt/gpgme/gpgme-1.16.0.tar.bz2 -o gpgme-1.16.0.tar.bz2
       tar -jxf gpgme-1.16.0.tar.bz2
       pushd libgpg-error-1.42
-      LDFLAGS="-L/usr/lib" CPPFLAGS="-I/usr/include" ./configure --enable-static
+      LDFLAGS="-L/c/pf/Git/usr/lib" CPPFLAGS="-I/c/pf/Git/usr/include" ./configure --enable-static
       make
       make install
       popd
       pushd libassuan-2.5.5
-      LDFLAGS="-L/usr/lib" CPPFLAGS="-I/usr/include" ./configure --enable-static
+      LDFLAGS="-L/c/pf/Git/usr/lib" CPPFLAGS="-I/c/pf/Git/usr/include" ./configure --enable-static
       make
       make install
       popd
       pushd gpgme-1.16.0
-      LDFLAGS="-L/usr/lib" CPPFLAGS="-I/usr/include" ./configure --enable-static
+      LDFLAGS="-L/c/pf/Git/usr/lib" CPPFLAGS="-I/c/pf/Git/usr/include" ./configure --enable-static
       make
       make install
       popd
