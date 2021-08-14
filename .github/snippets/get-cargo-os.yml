@@ -23,6 +23,8 @@ value:
     # we have to build it ourselves.
     run: |
       export PATH="/c/pf/Git/bin:/c/pf/Git/cmd:/c/pf/Git/mingw64/bin:/c/pf/Git/usr/bin:$PATH"
+      pacman --noconfirm -S msys2-devel
+      pacman --noconfirm -S msys2-runtime-devel
       curl https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.42.tar.bz2 -o libgpg-error-1.42.tar.bz2
       tar -jxf libgpg-error-1.42.tar.bz2
       curl https://gnupg.org/ftp/gcrypt/libassuan/libassuan-2.5.5.tar.bz2 -o libassuan-2.5.5.tar.bz2
