@@ -54,7 +54,8 @@ value:
       working-directory: ${{ matrix.root }}
       env:
         RUSTFLAGS: ${{ matrix.rustflags }}
-        # See comments in the "Build Ubuntu binary" step to explain these env.
+        # See comments in the above "Build Ubuntu binary" step to
+        # explain these env.
         LIBGPG_ERROR_INCLUDE: /usr/local/opt/libgpg-error/include
         LIBGPG_ERROR_LIB_DIR: /usr/local/opt/libgpg-error/lib
         LIBGPG_ERROR_LIBS: static=gpg-error
@@ -71,7 +72,7 @@ value:
         # See comments in the above "Build Ubuntu binary" step to
         # explain these env. Now that we're building the gpg libs
         # ourselves, we need to use the locations of where `make
-        # install` puts them, instead of using the choco target.
+        # install` in the `Install Windows dependencies` step puts them.
         LIBGPG_ERROR_INCLUDE: '/mingw64/include'
         LIBGPG_ERROR_LIB_DIR: '/mingw64/lib'
         LIBGPG_ERROR_LIBS: 'static=gpg-error'

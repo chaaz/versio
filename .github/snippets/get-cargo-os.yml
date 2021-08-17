@@ -24,9 +24,10 @@ value:
     shell: msys2 {0}
     # Short version, the choco install only provideds 32-bit dynamic
     # libraries for some reason. We want to try 64-bit static links, so
-    # we have to build it ourselves.
+    # we have to build all the deps ourselves. Also, the gpgme python
+    # install scripts use subprocess.Popen and friends, which are all
+    # horked in msys2, so we'll stick to only C and C++ libs.
     run: |
-      export PATH="/c/pf/Git/bin:/c/pf/Git/cmd:/c/pf/Git/mingw64/bin:/c/pf/Git/usr/bin:$PATH"
       curl https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.42.tar.bz2 -o libgpg-error-1.42.tar.bz2
       tar -jxf libgpg-error-1.42.tar.bz2
       curl https://gnupg.org/ftp/gcrypt/libassuan/libassuan-2.5.5.tar.bz2 -o libassuan-2.5.5.tar.bz2
@@ -34,17 +35,17 @@ value:
       curl https://gnupg.org/ftp/gcrypt/gpgme/gpgme-1.16.0.tar.bz2 -o gpgme-1.16.0.tar.bz2
       tar -jxf gpgme-1.16.0.tar.bz2
       pushd libgpg-error-1.42
-      LDFLAGS="-L/c/pf/Git/usr/lib" CPPFLAGS="-I/c/pf/Git/usr/include" ./configure --enable-static
+      ./configure --enable-static
       make
       make install
       popd
       pushd libassuan-2.5.5
-      LDFLAGS="-L/c/pf/Git/usr/lib" CPPFLAGS="-I/c/pf/Git/usr/include" ./configure --enable-static
+      ./configure --enable-static
       make
       make install
       popd
       pushd gpgme-1.16.0
-      LDFLAGS="-L/c/pf/Git/usr/lib" CPPFLAGS="-I/c/pf/Git/usr/include" ./configure --enable-static
+      ./configure --enable-static --enable-languages=cl,cpp
       make
       make install
       popd
@@ -61,56 +62,51 @@ value:
       toolchain: nightly
       components: rustfmt
   - name: Get Windows cargo stable
-    # There's lots of issues here:
+    # After dozens of stabs at this, we have decided to build the gpgme
+    # dependencies ourselves, in order to provide a 64-bit statically
+    # linked binary. (On windows, the gpgme pre-built packages from
+    # chocolatey etc only provide 32-bit dynamic libs.) There are still
+    # plenty of issues on this route, though, including:
     #
-    # 1. You can't use a msvc target to build gnupg; the gpg libraries
-    #   are built with the GNU toolchain, and are apparently nigh-on
-    #   impossible to build in Studio.
-    # 2. GnuPG is only available as 32-bit libraries for some reason.
-    #   (edit: now availble as 64-bit, since we're building them
-    #   ourselves)
-    # 3. The 32-bit GNU toolchain included in the Windows runner is
+    # 1. You can't use the msvc target to build gnupg; the gpg libraries
+    #    are built with the GNU toolchain, and are apparently nigh-on
+    #    impossible to build in Studio.
+    # 2. The GNU toolchain included in the Windows runner is
     #   different than the builtin rust installation. That *shouldn't*
     #   be a problem (as of 2020-02, rust is supposed to by favor the
-    #   system toolchain), but somehow it is--maybe because it's not as
-    #   flexible with 32 bit targets?  Even though we're on the 64 bit
-    #   train, we'll still assuming that we have the same problem.
-    # 4. The 32-bit GNU toolchain (at least as accessed by rustc/cargo)
-    #    (and the 64-bit toolchain?) still seems to be half-baked, and
-    #    is missing libraries, including the very important 'ntdll.a'
-    # 5. The 32-bit GNU compiler (named something like
-    #   `mingw-w64-i686-gcc`) (and the 64-bit compiler
-    #   `mingw-w64-x86_64-gcc` ?) is not actually included in the
-    #   runner's PATH, making it impossible for cargo to find, and thus
-    #   to include its associated libs. You can't even build 32-bit GNU
-    #   C programs without explicitly adding it yourself before you
-    #   compile. See
+    #   system toolchain), but somehow it is.
+    # 3. The GNU runner toolchain still seems to be half-baked, and is
+    #   missing libraries. Also, its compiler isn't even on the PATH,
+    #   making it impossible for cargo to find, and thus to include its
+    #   associated libs. You can't even build GNU C programs
+    #   without explicitly adding it yourself before you compile. See
     #   https://github.com/actions/virtual-environments/issues/2549
     #
-    # Bleh! After sooo many different attempts (some 20 odd different
-    # attempts in the runner, and multiple manual tries on various
-    # Windows 2019 VMs), it looks like the best way to build this is to
-    # use the 32-bit msvc toolchain to cross-compile to the 32-bit gnu
-    # target. This was actually recommended by various reputable
-    # internet sources (none of which I can find again). Also, we need
-    # to ensure that the correct target is selected on Windows builds,
-    # and that the cross-compile toolchain can be found. So for Windows
+    # However, there is a `msys2/setup-msys2@v2` action available, which
+    # provides a more complete dev environment for building gnu-based
+    # windows applications, and handles many (but not quite all) of the
+    # path problems.
+    #
+    # So, it looks like the best way to build this is to use the msvc
+    # toolchain to cross-compile to the gnu target inside the msys2
+    # shell. This was actually recommended by various reputable internet
+    # sources (none of which I can find right now). Also, we need to
+    # ensure that the correct target is selected on Windows builds, and
+    # that the cross-compile toolchain can be found. So for Windows
     # builds, we need to
     #
-    # - ensure that the stable- or nightly-i686-pc-windows-msvc
+    # - install the msys2 shell and development tools. (see the `uses:
+    #   msys2/setup-msys2@v2` up above)
+    # - ensure that the stable- or nightly-x86_64-pc-windows-msvc
     #   cargo toolchain is installed and selected.
-    # - ensure that the cross-compile i686-pc-windows-gnu target is
-    #   installed.
-    # - ensure that the cross-compile toolchain is installed
-    #   (`windows-latest` does satisfy this with msys2/mingw)
-    # - include "C:\msys64\mingw32\bin" to the PATH before compiling.
-    # - use `--release --target i686-pc-windows-gnu` for `cargo build`
+    # - ensure that the cross-compile x86_64-pc-windows-gnu target is
+    #   installed for that cargo toolchain.
+    # - ensure that the cross-compile toolchain tools are actually
+    #   available (`windows-latest` does satisfy this with msys2/mingw)
+    # - use the msys2 shell and `--release --target
+    #   x86_64-pc-windows-gnu` for all cargo commands.
     # - remember that this will build to the
     #   `target/i686-pc-windows-gnu/release` directory.
-    #
-    # Now that we're building the GnuPG Windows libs ourselves, we can
-    # safely use the 64-bit (x86_64) toolchain, instead of the 32-bit
-    # (i686) toolchain. Everything else remains the same, though.
     if: matrix.os == 'windows-latest'
     uses: actions-rs/toolchain@v1
     with:
