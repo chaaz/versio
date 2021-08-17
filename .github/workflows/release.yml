@@ -184,7 +184,7 @@ jobs:
             rustflags: "-D warnings"
             bin_name: versio
           - os: windows-latest
-            target: x86_64-pc-win32.exe
+            target: x86_64-pc-windows-gnu.exe
             root: "."
             rustflags: "-D warnings"
             bin_name: versio.exe
@@ -201,16 +201,19 @@ jobs:
       - name: Install MacOS dependencies
         if: "matrix.os == 'macos-latest'"
         run: brew update; brew install gpgme
-      - name: Windows spaces in paths problems in the Year of our Lord 2021 I swear
-        if: "matrix.os == 'windows-latest'"
-        run: "New-Item -Path \"C:\\\" -Name \"pf\" -ItemType \"directory\"\nCopy-Item -Path \"C:\\Program Files\\Git\" -Destination \"C:\\pf\" -Recurse\n@(\"C:\\pf\\Git\\bin\", \"C:\\pf\\Git\\cmd\", \"C:\\pf\\Git\\mingw64\\bin\", \"C:\\pf\\Git\\usr\\bin\") + (Get-Content $env:GITHUB_PATH) | Set-Content $env:GITHUB_PATH\n"
+      - name: Setup Msys2 on Windows
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          msystem: mingw64
+          install: base-devel git mingw-w64-x86_64-toolchain
       - name: Install Windows dependencies
         if: "matrix.os == 'windows-latest'"
         env:
           RUNNER_TEMP: "${{ runner.temp }}"
         working-directory: "${{ runner.temp }}"
-        shell: bash
-        run: "export PATH=\"/c/pf/Git/bin:/c/pf/Git/cmd:/c/pf/Git/mingw64/bin:/c/pf/Git/usr/bin:$PATH\"\npacman --noconfirm -S msys2-devel\npacman --noconfirm -S msys2-runtime-devel\ncurl https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.42.tar.bz2 -o libgpg-error-1.42.tar.bz2\ntar -jxf libgpg-error-1.42.tar.bz2\ncurl https://gnupg.org/ftp/gcrypt/libassuan/libassuan-2.5.5.tar.bz2 -o libassuan-2.5.5.tar.bz2\ntar -jxf libassuan-2.5.5.tar.bz2\ncurl https://gnupg.org/ftp/gcrypt/gpgme/gpgme-1.16.0.tar.bz2 -o gpgme-1.16.0.tar.bz2\ntar -jxf gpgme-1.16.0.tar.bz2\npushd libgpg-error-1.42\nLDFLAGS=\"-L/c/pf/Git/usr/lib\" CPPFLAGS=\"-I/c/pf/Git/usr/include\" ./configure --enable-static\nmake\nmake install\npopd\npushd libassuan-2.5.5\nLDFLAGS=\"-L/c/pf/Git/usr/lib\" CPPFLAGS=\"-I/c/pf/Git/usr/include\" ./configure --enable-static\nmake\nmake install\npopd\npushd gpgme-1.16.0\nLDFLAGS=\"-L/c/pf/Git/usr/lib\" CPPFLAGS=\"-I/c/pf/Git/usr/include\" ./configure --enable-static\nmake\nmake install\npopd\n"
+        shell: "msys2 {0}"
+        run: "export PATH=\"/c/pf/Git/bin:/c/pf/Git/cmd:/c/pf/Git/mingw64/bin:/c/pf/Git/usr/bin:$PATH\"\ncurl https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.42.tar.bz2 -o libgpg-error-1.42.tar.bz2\ntar -jxf libgpg-error-1.42.tar.bz2\ncurl https://gnupg.org/ftp/gcrypt/libassuan/libassuan-2.5.5.tar.bz2 -o libassuan-2.5.5.tar.bz2\ntar -jxf libassuan-2.5.5.tar.bz2\ncurl https://gnupg.org/ftp/gcrypt/gpgme/gpgme-1.16.0.tar.bz2 -o gpgme-1.16.0.tar.bz2\ntar -jxf gpgme-1.16.0.tar.bz2\npushd libgpg-error-1.42\nLDFLAGS=\"-L/c/pf/Git/usr/lib\" CPPFLAGS=\"-I/c/pf/Git/usr/include\" ./configure --enable-static\nmake\nmake install\npopd\npushd libassuan-2.5.5\nLDFLAGS=\"-L/c/pf/Git/usr/lib\" CPPFLAGS=\"-I/c/pf/Git/usr/include\" ./configure --enable-static\nmake\nmake install\npopd\npushd gpgme-1.16.0\nLDFLAGS=\"-L/c/pf/Git/usr/lib\" CPPFLAGS=\"-I/c/pf/Git/usr/include\" ./configure --enable-static\nmake\nmake install\npopd\n"
       - name: Get cargo stable
         if: "matrix.os != 'windows-latest'"
         uses: actions-rs/toolchain@v1
@@ -240,6 +243,7 @@ jobs:
           components: rustfmt
       - name: Update Windows target configuration
         if: "matrix.os == 'windows-latest'"
+        shell: "msys2 {0}"
         run: rustup set default-host x86_64-pc-windows-gnu
       - name: Find paths
         id: cargo-find-paths
@@ -249,12 +253,6 @@ jobs:
         with:
           path: "~/.cargo/registry\n~/.cargo/git\n${{ matrix.root }}/target\n"
           key: "${{ runner.os }}-cargo-${{ hashFiles(steps.cargo-find-paths.outputs.cargo-lock-glob) }}"
-      - name: Examine GnuPG include Windows
-        if: "matrix.os == 'windows-latest'"
-        run: "ls 'C:\\Program Files (x86)\\gnupg\\include'"
-      - name: Add mingw64 to PATH
-        if: "matrix.os == 'windows-latest'"
-        run: "echo \"C:\\msys64\\mingw64\\bin\" >> $env:GITHUB_PATH\n"
       - name: Build Ubuntu binary
         if: "matrix.os == 'ubuntu-latest'"
         run: cargo build --release
@@ -281,17 +279,17 @@ jobs:
           GPGME_LIBS: "static=gpgme:static=assuan"
       - name: Build Windows binary
         if: "matrix.os == 'windows-latest'"
+        shell: "msys2 {0}"
         run: cargo build --release --target x86_64-pc-windows-gnu
         working-directory: "${{ matrix.root }}"
         env:
           RUSTFLAGS: "${{ matrix.rustflags }}"
-          LIBGPG_ERROR_INCLUDE: "C:\\msys64\\mingw64\\include"
-          LIBGPG_ERROR_LIB_DIR: "C:\\msys64\\mingw64\\lib"
+          LIBGPG_ERROR_INCLUDE: /mingw64/include
+          LIBGPG_ERROR_LIB_DIR: /mingw64/lib
           LIBGPG_ERROR_LIBS: static=gpg-error
-          GPGME_INCLUDE: "C:\\msys64\\mingw64\\include"
-          GPGME_LIB_DIR: "C:\\msys64\\mingw64\\lib"
-          GPGME_LIBS: "static=gpgme:static=assuan"
-          MSYS_NO_PATHCONV: 1
+          GPGME_INCLUDE: /mingw64/include
+          GPGME_LIB_DIR: /mingw64/lib
+          GPGME_LIBS: static=gpgme;static=assuan
       - name: Upload binary
         if: "matrix.os != 'windows-latest'"
         uses: actions/upload-release-asset@v1

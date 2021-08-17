@@ -6,25 +6,26 @@ value:
   - name: Install MacOS dependencies
     if: matrix.os == 'macos-latest'
     run: brew update; brew install gpgme
-  - name: Windows spaces in paths problems in the Year of our Lord 2021 I swear
-    if: matrix.os == 'windows-latest'
-    run: |
-      New-Item -Path "C:\" -Name "pf" -ItemType "directory"
-      Copy-Item -Path "C:\Program Files\Git" -Destination "C:\pf" -Recurse
-      @("C:\pf\Git\bin", "C:\pf\Git\cmd", "C:\pf\Git\mingw64\bin", "C:\pf\Git\usr\bin") + (Get-Content $env:GITHUB_PATH) | Set-Content $env:GITHUB_PATH
+  - name: Setup Msys2 on Windows
+    uses: msys2/setup-msys2@v2
+    with:
+      update: true
+      msystem: mingw64
+      install: >-
+        base-devel
+        git
+        mingw-w64-x86_64-toolchain
   - name: Install Windows dependencies
     if: matrix.os == 'windows-latest'
     env:
       RUNNER_TEMP: ${{ runner.temp }}
     working-directory: ${{ runner.temp }}
-    shell: bash
+    shell: msys2 {0}
     # Short version, the choco install only provideds 32-bit dynamic
     # libraries for some reason. We want to try 64-bit static links, so
     # we have to build it ourselves.
     run: |
       export PATH="/c/pf/Git/bin:/c/pf/Git/cmd:/c/pf/Git/mingw64/bin:/c/pf/Git/usr/bin:$PATH"
-      pacman --noconfirm -S msys2-devel
-      pacman --noconfirm -S msys2-runtime-devel
       curl https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.42.tar.bz2 -o libgpg-error-1.42.tar.bz2
       tar -jxf libgpg-error-1.42.tar.bz2
       curl https://gnupg.org/ftp/gcrypt/libassuan/libassuan-2.5.5.tar.bz2 -o libassuan-2.5.5.tar.bz2
@@ -125,6 +126,7 @@ value:
       components: rustfmt
   - name: Update Windows target configuration
     if: matrix.os == 'windows-latest'
+    shell: msys2 {0}
     run: rustup set default-host x86_64-pc-windows-gnu
   - name: Find paths
     id: cargo-find-paths
