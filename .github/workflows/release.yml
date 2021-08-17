@@ -207,6 +207,7 @@ jobs:
         with:
           update: true
           msystem: mingw64
+          path-type: inherit
           install: base-devel git mingw-w64-x86_64-toolchain
       - name: Install Windows dependencies
         if: "matrix.os == 'windows-latest'"

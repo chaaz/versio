@@ -12,6 +12,7 @@ value:
     with:
       update: true
       msystem: mingw64
+      path-type: inherit
       install: >-
         base-devel
         git
