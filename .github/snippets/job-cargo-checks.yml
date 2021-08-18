@@ -12,9 +12,9 @@ value:
     - name: Checkout code
       uses: actions/checkout@v2
     - SNIPPET_get-cargo
-    # - name: Check structure
-    #   run: cargo clippy
+    - name: Check structure
+      run: cargo clippy
     - name: Check format
       run: cargo +nightly fmt -- --check
-    # - name: Check tests
-    #   run: cargo test
+    - name: Check tests
+      run: cargo test

@@ -72,8 +72,12 @@ jobs:
         with:
           path: "~/.cargo/registry\n~/.cargo/git\n${{ matrix.root }}/target\n"
           key: "${{ runner.os }}-cargo-${{ hashFiles(steps.cargo-find-paths.outputs.cargo-lock-glob) }}"
+      - name: Check structure
+        run: cargo clippy
       - name: Check format
         run: cargo +nightly fmt -- --check
+      - name: Check tests
+        run: cargo test
   versio-release:
     needs:
       - cargo-checks
