@@ -2,15 +2,26 @@
 
 Versio is not a perfect program; even it was, it might not perfectly
 handle the idiosyncrasies of your workflow. Still, we want Versio to
-work for as many people as possible, so please try to work through
-errors. If you can't, let us know what's wrong so that we can keep
-things working for everyone.
+work as well as possible for as many people as possible; so please try
+to work through errors. If you can't, let us know what's wrong so that
+we can keep things working for everyone. Even if you manage to work
+around a problem, we'd still like it reported, so that future users
+don't have to deal with the same frustration.
 
 ## Reporting
 
 If you think you've found a bug, or if you're frustrated by some
 behavior and you want Versio to act better, let us know! We're using 
-issue tracking on this this repository, so just open a issue.
+[issue tracking](https://github.com/chaaz/versio/issues) on this
+repository, so just open a issue. You may also want to browse through
+the open issues first, so that you're not duplicating work. If you
+find an existing issue that matches what you're seeing, do
+comment there how it effects you--a high traffic issue will let us
+prioritize what's important to build.
+
+You might also want to look at the [dependency
+page](https://github.com/chaaz/versio/blob/main/docs/dependencies.md),
+to make sure that all of Versio's external requirements are available.
 
 While we always like feedback of any size and style, you'll have a much
 better chance of being heard if you include the following in your

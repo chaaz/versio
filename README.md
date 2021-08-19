@@ -12,9 +12,9 @@ dependencies and references among them.
 
 ## Quick Start
 
-Versio is a self-contained binary written in the Rust programming
-language. If you have [installed
-Rust](https://www.rust-lang.org/tools/install), you can do this:
+Versio is a binary written in the Rust programming language. If you have
+[installed Rust](https://www.rust-lang.org/tools/install), you can do
+this:
 
 ```
 $ cargo install versio
@@ -23,6 +23,10 @@ $ cargo install versio
 Or, you can download one of the pre-built binaries for your platform
 from the [Releases
 page](https://github.com/chaaz/versio/releases).
+
+Versio requires GnuPG to be installed: it's commonly pre-packaged on
+many environments, but if you need to install it yourself, see the
+[Dependency page](./docs/dependencies.md) for details.
 
 See the [Quick Start](./docs/use_cases.md#quick-start) use case to get
 up and running quickly with Versio. Or, try this and see what happens:

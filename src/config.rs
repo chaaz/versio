@@ -14,6 +14,7 @@ use error_chain::bail;
 use glob::{glob_with, MatchOptions, Pattern};
 use liquid::ParserBuilder;
 use log::trace;
+use path_slash::PathBufExt as _;
 use regex::{escape, Regex};
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, SeqAccess, Unexpected, Visitor};
 use serde::ser::Serializer;
@@ -25,7 +26,6 @@ use std::fmt;
 use std::iter::once;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use path_slash::PathBufExt as _;
 
 pub const CONFIG_FILENAME: &str = ".versio.yaml";
 

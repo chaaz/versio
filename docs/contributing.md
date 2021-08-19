@@ -7,6 +7,10 @@ building Rust programs.
 See ex. [the book](https://doc.rust-lang.org/book/index.html), or
 elsewhere on the internet for help getting started with rust.
 
+Also, make sure you've read the project [README](../README.md) and
+[Dependency page](./dependencies.md) so that you have an idea of how
+Versio must be installed.
+
 ## Project structure
 
 Here is the structure of "versio":
@@ -30,7 +34,7 @@ versio
 ```
 
 <!-- 
-Further work:
+TODO: Further work:
 
 └─ builds
    ├─ deploy

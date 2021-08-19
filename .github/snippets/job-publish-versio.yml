@@ -15,7 +15,7 @@ value:
           rustflags: '-D warnings'
           bin_name: 'versio'
         - os: windows-latest
-          target: 'x86_64-pc-windows-gnu.exe'
+          target: 'x86_64-pc-win32.exe'
           root: '.'
           rustflags: '-D warnings'
           bin_name: 'versio.exe'
@@ -62,23 +62,23 @@ value:
         GPGME_INCLUDE: /usr/local/opt/libassuan/include:/usr/local/opt/gpgme/include
         GPGME_LIB_DIR: /usr/local/opt/libassuan/lib:/usr/local/opt/gpgme/lib
         GPGME_LIBS: static=gpgme:static=assuan
-    - name: Build Windows binary
+    - name: Add mingw32 to PATH
+      # See comments in `../snippets/get-cargo-os.yml`
       if: matrix.os == 'windows-latest'
-      shell: msys2 {0}
-      run: cargo build --release --target x86_64-pc-windows-gnu
+      run: |
+        echo "C:\msys64\mingw32\bin" >> $env:GITHUB_PATH
+    - name: Build Windows binary
+      # We're not going to try to statically link for Windows; see
+      # comments in `../snippets/get-cargo-os.yml`. Because we aren't
+      # statically linking, we don't have to specify the build locations
+      # in the environment; the build scripts will find them via the
+      # registry and/or the `gpgme-config` / `gpg-error-config`
+      # programs.
+      if: matrix.os == 'windows-latest'
+      run: cargo build --release --target i686-pc-windows-gnu
       working-directory: ${{ matrix.root }}
       env:
         RUSTFLAGS: ${{ matrix.rustflags }}
-        # See comments in the above "Build Ubuntu binary" step to
-        # explain these env. Now that we're building the gpg libs
-        # ourselves, we need to use the locations of where `make
-        # install` in the `Install Windows dependencies` step puts them.
-        LIBGPG_ERROR_INCLUDE: '/mingw64/include'
-        LIBGPG_ERROR_LIB_DIR: '/mingw64/lib'
-        LIBGPG_ERROR_LIBS: 'static=gpg-error'
-        GPGME_INCLUDE: '/mingw64/include'
-        GPGME_LIB_DIR: '/mingw64/lib'
-        GPGME_LIBS: 'static=gpgme;static=assuan'
     - name: Upload binary
       if: matrix.os != 'windows-latest'
       uses: actions/upload-release-asset@v1
@@ -92,6 +92,6 @@ value:
       uses: actions/upload-release-asset@v1
       with:
         upload_url: ${{ needs.github-publish.outputs.upload_url }}
-        asset_path: target/x86_64-pc-windows-gnu/release/${{ matrix.bin_name }}
+        asset_path: target/i686-pc-windows-gnu/release/${{ matrix.bin_name }}
         asset_name: versio__${{ matrix.target }}
         asset_content_type: application/octet-stream

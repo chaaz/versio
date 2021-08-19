@@ -6,50 +6,20 @@ value:
   - name: Install MacOS dependencies
     if: matrix.os == 'macos-latest'
     run: brew update; brew install gpgme
-  - name: Setup Msys2 on Windows
-    if: matrix.os == 'windows-latest'
-    uses: msys2/setup-msys2@v2
-    with:
-      update: true
-      msystem: mingw64
-      path-type: inherit
-      install: >-
-        base-devel
-        git
-        mingw-w64-x86_64-toolchain
   - name: Install Windows dependencies
     if: matrix.os == 'windows-latest'
-    env:
-      RUNNER_TEMP: ${{ runner.temp }}
-    working-directory: ${{ runner.temp }}
-    shell: msys2 {0}
-    # Short version, the choco install only provideds 32-bit dynamic
-    # libraries for some reason. We want to try 64-bit static links, so
-    # we have to build all the deps ourselves. Also, the gpgme python
-    # install scripts use subprocess.Popen and friends, which are all
-    # horked in msys2, so we'll stick to only C and C++ libs.
+    # Use choco to install gnupg; directly downloading + running the
+    # gnupg.exe installer silently fails somehow after setting the
+    # registry, but before/during writing to the `C:\Program Files
+    # (x86)\gnupg` filesystem. Also see
+    # https://github.com/actions/virtual-environments/issues/2876 to
+    # ensure that the $env:PATH doesn't run out of characters when
+    # running choco.
     run: |
-      curl https://gnupg.org/ftp/gcrypt/libgpg-error/libgpg-error-1.42.tar.bz2 -o libgpg-error-1.42.tar.bz2
-      tar -jxf libgpg-error-1.42.tar.bz2
-      curl https://gnupg.org/ftp/gcrypt/libassuan/libassuan-2.5.5.tar.bz2 -o libassuan-2.5.5.tar.bz2
-      tar -jxf libassuan-2.5.5.tar.bz2
-      curl https://gnupg.org/ftp/gcrypt/gpgme/gpgme-1.16.0.tar.bz2 -o gpgme-1.16.0.tar.bz2
-      tar -jxf gpgme-1.16.0.tar.bz2
-      pushd libgpg-error-1.42
-      ./configure --enable-static
-      make
-      make install
-      popd
-      pushd libassuan-2.5.5
-      ./configure --enable-static
-      make
-      make install
-      popd
-      pushd gpgme-1.16.0
-      ./configure --enable-static --enable-languages=cl,cpp
-      make
-      make install
-      popd
+      $env:PATH = "C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\ProgramData\chocolatey\bin"
+      [Environment]::SetEnvironmentVariable("Path", $env:PATH, "Machine")
+      choco install -y gnupg
+      echo "C:\Program Files (x86)\GnuPG\bin" >> $env:GITHUB_PATH
   - name: Get cargo stable
     if: matrix.os != 'windows-latest'
     uses: actions-rs/toolchain@v1
@@ -63,69 +33,48 @@ value:
       toolchain: nightly
       components: rustfmt
   - name: Get Windows cargo stable
-    # After dozens of stabs at this, we have decided to build the gpgme
-    # dependencies ourselves, in order to provide a 64-bit statically
-    # linked binary. (On windows, the gpgme pre-built packages from
-    # chocolatey etc only provide 32-bit dynamic libs.) There are still
-    # plenty of issues on this route, though, including:
+    # I give up. We are going to distribute Windows Versio as a 32-bit
+    # dynamic-link to gpgme, and include documentation that gpgme is
+    # required to run.
     #
-    # 1. You can't use the msvc target to build gnupg; the gpg libraries
-    #    are built with the GNU toolchain, and are apparently nigh-on
-    #    impossible to build in Studio.
-    # 2. The GNU toolchain included in the Windows runner is
-    #   different than the builtin rust installation. That *shouldn't*
-    #   be a problem (as of 2020-02, rust is supposed to by favor the
-    #   system toolchain), but somehow it is.
-    # 3. The GNU runner toolchain still seems to be half-baked, and is
-    #   missing libraries. Also, its compiler isn't even on the PATH,
-    #   making it impossible for cargo to find, and thus to include its
-    #   associated libs. You can't even build GNU C programs
-    #   without explicitly adding it yourself before you compile. See
-    #   https://github.com/actions/virtual-environments/issues/2549
+    # Commit `88e4066` (v0.5.3, 20210818023324Z) of this repo contains a
+    # static-link for all three platforms build on GitHub Actions. This
+    # is a big step over the previous successful build `d0d3533`
+    # (20210803124432T-0600) which inadvertantly dynamically linked the
+    # gpgme libraries on all platforms.
     #
-    # However, there is a `msys2/setup-msys2@v2` action available, which
-    # provides a more complete dev environment for building gnu-based
-    # windows applications, and handles many (but not quite all) of the
-    # path problems.
+    # For Windows especially, `88e4066` was the culmination of a lot
+    # of effort: we downloaded and built the gpg-error, assuan, and
+    # gpgme dependencies manually, since the publically-available
+    # pre-built dependencies (via chocolatey, et al) only contain
+    # dynamic 32-bit libs, and had to use the msys2 shell to incorporate
+    # the gnu toolchain. However, even then the resulting Windows
+    # executable couldn't bind to `gpg-agent` or fork `gpgme-w32spawn`,
+    # likely as a result of the static linkage that the gpgme system was
+    # not designed to accomodate.
     #
-    # So, it looks like the best way to build this is to use the msvc
-    # toolchain to cross-compile to the gnu target inside the msys2
-    # shell. This was actually recommended by various reputable internet
-    # sources (none of which I can find right now). Also, we need to
-    # ensure that the correct target is selected on Windows builds, and
-    # that the cross-compile toolchain can be found. So for Windows
-    # builds, we need to
-    #
-    # - install the msys2 shell and development tools. (see the `uses:
-    #   msys2/setup-msys2@v2` up above)
-    # - ensure that the stable- or nightly-x86_64-pc-windows-msvc
-    #   cargo toolchain is installed and selected.
-    # - ensure that the cross-compile x86_64-pc-windows-gnu target is
-    #   installed for that cargo toolchain.
-    # - ensure that the cross-compile toolchain tools are actually
-    #   available (`windows-latest` does satisfy this with msys2/mingw)
-    # - use the msys2 shell and `--release --target
-    #   x86_64-pc-windows-gnu` for all cargo commands.
-    # - remember that this will build to the
-    #   `target/i686-pc-windows-gnu/release` directory.
+    # So, we've reverted the Windows build steps back to their dynamic
+    # 32-bit instructions, which are still somewhat convoluted: we need
+    # to use the 32-bit-msvc toolchain to cross-compile to the
+    # 32-bit-gnu target, and explicitly add the 32-bit compiler on PATH
+    # a la https://github.com/actions/virtual-environments/issues/2549.
     if: matrix.os == 'windows-latest'
     uses: actions-rs/toolchain@v1
     with:
-      toolchain: stable-x86_64-pc-windows-msvc
-      target: x86_64-pc-windows-gnu
+      toolchain: stable-i686-pc-windows-msvc
+      target: i686-pc-windows-gnu
       components: clippy
       default: true
   - name: Get Windows cargo nightly
     if: matrix.os == 'windows-latest'
     uses: actions-rs/toolchain@v1
     with:
-      toolchain: nightly-x86_64-pc-windows-msvc
-      target: x86_64-pc-windows-gnu
+      toolchain: nightly-i686-pc-windows-msvc
+      target: i686-pc-windows-gnu
       components: rustfmt
   - name: Update Windows target configuration
     if: matrix.os == 'windows-latest'
-    shell: msys2 {0}
-    run: rustup set default-host x86_64-pc-windows-gnu
+    run: rustup set default-host i686-pc-windows-gnu
   - name: Find paths
     id: cargo-find-paths
     run: 'echo ::set-output name=cargo-lock-glob::"${{ matrix.root }}"/**/Cargo.lock'

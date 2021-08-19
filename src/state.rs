@@ -5,13 +5,13 @@ use crate::errors::{Result, ResultExt as _};
 use crate::git::{FromTagBuf, Repo, Slice};
 use crate::mark::{NamedData, Picker};
 use log::{trace, warn};
+use path_slash::{PathBufExt as _, PathExt as _};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::mem::take;
 use std::path::{Path, PathBuf};
-use path_slash::{PathExt as _, PathBufExt as _};
 
 pub trait StateRead: FilesRead {
   fn latest_tag(&self, proj: &ProjectId) -> Option<&String>;

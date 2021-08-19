@@ -13,6 +13,7 @@ use git2::{AnnotatedCommit, AutotagOption, Blob, Commit, Cred, CredentialType, D
            RepositoryOpenFlags, RepositoryState, ResetType, Revwalk, Signature, Sort, Status, StatusOptions, Time};
 use gpgme::{Context, Protocol};
 use log::{error, info, trace, warn};
+use path_slash::PathBufExt as _;
 use regex::Regex;
 use serde::Deserialize;
 use std::cell::RefCell;
@@ -24,7 +25,6 @@ use std::fmt;
 use std::io::{stdout, Write};
 use std::iter::empty;
 use std::path::{Path, PathBuf};
-use path_slash::PathBufExt as _;
 
 pub struct Repo {
   vcs: GitVcsLevel,
