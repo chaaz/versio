@@ -12,6 +12,7 @@ use std::ffi::OsStr;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
+use path_slash::PathExt;
 
 pub fn init(max_depth: u16) -> Result<()> {
   if Path::new(CONFIG_FILENAME).exists() {
@@ -40,14 +41,14 @@ fn find_project(name: &OsStr, file: &Path) -> Result<Option<ProjSummary>> {
   if fname == "package.json" {
     let name = extract_name(file, |d| JsonScanner::new("name").find(&d))?;
     let dir = file.parent().unwrap();
-    return Ok(Some(ProjSummary::new_file(name, dir.to_string_lossy(), "package.json", "json", "version", &["npm"])));
+    return Ok(Some(ProjSummary::new_file(name, dir.to_slash_lossy(), "package.json", "json", "version", &["npm"])));
   }
 
   if fname == "Cargo.toml" {
     let name = extract_name(file, |d| TomlScanner::new("package.name").find(&d))?;
     let dir = file.parent().unwrap();
     let mut proj =
-      ProjSummary::new_file(name, dir.to_string_lossy(), "Cargo.toml", "toml", "package.version", &["cargo"]);
+      ProjSummary::new_file(name, dir.to_slash_lossy(), "Cargo.toml", "toml", "package.version", &["cargo"]);
     proj.hook("post_write", "cargo update --workspace");
     return Ok(Some(proj));
   }
@@ -57,13 +58,13 @@ fn find_project(name: &OsStr, file: &Path) -> Result<Option<ProjSummary>> {
     let is_subdir = if let Some(parent) = dir.parent() { parent.join("go.mod").exists() } else { false };
     if !is_subdir {
       let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or("project");
-      return Ok(Some(ProjSummary::new_tags(name, dir.to_string_lossy(), true, &["go"])));
+      return Ok(Some(ProjSummary::new_tags(name, dir.to_slash_lossy(), true, &["go"])));
     }
   }
 
   if fname == "pom.xml" {
     let name = extract_name(file, |d| XmlScanner::new("project.artifactId").find(&d))?;
-    let dir = file.parent().unwrap().to_string_lossy();
+    let dir = file.parent().unwrap().to_slash_lossy();
     return Ok(Some(ProjSummary::new_file(name, dir, "pom.xml", "xml", "project.version", &["mvn"])));
   }
 
@@ -71,7 +72,7 @@ fn find_project(name: &OsStr, file: &Path) -> Result<Option<ProjSummary>> {
     let name_reg = r#"name *= *['"]([^'"]*)['"]"#;
     let version_reg = r#"version *= *['"](\d+\.\d+\.\d+)['"]"#;
     let name = extract_name(file, |d| find_reg_data(&d, name_reg))?;
-    let dir = file.parent().unwrap().to_string_lossy();
+    let dir = file.parent().unwrap().to_slash_lossy();
     return Ok(Some(ProjSummary::new_file(name, dir, "setup.py", "pattern", version_reg, &["pip"])));
   }
 
@@ -81,12 +82,12 @@ fn find_project(name: &OsStr, file: &Path) -> Result<Option<ProjSummary>> {
       .filter_map(|e| e.ok().and_then(|e| e.file_name().into_string().ok()))
       .any(|n| n.ends_with("*.tf"))
   {
-    return Ok(Some(ProjSummary::new_tags("terraform", file.to_string_lossy(), false, &["terraform"])));
+    return Ok(Some(ProjSummary::new_tags("terraform", file.to_slash_lossy(), false, &["terraform"])));
   }
 
   if fname == "Dockerfile" {
     let dir = file.parent().unwrap();
-    return Ok(Some(ProjSummary::new_tags("docker", dir.to_string_lossy(), false, &["docker"])));
+    return Ok(Some(ProjSummary::new_tags("docker", dir.to_slash_lossy(), false, &["docker"])));
   }
 
   if let Some(ps) = add_gemspec(fname, file)? {
@@ -104,7 +105,7 @@ fn add_gemspec(fname: &str, file: &Path) -> Result<Option<ProjSummary>> {
     let name = extract_name(file, |d| find_reg_data(&d, name_reg))?;
     let mut vers = extract_name(file, |d| find_reg_data(&d, version_reg))?;
     let dir = file.parent().unwrap();
-    let dirn = dir.to_string_lossy();
+    let dirn = dir.to_slash_lossy();
 
     if (vers.starts_with('"') && vers.ends_with('"')) || (vers.starts_with('\'') && vers.ends_with('\'')) {
       vers = vers[1 .. vers.len() - 1].to_string();
@@ -119,16 +120,16 @@ fn add_gemspec(fname: &str, file: &Path) -> Result<Option<ProjSummary>> {
       let vers_file = Path::new("lib").join(fname_pref).join("version.rb");
       if dir.join(&vers_file).exists() {
         let version_reg = r#"VERSION *= *['"](\d+\.\d+\.\d+)['"]"#;
-        let vfn = vers_file.to_string_lossy();
+        let vfn = vers_file.to_slash_lossy();
         return Ok(Some(ProjSummary::new_file(name, dirn, vfn, "pattern", version_reg, &["gem"])));
       } else {
-        warn!("Couldn't find VERSION file \"{}\". Please edit the .versio.yaml file.", vers_file.to_string_lossy());
+        warn!("Couldn't find VERSION file \"{}\". Please edit the .versio.yaml file.", vers_file.to_slash_lossy());
         return Ok(Some(ProjSummary::new_file(name, dirn, "EDIT_ME", "pattern", "EDIT_ME", &["gem"])));
       }
     } else {
       // Still other times, it's too tough to find.
       warn!("Couldn't find version in \"{}\" from \"{}\". Please edit the .versio.yaml file.", fname, vers);
-      return Ok(Some(ProjSummary::new_file(name, dir.to_string_lossy(), "EDIT_ME", "pattern", "EDIT_ME", &["gem"])));
+      return Ok(Some(ProjSummary::new_file(name, dir.to_slash_lossy(), "EDIT_ME", "pattern", "EDIT_ME", &["gem"])));
     }
   }
 

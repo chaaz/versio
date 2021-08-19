@@ -25,6 +25,7 @@ use std::fmt;
 use std::iter::once;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use path_slash::PathBufExt as _;
 
 pub const CONFIG_FILENAME: &str = ".versio.yaml";
 
@@ -358,7 +359,7 @@ impl Project {
   pub fn changelog(&self) -> Option<Cow<str>> {
     self.changelog.as_ref().map(|changelog| {
       if let Some(root) = self.root() {
-        Cow::Owned(PathBuf::from(root).join(changelog).to_string_lossy().to_string())
+        Cow::Owned(PathBuf::from_slash(root).join(PathBuf::from_slash(changelog)).to_slash_lossy())
       } else {
         Cow::Borrowed(changelog.as_str())
       }
@@ -374,7 +375,7 @@ impl Project {
     }
 
     if let Some(log_path) = self.changelog().as_ref() {
-      let log_path = Path::new(log_path.as_ref()).to_path_buf();
+      let log_path = PathBuf::from_slash(log_path.as_ref());
       let old_content = extract_old_content(&log_path)?;
       write.write_file(log_path.clone(), construct_changelog_html(cl, new_vers, old_content)?, self.id())?;
       Ok(Some(log_path))
@@ -447,10 +448,10 @@ impl Project {
     Ok(())
   }
 
-  /// Ensure that we don't have excludes without includes.
+  /// Ensure that we don't have a version tag without a tag_prefix.
   fn check_prefix(&self) -> Result<()> {
     if self.version.is_tag() && self.tag_prefix.is_none() {
-      bail!("Proj {} has version: tag without tag_prefix, self.id");
+      bail!("Proj {} has version: tag without tag_prefix.", self.id);
     }
     Ok(())
   }
@@ -494,7 +495,7 @@ impl Project {
       if root == "." {
         pat.to_string()
       } else {
-        PathBuf::from(root).join(pat).to_string_lossy().to_string()
+        PathBuf::from_slash(root).join(PathBuf::from_slash(pat)).to_slash_lossy()
       }
     } else {
       pat.to_string()
@@ -699,10 +700,10 @@ fn expand_name(name: &str, sub: &SubExtent) -> String {
 fn expand_root(root: Option<&String>, sub: &SubExtent) -> Option<String> {
   match root {
     Some(root) => match sub.dir() {
-      Some(subdir) => Some(Path::new(root).join(subdir).to_string_lossy().into_owned()),
-      None => Some(Path::new(root).to_string_lossy().into_owned())
+      Some(subdir) => Some(PathBuf::from_slash(root).join(subdir).to_slash_lossy()),
+      None => Some(root.clone())
     },
-    None => sub.dir().as_ref().map(|subdir| Path::new(subdir).to_string_lossy().into_owned())
+    None => sub.dir().clone()
   }
 }
 
@@ -731,6 +732,7 @@ fn expand_version(version: &Location, sub: &SubExtent) -> Location {
 fn expand_also(also: &[Location]) -> Vec<Location> { also.iter().filter(|l| !l.is_tags()).cloned().collect() }
 
 struct SubExtent {
+  // TODO: ensure `dir` will always be a single-level relative path (i.e. no slashes)
   dir: Option<String>,
   majors: Vec<u32>,
   largest: bool,
@@ -964,8 +966,8 @@ impl FileLocation {
 
   pub fn rooted(&self, root: Option<&String>) -> PathBuf {
     match root {
-      Some(root) => PathBuf::from(root).join(&self.file),
-      None => PathBuf::from(&self.file)
+      Some(root) => PathBuf::from_slash(root).join(PathBuf::from_slash(&self.file)),
+      None => PathBuf::from_slash(&self.file)
     }
   }
 }

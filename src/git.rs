@@ -24,6 +24,7 @@ use std::fmt;
 use std::io::{stdout, Write};
 use std::iter::empty;
 use std::path::{Path, PathBuf};
+use path_slash::PathBufExt as _;
 
 pub struct Repo {
   vcs: GitVcsLevel,
@@ -489,8 +490,16 @@ impl<'r> Slice<'r> {
     Ok(tree.iter().filter_map(|entry| entry.name().map(|n| n.to_string())).filter(|n| filter.is_match(n)).collect())
   }
 
+  #[cfg(not(target_family = "windows"))]
   fn object(&self, path: &str) -> Result<Object> {
     Ok(self.repo.repo()?.revparse_single(&format!("{}:{}", self.refspec.tag(), path))?)
+  }
+
+  // Always path issues on windows. See https://github.com/JuliaLang/julia/issues/18724
+  #[cfg(target_family = "windows")]
+  fn object(&self, path: &str) -> Result<Object> {
+    let path = path.replace('\\', "/");
+    Ok(self.repo.repo()?.revparse_single(&format!("{}:{}", self.refspec.tag(), &path))?)
   }
 
   pub fn date(&self) -> Result<Option<Time>> {
@@ -1034,7 +1043,7 @@ fn files_from_commit<'a>(repo: &'a Repository, commit: &Commit<'a>) -> Result<im
     let ctree = commit.tree()?;
     let diff = repo.diff_tree_to_tree(Some(&ptree), Some(&ctree), Some(&mut DiffOptions::new()))?;
     let iter = DeltaIter::new(diff);
-    Ok(E2::A(iter.map(move |path| path.to_string_lossy().into_owned())))
+    Ok(E2::A(iter.map(move |path| path.to_slash_lossy())))
   } else {
     Ok(E2::B(empty()))
   }
@@ -1141,8 +1150,11 @@ fn verify_current(repo: &Repository) -> Result<()> {
   status_opts.include_ignored(false);
   status_opts.include_untracked(true);
   status_opts.exclude_submodules(false);
-  if repo.statuses(Some(&mut status_opts))?.iter().any(|s| s.status() != Status::CURRENT) {
-    bail!("Repository is not current.");
+
+  let statuses = repo.statuses(Some(&mut status_opts))?;
+  let bad_status = statuses.iter().find(|s| s.status() != Status::CURRENT);
+  if let Some(bad_status) = bad_status {
+    bail!("Repository is not current: {} = {:?}", bad_status.path().unwrap_or("<none>"), bad_status.status());
   }
   Ok(())
 }

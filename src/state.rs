@@ -11,6 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::mem::take;
 use std::path::{Path, PathBuf};
+use path_slash::{PathExt as _, PathBufExt as _};
 
 pub trait StateRead: FilesRead {
   fn latest_tag(&self, proj: &ProjectId) -> Option<&String>;
@@ -65,7 +66,7 @@ impl FilesRead for CurrentFiles {
   fn subdirs(&self, root: Option<&String>, regex: &str) -> Result<Vec<String>> {
     let filter = Regex::new(regex)?;
     let root = root.map(|s| s.as_str()).unwrap_or(".");
-    Path::new(root)
+    PathBuf::from_slash(root)
       .read_dir()?
       .filter_map(|e| e.map(|e| e.file_name().into_string().ok()).transpose())
       .filter(|n| n.as_ref().map(|n| filter.is_match(n)).unwrap_or(true))
@@ -102,7 +103,7 @@ pub struct PrevFiles<'r> {
 }
 
 impl<'r> FilesRead for PrevFiles<'r> {
-  fn has_file(&self, path: &Path) -> Result<bool> { self.slice.has_blob(&path.to_string_lossy().to_string()) }
+  fn has_file(&self, path: &Path) -> Result<bool> { self.slice.has_blob(&path.to_slash_lossy()) }
   fn read_file(&self, path: &Path) -> Result<String> { read_from_slice(&self.slice, path) }
 
   fn subdirs(&self, root: Option<&String>, regex: &str) -> Result<Vec<String>> { self.slice.subdirs(root, regex) }
@@ -347,8 +348,8 @@ impl PickPath {
 }
 
 pub fn read_from_slice<P: AsRef<Path>>(slice: &Slice, path: P) -> Result<String> {
-  let path = path.as_ref().to_string_lossy().to_string();
+  let path = path.as_ref().to_slash_lossy();
   let blob = slice.blob(&path)?;
-  let cont: &str = std::str::from_utf8(blob.content()).chain_err(|| format!("Not UTF8: {}", path))?;
+  let cont: &str = std::str::from_utf8(blob.content()).chain_err(|| format!("Not UTF8 content: {}", path))?;
   Ok(cont.to_string())
 }
