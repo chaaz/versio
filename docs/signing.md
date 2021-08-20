@@ -54,10 +54,10 @@ release your keys into the wild. However, this means that when you run
 to sign data with your keys.
 
 Handling a prompt may not always be a feasible solution: you might be
-running Versio in an automated CI/CD pipeline which can't stop to answer
-type in a value, or as part of a script which doesn't have the capacity
-to display or read from prompts. Or, you might just not like have the
-constant interruption of being asked for a password.
+running Versio in an automated CI/CD pipeline which can't stop to type
+in a value, or as part of a script which doesn't have the capacity to
+display or read from prompts. Or, you might just not like the constant
+interruption of being asked for a password.
 
 There are some solutions to this problem:
 
@@ -75,6 +75,6 @@ There are some solutions to this problem:
   while). Similar tools and configurations exist for Windows and Linux
   workstations.
 - You can use a key that is not protected with a password. **Be
-  careful** using this option, as it my create vulnerabilities in your
+  careful** using this option, as it may create vulnerabilities in your
   keyring; you should understand the security implications before
   creating an unprotected key.

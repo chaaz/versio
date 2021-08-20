@@ -71,3 +71,9 @@ Once installed, you should see the `C:\Program Files (x86)\gnupg`
 directory, with a bunch of files and folders inside it. Windows Versio
 has been tested with GnuPG version 2.3.1: run `"C:\Program Files
 (x86)\gnupg\bin\gpg.exe" --version` to check your version.
+
+When running git from `msys2` or `mingw` installation (for example, [git
+for Windows](https://gitforwindows.org/), you should ensure that your
+PATH environment includes `/c/Program Files (x86)/gnupg/bin` **first**,
+so that the gpg programs are run from the gpgme installation, and not
+from the gpg programs included in the shell.
