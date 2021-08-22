@@ -7,7 +7,7 @@ use versio::errors::Result;
 use versio::init::init;
 use versio::vcs::{VcsLevel, VcsRange};
 
-pub fn execute(info: &EarlyInfo) -> Result<()> {
+pub async fn execute(info: &EarlyInfo) -> Result<()> {
   let id_required = info.project_count() != 1;
 
   let m = App::new("versio")
@@ -353,10 +353,10 @@ pub fn execute(info: &EarlyInfo) -> Result<()> {
     )
     .get_matches();
 
-  parse_matches(m)
+  parse_matches(m, info).await
 }
 
-fn parse_matches(m: ArgMatches) -> Result<()> {
+async fn parse_matches(m: ArgMatches<'_>, early_info: &EarlyInfo) -> Result<()> {
   match m.subcommand() {
     ("release", Some(m)) if m.is_present("abort") => (),
     ("release", Some(m)) if m.is_present("resume") => (),
@@ -382,10 +382,10 @@ fn parse_matches(m: ArgMatches) -> Result<()> {
     ("diff", Some(_)) => diff(pref_vcs, ignore_current)?,
     ("files", Some(_)) => files(pref_vcs, ignore_current)?,
     ("changes", Some(_)) => changes(pref_vcs, ignore_current)?,
-    ("plan", Some(_)) => plan(pref_vcs, ignore_current)?,
+    ("plan", Some(_)) => plan(early_info, pref_vcs, ignore_current)?,
     ("release", Some(m)) if m.is_present("abort") => abort()?,
     ("release", Some(m)) if m.is_present("resume") => resume(pref_vcs)?,
-    ("release", Some(m)) => release(pref_vcs, m.is_present("all"), m.is_present("dry"), m.is_present("pause"))?,
+    ("release", Some(m)) => release(pref_vcs, m.is_present("all"), m.is_present("dry"), m.is_present("pause")).await?,
     ("init", Some(m)) => init(m.value_of("maxdepth").map(|d| d.parse().unwrap()).unwrap_or(5))?,
     ("info", Some(m)) => {
       let names = m.values_of("name").map(|v| v.collect::<Vec<_>>()).unwrap_or_default();

@@ -18,3 +18,4 @@ mod mark;
 mod mono;
 mod output;
 mod state;
+mod template;

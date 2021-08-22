@@ -134,8 +134,11 @@ impl Mono {
     self.do_project_write(id, move |p, n| p.forward_tag(n, val))
   }
 
-  pub fn write_changelog(&mut self, id: &ProjectId, changelog: &Changelog, new_vers: &str) -> Result<Option<PathBuf>> {
-    self.do_project_write(id, move |p, n| p.write_changelog(n, changelog, new_vers))
+  pub async fn write_changelog(
+    &mut self, id: &ProjectId, changelog: &Changelog, new_vers: &str
+  ) -> Result<Option<PathBuf>> {
+    let proj = self.current.get_project(id).ok_or_else(|| bad!("No such project {}", id))?;
+    proj.write_changelog(&mut self.next, changelog, new_vers).await
   }
 
   fn do_project_write<F, T>(&mut self, id: &ProjectId, f: F) -> Result<T>

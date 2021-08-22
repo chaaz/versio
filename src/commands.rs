@@ -18,20 +18,27 @@ pub fn early_info() -> Result<EarlyInfo> {
   let root = Repo::find_working_dir(".", vcs, true)?;
   let file = ConfigFile::from_dir(&root)?;
   let project_count = file.projects().len();
+  let orig_dir = std::env::current_dir()?;
+  assert_ok!(orig_dir.is_absolute(), "Couldn't find current working directory.");
 
-  Ok(EarlyInfo::new(project_count, root))
+  Ok(EarlyInfo::new(project_count, root, orig_dir))
 }
 
 /// Environment information gathered even before we set the CLI options.
 pub struct EarlyInfo {
   project_count: usize,
-  working_dir: PathBuf
+  working_dir: PathBuf,
+  orig_dir: PathBuf
 }
 
 impl EarlyInfo {
-  pub fn new(project_count: usize, working_dir: PathBuf) -> EarlyInfo { EarlyInfo { project_count, working_dir } }
+  pub fn new(project_count: usize, working_dir: PathBuf, orig_dir: PathBuf) -> EarlyInfo {
+    EarlyInfo { project_count, working_dir, orig_dir }
+  }
+
   pub fn project_count(&self) -> usize { self.project_count }
   pub fn working_dir(&self) -> &Path { &self.working_dir }
+  pub fn orig_dir(&self) -> &Path { &self.orig_dir }
 }
 
 pub fn check(pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
@@ -146,7 +153,7 @@ pub fn changes(pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
   Ok(())
 }
 
-pub fn plan(pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
+pub fn plan(_early_info: &EarlyInfo, pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
   let mono = with_opts(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart, ignore_current)?;
   let output = Output::new();
   let mut output = output.plan();
@@ -258,7 +265,7 @@ impl InfoShow {
   }
 }
 
-pub fn release(pref_vcs: Option<VcsRange>, all: bool, dry: bool, pause: bool) -> Result<()> {
+pub async fn release(pref_vcs: Option<VcsRange>, all: bool, dry: bool, pause: bool) -> Result<()> {
   let mut mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
   let output = Output::new();
   let mut output = output.release();
@@ -308,7 +315,7 @@ pub fn release(pref_vcs: Option<VcsRange>, all: bool, dry: bool, pause: bool) ->
       curt_vers
     };
 
-    if let Some(wrote) = mono.write_changelog(id, changelog, &new_vers)? {
+    if let Some(wrote) = mono.write_changelog(id, changelog, &new_vers).await? {
       output.write_logged(wrote);
     }
 

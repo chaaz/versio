@@ -154,7 +154,7 @@ fragment commitResult on Commit {
   let octo = octo.build()?;
   let full_query = serde_json::json!({"query": &query, "variables": &variables});
   let value = octo.post("/graphql", Some(&full_query));
-  let mut rt = tokio::runtime::Runtime::new()?;
+  let rt = tokio::runtime::Runtime::new()?;
   let changes: ChangesResponse = rt.block_on(value)?;
 
   let changes = changes.data.repository.commit.history.nodes;

@@ -16,12 +16,15 @@ error_chain! {
     Toml(toml::de::Error);
     Regex(regex::Error);
     Utf(std::str::Utf8Error);
+    FromUtf(std::string::FromUtf8Error);
     Glob(glob::PatternError);
     Xml(xmlparser::Error);
     Log(log::SetLoggerError);
     Octo(octocrab::Error);
     Liquid(liquid::Error);
     Ignore(ignore::Error);
+    Hyper(hyper::Error);
+    HyperInvalid(hyper::http::uri::InvalidUri);
   }
 }
 
@@ -65,4 +68,14 @@ macro_rules! try_iter3 {
       Err(e) => return E3::B(once(Err(e.into())))
     }
   };
+}
+
+#[macro_export]
+macro_rules! assert_ok {
+  ($t:expr, $($er:tt)*) => {
+    match ($t).then(|| ()).ok_or_else(|| $crate::bad!($($er)*)) {
+      Ok(v) => v,
+      Err(e) => return Err($crate::errors::Error::from(e))
+    }
+  }
 }

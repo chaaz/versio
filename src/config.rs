@@ -5,11 +5,11 @@ use crate::either::IterEither2 as E2;
 use crate::errors::{Result, ResultExt};
 use crate::git::{FromTagBuf, Repo, Slice};
 use crate::mark::{FilePicker, LinePicker, Picker, ScanningPicker};
-use crate::mono::{Changelog, ChangelogEntry};
+use crate::mono::Changelog;
 use crate::scan::parts::{deserialize_parts, Part};
 use crate::state::{CurrentFiles, CurrentState, FilesRead, OldTags, PickPath, PrevFiles, PrevState, StateRead,
                    StateWrite};
-use chrono::prelude::Utc;
+use crate::template::{extract_old_content, construct_changelog_html, read_template};
 use error_chain::bail;
 use glob::{glob_with, MatchOptions, Pattern};
 use liquid::ParserBuilder;
@@ -321,7 +321,7 @@ pub struct Project {
   excludes: Vec<String>,
   #[serde(default)]
   depends: HashMap<ProjectId, Depends>,
-  changelog: Option<String>,
+  changelog: Option<ChangelogConfig>,
   version: Location,
   #[serde(default)]
   also: Vec<Location>,
@@ -356,12 +356,15 @@ impl Project {
     Ok(())
   }
 
-  pub fn changelog(&self) -> Option<Cow<str>> {
+  pub fn changelog(&self) -> Option<(Cow<str>, &str)> {
     self.changelog.as_ref().map(|changelog| {
       if let Some(root) = self.root() {
-        Cow::Owned(PathBuf::from_slash(root).join(PathBuf::from_slash(changelog)).to_slash_lossy())
+        (
+          Cow::Owned(PathBuf::from_slash(root).join(PathBuf::from_slash(changelog.file())).to_slash_lossy()),
+          changelog.template()
+        )
       } else {
-        Cow::Borrowed(changelog.as_str())
+        (Cow::Borrowed(changelog.file()), changelog.template())
       }
     })
   }
@@ -369,15 +372,18 @@ impl Project {
   pub fn tag_prefix(&self) -> &Option<String> { &self.tag_prefix }
   pub fn tag_majors(&self) -> Option<&[u32]> { self.version.tag_majors() }
 
-  pub fn write_changelog(&self, write: &mut StateWrite, cl: &Changelog, new_vers: &str) -> Result<Option<PathBuf>> {
+  pub async fn write_changelog(
+    &self, write: &mut StateWrite, cl: &Changelog, new_vers: &str
+  ) -> Result<Option<PathBuf>> {
     if cl.is_empty() {
       return Ok(None);
     }
 
-    if let Some(log_path) = self.changelog().as_ref() {
+    if let Some((log_path, template)) = self.changelog().as_ref() {
       let log_path = PathBuf::from_slash(log_path.as_ref());
       let old_content = extract_old_content(&log_path)?;
-      write.write_file(log_path.clone(), construct_changelog_html(cl, new_vers, old_content)?, self.id())?;
+      let tmpl = read_template(template, self.root().map(PathBuf::from_slash).as_deref()).await?;
+      write.write_file(log_path.clone(), construct_changelog_html(cl, new_vers, old_content, tmpl)?, self.id())?;
       Ok(Some(log_path))
     } else {
       Ok(None)
@@ -555,6 +561,60 @@ impl Project {
     } else {
       Ok(None)
     }
+  }
+}
+
+#[derive(Clone, Debug)]
+pub struct ChangelogConfig {
+  file: String,
+  template: String
+}
+
+impl ChangelogConfig {
+  pub fn from_file(file: String) -> ChangelogConfig {
+    ChangelogConfig { file, template: default_changelog_template() }
+  }
+
+  pub fn file(&self) -> &str { &self.file }
+  pub fn template(&self) -> &str { &self.template }
+}
+
+fn default_changelog_template() -> String { "builtin:html".to_string() }
+
+impl<'de> Deserialize<'de> for ChangelogConfig {
+  fn deserialize<D: Deserializer<'de>>(desr: D) -> std::result::Result<ChangelogConfig, D::Error> {
+    struct TheVisitor;
+    type T = ChangelogConfig;
+    type R<T, E> = std::result::Result<T, E>;
+
+    impl<'de> Visitor<'de> for TheVisitor {
+      type Value = T;
+
+      fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "a changelog config") }
+
+      fn visit_str<E: de::Error>(self, v: &str) -> R<T, E> { Ok(ChangelogConfig::from_file(v.to_string())) }
+      fn visit_string<E: de::Error>(self, v: String) -> R<T, E> { Ok(ChangelogConfig::from_file(v)) }
+
+      fn visit_map<M: MapAccess<'de>>(self, map: M) -> R<T, M::Error> {
+        #[derive(Deserialize)]
+        struct InnerConfig {
+          file: String,
+          #[serde(default = "default_changelog_template")]
+          template: String
+        }
+
+        impl InnerConfig {
+          pub fn into_changelog(self) -> ChangelogConfig {
+            ChangelogConfig { file: self.file, template: self.template }
+          }
+        }
+
+        let i: InnerConfig = Deserialize::deserialize(de::value::MapAccessDeserializer::new(map))?;
+        Ok(i.into_changelog())
+      }
+    }
+
+    desr.deserialize_any(TheVisitor)
   }
 }
 
@@ -1209,100 +1269,6 @@ fn insert_if_missing(result: &mut HashMap<String, Size>, key: &str, val: Size) {
 }
 
 fn match_opts() -> MatchOptions { MatchOptions { require_literal_separator: true, ..Default::default() } }
-
-fn extract_old_content(path: &Path) -> Result<String> {
-  if !path.exists() {
-    return Ok("".into());
-  }
-
-  let full_content = std::fs::read_to_string(path)?;
-  let content = full_content
-    .split('\n')
-    .skip_while(|l| !l.contains("### VERSIO BEGIN CONTENT ###"))
-    .skip(1)
-    .take_while(|l| !l.contains("### VERSIO END CONTENT ###"))
-    .collect::<Vec<_>>()
-    .join("\n");
-  Ok(content)
-}
-
-fn construct_changelog_html(cl: &Changelog, new_vers: &str, old_content: String) -> Result<String> {
-  let tmpl = include_str!("tmpl/changelog.liquid");
-  let tmpl = ParserBuilder::with_stdlib().build()?.parse(tmpl)?;
-  let nowymd = Utc::now().format("%Y-%m-%d").to_string();
-
-  let pr_count = cl
-    .entries()
-    .iter()
-    .filter(|entry| match entry {
-      ChangelogEntry::Pr(pr, _) => pr.commits().iter().any(|c| c.included()),
-      _ => false
-    })
-    .count();
-
-  let mut prs = Vec::new();
-  let mut dps = Vec::new();
-
-  for entry in cl.entries() {
-    match entry {
-      ChangelogEntry::Pr(pr, size) => {
-        if !pr.commits().iter().any(|c| c.included()) {
-          continue;
-        }
-
-        let mut commits = Vec::new();
-        for c in pr.commits().iter().filter(|c| c.included()) {
-          commits.push(liquid::object!({
-            "href": c.url().as_deref().unwrap_or(""),
-            "link": c.url().is_some(),
-            "shorthash": c.oid()[.. 7].to_string(),
-            "size": c.size().to_string(),
-            "summary": c.summary(),
-            "message": c.message().trim()
-          }));
-        }
-
-        let pr_name = if pr.number() == 0 {
-          if pr_count == 1 {
-            "Commits".to_string()
-          } else {
-            "Other commits".to_string()
-          }
-        } else {
-          format!("PR {}", pr.number())
-        };
-
-        prs.push(liquid::object!({
-          "title": pr.title(),
-          "name": pr_name,
-          "size": size.to_string(),
-          "href": pr.url().as_deref().unwrap_or(""),
-          "link": pr.number() > 0 && pr.url().is_some(),
-          "commits": commits
-        }));
-      }
-      ChangelogEntry::Dep(proj_id, name) => {
-        dps.push(liquid::object!({
-          "id": proj_id.to_string(),
-          "name": name
-        }));
-      }
-    }
-  }
-
-  let globals = liquid::object!({
-    "release": {
-      "date": nowymd,
-      "prs": prs,
-      "deps": dps,
-      "version": new_vers
-    },
-    "old_content": old_content,
-    "content_marker": format!("CONTENT {}", nowymd)
-  });
-
-  Ok(tmpl.render(&globals)?)
-}
 
 #[cfg(test)]
 mod test {

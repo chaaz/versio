@@ -283,6 +283,11 @@ sizes:
   fail: ["*"]
 ```
 
+All paths listed in the configuation are relative paths, and follow the
+"forward-slash" format (`"path/to/file"`). The "root" property is
+relative to the base of the repo; other paths are relative to that root
+(except where listed otherwise)
+
 - `options`
 
   These are general project options. Currently the only option is
@@ -301,8 +306,8 @@ sizes:
     commits, even if the project name or location changes.
   - `root`: (optional, default `"."`) The location, relative to the base
     of the repo, where the project is located. The `changelog`,
-    `includes`, `excludes`, and `version: file` properties are all
-    listed relative to `root`. Additionally, if `subs` is given, the
+    `includes`, `excludes`, `also`, and `version: file` properties are
+    all listed relative to `root`. Additionally, if `subs` is given, the
     major subdirectories (`v2`, etc) are searched for in root.
   - `includes`, `excludes`: (optional, default includes: `["**/*"]`,
     excludes: `[]`) A list of file glob patterns which specify which
@@ -317,7 +322,16 @@ sizes:
     [Version Chains](./chains.md) for more info.
   - `changelog`: (optional) The file name where the changelog is
     located. If this property is not provided, no changelog will be
-    created or updated.
+    created or updated. Alternately, you can provide a map in the
+    following format, which additionally specifies which template to use
+    when creating/updating the changelog. If no template is provided,
+    then "builtin:html" is assumed. See the [Changelog
+    docs](./changelog.md).
+    ```yaml
+    changelog:
+      file: "path/to/CHANGELOG.html"
+      template: "file:path/to/CHANGELOG.html.tmpl"
+    ```
   - `version`: (required) The location of the project version. See
     "Version config" below.
   - `also`: (optional: default `[]`) Additional locations where the
