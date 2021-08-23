@@ -134,6 +134,17 @@ protocols:
 Like the default template, the provided template must be in Liquid
 format. The following variables are available to the template:
 
+- `project`: a structure that contains information about the current
+  project:
+    - `id`: The ID of the project.
+    - `name`: The name of the project.
+    - `tag_prefix`: The tag-prefix of the project (if it exists).
+    - `version`: The current version of the project (which should match
+      `release.version`).
+    - `full_version`: The version of the release, prefixed with the its
+      `tag_prefix` (if any).
+    - `root`: The directory root of the project, (relative to the
+      repository root)
 - `release`: this is a structure that contains details of the current
   release:
     - `date`: The current date, in Y-M-D format.
