@@ -1,9 +1,10 @@
 # Versio
 
 Versio (pronounced _vir_-zhee-oh) is a tool that manages your project's
-advancement. It intelligently updates version numbers based on
-[conventional commits](https://www.conventionalcommits.org/), generates
-changelogs, and tags your code.
+version evolution. It intelligently updates version numbers based on
+[conventional commits](https://www.conventionalcommits.org/). It can
+handle changelogs, project tags, release subdirectories, GPG signing,
+pull requests, and more.
 
 Versio is especially intelligent when dealing with
 [monorepos](https://en.wikipedia.org/wiki/Monorepo), allowing not only
@@ -24,7 +25,7 @@ Or, you can download one of the pre-built binaries for your platform
 from the [Releases
 page](https://github.com/chaaz/versio/releases).
 
-Versio requires GnuPG to be installed: it's commonly pre-packaged on
+Versio requires GnuPG to be installed: this is commonly pre-packaged on
 many environments, but if you need to install it yourself, see the
 [Dependency page](./docs/dependencies.md) for details.
 
@@ -39,23 +40,27 @@ $ git push
 $ versio release
 ```
 
+## Finding Versio
+
+Versio is listed some places, and used by some projects. If you find
+Versio in the wild--or if you use it in your project--and it's not shown
+here, please submit an [issue](https://github.com/chaaz/versio/issues)
+or write a PR for this README, and we'll make sure you're added to our
+list.
+
+We're listed here!
+
+- [Conventional Commits](https://www.conventionalcommits.org/en/about/):
+  Versio supports the official conventional comment specification.
+- [Awesome Monorepo](https://github.com/korfuri/awesome-monorepo): A
+  great collection of tools for handling your monorepo.
+
+We're used here!
+
+- [Versio](https://github.com/chaaz/versio/): Of course we use Versio
+  when developing Versio.
+
 ## Background
-
-<!---
-A developer of a project&mdash;after making some changes to a
-project&mdash;might "release" her work: she will update the version
-number, write a short log explaining her changes, and then publish the
-new software to make it widely available. However, this
-code-then-release process quickly becomes difficult to maintain.
-
-In projects of even modest complexity, a software release usually
-corresponds to a set of development changes _in toto_, and not to a
-specific contribution from a single person. In larger communities,
-individual contributors might not even decide when a release should
-occur. If multiple developers provide conflicting version increments, it
-can be a headache to resolve. And it can be inefficient to halt all
-contributions while a release is being built.
--->
 
 Versio can help automate the release process by updating
 [semver](https://semver.org/) version numbers from [conventional
@@ -88,7 +93,7 @@ thenceforth Versio will be able to manage them.
 - Based on the old versions, current version, and intervening
   conventional commits, Versio will update your projects' version
   numbers.
-- Versio will commit and push the updated manifest files, and update
+- Versio will commit and push the updated manifest files, and update the
   `versio-prev` tag.
 - Versio can also create or update per-project version tags.
 - Versio can generate or update a changelog based on the pull requests
@@ -129,6 +134,18 @@ keep track of multiple, sometimes very different application structures
 at the same time. You can utilize this feature by providing a `subs`
 property in your project configuration. See the [Major
 Subdirectories](./docs/subs.md) page for a description.
+
+### Changelog Management
+
+If you're not happy with the default changelog you can write your own
+liquid template instead; put it in the project itself, elsewhere in the
+filesystem, or serve it from a web service. If that's not enough
+flexibility, you can output a JSON document that contains all the
+release information, and use that in your own pipeline for custom
+actions. Additionally, you can examine the builtin templates, perform a
+changelog-only release, or format a release plan using a changelog. The
+[Changelog](./docs/changelog.md) page contains more details on this
+powerful feature.
 
 ### VCS Levels
 

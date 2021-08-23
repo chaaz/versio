@@ -264,24 +264,16 @@ push all changes. You can set this action to run automatically when a
 branch has been merged to a release branch, or at any other time you
 want your software to be released.
 
-It may be beneficial to generate some artifacts in your release
-workflow: this serves to capture the binaries, documentation, etc.
-associated with a particular version number. Typical targets for
-releases include GitHub Releases and library repositories (such as
-NPM.org, crates.io, Dockerhub, etc.). While Versio itself can't generate
-these artifacts, most language and build systems have easy-to-use tools
-that can.
-
 ### About Timing
 
 It's important to note that nothing can be pushed to the release branch
-during the short time that Versio is running, or `versio release` will
-fail. There are a number of ways you can deal with this: from locking
-the branch while Versio is running; to creating a pre-release branch to
-separate merges from the release process; to simply ignoring the problem
-and manually re-running the CI action if it gets stuck; and more. The
-strategy you use is dependent on the specifics of your organization and
-CI/CD process.
+during the short time that Versio is running, or else `versio release`
+will fail. There are a number of ways you can deal with this: from
+locking the branch while Versio is running; to creating a pre-release
+branch to separate merges from the release process; to simply ignoring
+the problem and manually re-running the CI action if it gets stuck; and
+more. The strategy you use is dependent on the specifics of your
+organization and CI/CD process.
 
 ### GitHub Actions
 

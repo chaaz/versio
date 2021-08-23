@@ -18,20 +18,23 @@ projects:
     changelog: "dev_docs/CHANGELOG.html"
 ```
 
-If you don't like the default template, you can provide your own:
+If you don't like the default template, you can pick your own:
 
 ```yaml
 projects:
   - name: "myproject"
     changelog:
       file: "dev_docs/CHANGELOG.html"
-      template: "file:internal/CHANGELOG.html.tmpl"
+      template: "file:internal/CHANGELOG.html.liquid"
 ```
+
+See the "Template URLs" section below to find out what templates you can
+use in this property.
 
 ## Other changelog commands
 
 In addition to writing to a changelog at release, Versio has a few more
-commands to generate and examine your records.
+commands to generate and examine your records and templates.
 
 ### Plan formatting
 
@@ -44,25 +47,47 @@ etc in a machine-readable format. You can later use that document in
 your own changelog process, if you want to go beyond Versio's
 capabilities.
 
-When using this style of the `plan` command, you may want to provide a
-project ID (`--id=<project ID>`). Otherwise, Versio will concatenate the
-changelog-formatted output of all the projects together.
+When using this style of the `plan` command, you must provide a project
+ID (`--id=<project ID>`); Versio doesn't know how to stitch changelogs
+from different projects into a single document.
 
-By default, `versio plan --template=...` will attempt to use any
-existing changelog files (as specified in `.versio.yaml`) for a project
-in order to extract its old content that gets merged into the new output
-if the template takes advantage of the `old_content` context variable.
-If you want to suppress this and instead output the plan as if it were a
-brand new changelog, you can use the `--no-oldcontent` flag. If instead
-you want to use a file _other_ than the existing changelog for old
-content, you can use the `--oldcontent=<path to old changelog>`. Be
-aware that if you don't specify an `--id` that the `--oldcontent` will
-be used as the old content for all projects, which may not be what you
-want.
+Using `versio plan --template=...` will generate a document without
+considering existing changelog contents. If your template uses the
+`old_content` property, then it will always be considered empty when
+using this command.
+
+### Changelog previews
+
+The Versio `release` command has a `--changelog-only` flag, which is
+similar to the `--dry-run` flag. Where `--dry-run` suppresses all output
+and VCS actions, `--changelog-only` suppresses all output and VCS
+actions **except** writing to the changelog(s). (`--dry-run` and
+`--changelog-only` cannot be used together.) This lets you generate a
+"preview" changelog before a release happens, which may be useful for
+some workflows.
+
+Just like `--dry-run`, `--changelog-only` will not commit any changes,
+push to a remote repo, change any files (other than the changelogs), or
+tag any releases. Furthermore, the new changelogs count as local
+modifications, so later Versio commands in that workspace may fail. If
+you intend to perform further release actions in the same workspace,
+first finish using the preview changelogs (or copy them somewhere they
+can be used), then revert them with `git checkout` or (for more modern
+versions of Git) `git restore`. You should probably not commit the
+previews, since that could risk double-writing release information to
+the changelogs.
+
+Be aware that previews may not exactly match the later release
+changelog: the release process may find different commits, PRs, access
+permissions to Git or GitHub, or other environmental differences that
+may create a differing release plan. There may be commit or PR ordering
+differences, depending on recorded commit times. Also, if the changelog
+template uses the release date, clock time, or another non-fixed value,
+those might change during the release.
 
 ### Show template
 
-`versio template show --template=<template URL>`: This will output the
+`versio template --template=<template URL>`: This will output the
 verbatim content of the given changelog template. This is especially
 useful if you want to peruse the builtin templates, or save them as a
 starting point to create your own templates.
