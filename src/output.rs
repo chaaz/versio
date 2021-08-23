@@ -155,6 +155,16 @@ impl ProjLine {
     let root = p.root().cloned();
     Ok(ProjLine { id: id.clone(), name, tag_prefix, version, full_version, root })
   }
+
+  pub fn from_version(p: &Project, vers: String) -> Result<ProjLine> {
+    let id = p.id();
+    let name = p.name().to_string();
+    let version = vers;
+    let tag_prefix = p.tag_prefix().clone();
+    let full_version = p.full_version(&version);
+    let root = p.root().cloned();
+    Ok(ProjLine { id: id.clone(), name, tag_prefix, version, full_version, root })
+  }
 }
 
 pub struct DiffOutput {
@@ -453,7 +463,10 @@ impl PlanOutput {
         .chain_err(|| format!("Unable to find project {} value.", id))?
         .unwrap_or_else(|| panic!("No such project {}.", id));
 
-      let html = construct_changelog_html(changelog, &curt_vers, "".to_string(), template)?;
+      let proj = curt_config.get_project(id).ok_or_else(|| bad!("No such project ID {}", id))?;
+      let proj = ProjLine::from_version(proj, curt_vers.clone())?;
+
+      let html = construct_changelog_html(changelog, proj, &curt_vers, "".to_string(), template)?;
       println!("{}", html);
       break;
     }

@@ -6,6 +6,7 @@ use crate::errors::{Result, ResultExt};
 use crate::git::{FromTagBuf, Repo, Slice};
 use crate::mark::{FilePicker, LinePicker, Picker, ScanningPicker};
 use crate::mono::Changelog;
+use crate::output::ProjLine;
 use crate::scan::parts::{deserialize_parts, Part};
 use crate::state::{CurrentFiles, CurrentState, FilesRead, OldTags, PickPath, PrevFiles, PrevState, StateRead,
                    StateWrite};
@@ -385,7 +386,7 @@ impl Project {
       let tmpl = read_template(template, self.root().map(PathBuf::from_slash).as_deref(), true).await?;
       write.write_file(
         log_path.clone(),
-        construct_changelog_html(cl, new_vers, old_content, tmpl)?,
+        construct_changelog_html(cl, ProjLine::from_version(self, new_vers.to_string())?, new_vers, old_content, tmpl)?,
         self.id(),
         true
       )?;

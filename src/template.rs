@@ -2,6 +2,7 @@
 
 use crate::errors::Result;
 use crate::mono::{Changelog, ChangelogEntry};
+use crate::output::ProjLine;
 use chrono::prelude::Utc;
 use error_chain::bail;
 use hyper::Client;
@@ -26,7 +27,9 @@ pub fn extract_old_content(path: &Path) -> Result<String> {
   Ok(content)
 }
 
-pub fn construct_changelog_html(cl: &Changelog, new_vers: &str, old_content: String, tmpl: String) -> Result<String> {
+pub fn construct_changelog_html(
+  cl: &Changelog, proj: ProjLine, new_vers: &str, old_content: String, tmpl: String
+) -> Result<String> {
   let tmpl = ParserBuilder::with_stdlib().build()?.parse(&tmpl)?;
   let nowymd = Utc::now().format("%Y-%m-%d").to_string();
 
@@ -90,6 +93,14 @@ pub fn construct_changelog_html(cl: &Changelog, new_vers: &str, old_content: Str
   }
 
   let globals = liquid::object!({
+    "project": {
+      "id": proj.id.to_string(),
+      "name": proj.name,
+      "tag_prefix": proj.tag_prefix.unwrap_or_else(|| "".to_string()),
+      "version": proj.version,
+      "full_version": proj.full_version.unwrap_or_else(|| "".to_string()),
+      "root": proj.root.unwrap_or_else(|| "".to_string()),
+    },
     "release": {
       "date": nowymd,
       "prs": prs,
