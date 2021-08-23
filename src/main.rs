@@ -3,9 +3,9 @@
 mod cli;
 
 use env_logger::{Builder, Env};
+use tokio::runtime::Runtime;
 use versio::commands::early_info;
 use versio::errors::Result;
-use tokio::runtime::Runtime;
 
 fn main() {
   if let Err(e) = Runtime::new().unwrap().block_on(run()) {

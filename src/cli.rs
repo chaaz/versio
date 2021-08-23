@@ -185,22 +185,20 @@ pub async fn execute(info: &EarlyInfo) -> Result<()> {
       SubCommand::with_name("plan")
         .setting(AppSettings::UnifiedHelpMessage)
         .about("Find versions that need to change")
-        .arg(
-          {
-            let arg = Arg::with_name("template")
-              .short("t")
-              .long("template")
-              .takes_value(true)
-              .value_name("url")
-              .display_order(1)
-              .help("The changelog template to format with.");
-            if id_required {
-              arg.requires("id")
-            } else {
-              arg
-            }
+        .arg({
+          let arg = Arg::with_name("template")
+            .short("t")
+            .long("template")
+            .takes_value(true)
+            .value_name("url")
+            .display_order(1)
+            .help("The changelog template to format with.");
+          if id_required {
+            arg.requires("id")
+          } else {
+            arg
           }
-        )
+        })
         .arg(
           Arg::with_name("id")
             .short("i")
@@ -390,16 +388,14 @@ pub async fn execute(info: &EarlyInfo) -> Result<()> {
         .setting(AppSettings::UnifiedHelpMessage)
         .about("Output a changelog template")
         .arg(
-          {
-            Arg::with_name("template")
-              .short("t")
-              .long("template")
-              .takes_value(true)
-              .value_name("url")
-              .display_order(1)
-              .required(true)
-              .help("The changelog template to format with.")
-          }
+          Arg::with_name("template")
+            .short("t")
+            .long("template")
+            .takes_value(true)
+            .value_name("url")
+            .display_order(1)
+            .required(true)
+            .help("The changelog template to format with.")
         )
         .display_order(1)
     )
@@ -447,7 +443,7 @@ async fn parse_matches(m: ArgMatches<'_>, early_info: &EarlyInfo) -> Result<()> 
       };
 
       release(pref_vcs, m.is_present("all"), &dry, m.is_present("pause")).await?
-    },
+    }
     ("init", Some(m)) => init(m.value_of("maxdepth").map(|d| d.parse().unwrap()).unwrap_or(5))?,
     ("info", Some(m)) => {
       let names = m.values_of("name").map(|v| v.collect::<Vec<_>>()).unwrap_or_default();

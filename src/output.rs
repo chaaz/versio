@@ -8,9 +8,9 @@ use crate::github::Changes;
 use crate::mono::ChangelogEntry;
 use crate::mono::{Mono, Plan};
 use crate::state::StateRead;
+use crate::template::{construct_changelog_html, read_template};
 use serde_json::json;
 use std::path::{Path, PathBuf};
-use crate::template::{read_template, construct_changelog_html};
 
 pub struct Output {}
 

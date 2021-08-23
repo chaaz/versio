@@ -9,7 +9,7 @@ use crate::mono::Changelog;
 use crate::scan::parts::{deserialize_parts, Part};
 use crate::state::{CurrentFiles, CurrentState, FilesRead, OldTags, PickPath, PrevFiles, PrevState, StateRead,
                    StateWrite};
-use crate::template::{extract_old_content, construct_changelog_html, read_template};
+use crate::template::{construct_changelog_html, extract_old_content, read_template};
 use error_chain::bail;
 use glob::{glob_with, MatchOptions, Pattern};
 use liquid::ParserBuilder;
@@ -383,7 +383,12 @@ impl Project {
       let log_path = PathBuf::from_slash(log_path.as_ref());
       let old_content = extract_old_content(&log_path)?;
       let tmpl = read_template(template, self.root().map(PathBuf::from_slash).as_deref(), true).await?;
-      write.write_file(log_path.clone(), construct_changelog_html(cl, new_vers, old_content, tmpl)?, self.id(), true)?;
+      write.write_file(
+        log_path.clone(),
+        construct_changelog_html(cl, new_vers, old_content, tmpl)?,
+        self.id(),
+        true
+      )?;
       Ok(Some(log_path))
     } else {
       Ok(None)
@@ -571,9 +576,7 @@ pub struct ChangelogConfig {
 }
 
 impl ChangelogConfig {
-  pub fn from_file(file: String) -> ChangelogConfig {
-    ChangelogConfig { file, template: default_changelog_template() }
-  }
+  pub fn from_file(file: String) -> ChangelogConfig { ChangelogConfig { file, template: default_changelog_template() } }
 
   pub fn file(&self) -> &str { &self.file }
   pub fn template(&self) -> &str { &self.template }

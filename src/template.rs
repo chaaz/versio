@@ -4,10 +4,10 @@ use crate::errors::Result;
 use crate::mono::{Changelog, ChangelogEntry};
 use chrono::prelude::Utc;
 use error_chain::bail;
-use liquid::ParserBuilder;
-use std::path::{Path, PathBuf};
 use hyper::Client;
+use liquid::ParserBuilder;
 use path_slash::PathBufExt;
+use std::path::{Path, PathBuf};
 
 /// Extract everything in an old changelog between the `BEGIN CONTENT` and `END CONTENT` lines.
 pub fn extract_old_content(path: &Path) -> Result<String> {
@@ -111,13 +111,9 @@ pub async fn read_template(tmpl_url: &str, base_path: Option<&Path>, forward_sla
         "html" => Ok(include_str!("tmpl/changelog.liquid").to_string()),
         "json" => Ok(include_str!("tmpl/json.liquid").to_string()),
         _ => bail!("Unknown builtin template: {}", parts[1])
-      }
+      },
       "file" => {
-        let path = if forward_slash {
-          PathBuf::from_slash(parts[1])
-        } else {
-          PathBuf::from(parts[1])
-        };
+        let path = if forward_slash { PathBuf::from_slash(parts[1]) } else { PathBuf::from(parts[1]) };
         match base_path {
           Some(base_path) => Ok(std::fs::read_to_string(base_path.join(path))?),
           None => Ok(std::fs::read_to_string(path)?)
