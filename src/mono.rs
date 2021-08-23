@@ -72,6 +72,8 @@ impl Mono {
     }
   }
 
+  pub fn write_changelogs(&mut self) -> Result<()> { self.next.write_changelogs() }
+
   pub fn commit(&mut self, advance_prev: bool, pause: bool) -> Result<()> {
     self.next.commit(
       &self.repo,

@@ -47,14 +47,15 @@ etc in a machine-readable format. You can later use that document in
 your own changelog process, if you want to go beyond Versio's
 capabilities.
 
-When using this style of the `plan` command, you must provide a project
-ID (`--id=<project ID>`); Versio doesn't know how to stitch changelogs
-from different projects into a single document.
+When using this style of the `plan` command, if you have more than one
+project, you must provide a project ID (`--id=<project ID>`); Versio
+doesn't know how to stitch changelogs from multiple projects into a
+single document.
 
 Using `versio plan --template=...` will generate a document without
 considering existing changelog contents. If your template uses the
-`old_content` property, then it will always be considered empty when
-using this command.
+`old_content` property, then it will always be resolved to an empty
+string when using this command.
 
 ### Changelog previews
 

@@ -3,35 +3,35 @@
     "date": "{{release.date | date: "%Y-%m-%d"}}",
     "version": "{{release.version}}",
     "deps" : [
-      {% for dep in release.deps %}
-        {
-          "id": "{{dep.id}}",
-          "name": "{{dep.name}}",
-        }
-      {% endfor %}
+      {%- for dep in release.deps %}
+      {
+        "id": "{{dep.id}}",
+        "name": "{{dep.name}}",
+      }{%- if forloop.last != true %},{%- endif %}
+      {%- endfor %}
     ],
     "prs" : [
-      {% for pr in release.prs %}
-        {
-          "title": "{{pr.title}}",
-          "name": "{{pr.name}}",
-          "size": "{{pr.size}}",
-          "href": "{{pr.href}}",
-          "link": {{pr.link}},
-          "commits": [
-            {% for commit in pr.commits %}
-              {
-                "href": "{{commit.href}}",
-                "link": commit.link,
-                "shorthash": "{{commit.shorthash}}",
-                "size": "{{commit.size}}",
-                "summary": "{{commit.summary}}",
-                "message": "{{commit.message}}"
-              }
-            {% endfor %}
-          ]
-        }
-      {% endfor %}
+      {%- for pr in release.prs %}
+      {
+        "title": "{{pr.title}}",
+        "name": "{{pr.name}}",
+        "size": "{{pr.size}}",
+        "href": "{{pr.href}}",
+        "link": {{pr.link}},
+        "commits": [
+          {%- for commit in pr.commits %}
+          {
+            "href": "{{commit.href}}",
+            "link": {{commit.link}},
+            "shorthash": "{{commit.shorthash}}",
+            "size": "{{commit.size}}",
+            "summary": "{{commit.summary}}",
+            "message": "{{commit.message}}"
+          }{%- if forloop.last != true %},{%- endif %}
+          {%- endfor %}
+        ]
+      }
+      {%- endfor %}
     ]
   }
 }

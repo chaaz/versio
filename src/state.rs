@@ -159,8 +159,10 @@ impl StateWrite {
     }
   }
 
-  pub fn write_file<C: ToString>(&mut self, file: PathBuf, content: C, proj_id: &ProjectId) -> Result<()> {
-    self.writes.push(FileWrite::Write { path: file, val: content.to_string() });
+  pub fn write_file<C: ToString>(
+    &mut self, file: PathBuf, content: C, proj_id: &ProjectId, changelog: bool
+  ) -> Result<()> {
+    self.writes.push(FileWrite::Write { path: file, val: content.to_string(), changelog });
     self.proj_writes.insert(proj_id.clone());
     Ok(())
   }
@@ -176,6 +178,15 @@ impl StateWrite {
     trace!("head_or_last on {} tagged with {}.", proj, tag);
     self.tag_head_or_last.push((tag, proj.clone()));
     self.new_tags.insert(proj.clone(), vers.to_string());
+    Ok(())
+  }
+
+  pub fn write_changelogs(&mut self) -> Result<()> {
+    // TODO(later): we're probably not going to do anything else after this, but should we remove the changelogs
+    // from `self.writes`, just in case?
+    for write in self.writes.iter().filter(|w| w.is_changelog()) {
+      write.write()?;
+    }
     Ok(())
   }
 
@@ -309,14 +320,21 @@ impl PrevTagMessage {
 
 #[derive(Deserialize, Serialize)]
 enum FileWrite {
-  Write { path: PathBuf, val: String },
+  Write { path: PathBuf, val: String, changelog: bool },
   Update { pick: PickPath, val: String }
 }
 
 impl FileWrite {
+  pub fn is_changelog(&self) -> bool {
+    match self {
+      FileWrite::Write { changelog, .. } => *changelog,
+      FileWrite::Update { .. } => false
+    }
+  }
+
   pub fn write(&self) -> Result<()> {
     match self {
-      FileWrite::Write { path, val } => {
+      FileWrite::Write { path, val, .. } => {
         Ok(std::fs::write(path, &val).chain_err(|| format!("Can't write to {}", path.to_string_lossy()))?)
       }
       // FileWrite::Append { path, val } => {

@@ -7,6 +7,7 @@ use crate::mono::Mono;
 use crate::output::{Output, ProjLine};
 use crate::state::{CommitState, StateRead};
 use crate::vcs::{VcsLevel, VcsRange, VcsState};
+use crate::template::read_template;
 use error_chain::bail;
 use std::collections::HashMap;
 use std::fs::{remove_file, File};
@@ -22,6 +23,12 @@ pub fn early_info() -> Result<EarlyInfo> {
   assert_ok!(orig_dir.is_absolute(), "Couldn't find current working directory.");
 
   Ok(EarlyInfo::new(project_count, root, orig_dir))
+}
+
+pub enum Engagement {
+  Dry,
+  Changelog,
+  Full
 }
 
 /// Environment information gathered even before we set the CLI options.
@@ -153,13 +160,25 @@ pub fn changes(pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
   Ok(())
 }
 
-pub fn plan(_early_info: &EarlyInfo, pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
+pub async fn plan(
+  early_info: &EarlyInfo, pref_vcs: Option<VcsRange>, id: Option<&str>, template: Option<&str>, ignore_current: bool
+) -> Result<()> {
   let mono = with_opts(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart, ignore_current)?;
   let output = Output::new();
   let mut output = output.plan();
+  let plan = mono.build_plan()?;
+  let id = id.map(|i| i.parse()).transpose()?;
+  let orig_dir = early_info.orig_dir();
 
-  output.write_plan(mono.build_plan()?)?;
-  output.commit(&mono)
+  output.write_plan(plan, id, template, orig_dir)?;
+  output.commit(&mono).await
+}
+
+pub async fn template(early_info: &EarlyInfo, template: &str) -> Result<()> {
+  let orig_dir = early_info.orig_dir();
+  let template = read_template(template, Some(orig_dir), false).await?;
+  println!("{}", template);
+  Ok(())
 }
 
 pub fn info(
@@ -265,7 +284,7 @@ impl InfoShow {
   }
 }
 
-pub async fn release(pref_vcs: Option<VcsRange>, all: bool, dry: bool, pause: bool) -> Result<()> {
+pub async fn release(pref_vcs: Option<VcsRange>, all: bool, dry: &Engagement, pause: bool) -> Result<()> {
   let mut mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
   let output = Output::new();
   let mut output = output.release();
@@ -324,16 +343,23 @@ pub async fn release(pref_vcs: Option<VcsRange>, all: bool, dry: bool, pause: bo
 
   mono.write_chains(plan.chain_writes(), &final_sizes)?;
 
-  if !dry {
-    mono.commit(true, pause)?;
-    if pause {
-      output.write_pause();
-    } else {
-      output.write_commit();
-      output.write_done();
+  match dry {
+    Engagement::Full => {
+      mono.commit(true, pause)?;
+      if pause {
+        output.write_pause();
+      } else {
+        output.write_commit();
+        output.write_done();
+      }
     }
-  } else {
-    output.write_dry();
+    Engagement::Changelog => {
+      mono.write_changelogs()?;
+      output.write_wrote_changelogs();
+    }
+    Engagement::Dry => {
+      output.write_dry();
+    }
   }
 
   output.commit();

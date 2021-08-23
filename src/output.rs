@@ -9,7 +9,8 @@ use crate::mono::ChangelogEntry;
 use crate::mono::{Mono, Plan};
 use crate::state::StateRead;
 use serde_json::json;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use crate::template::{read_template, construct_changelog_html};
 
 pub struct Output {}
 
@@ -297,7 +298,10 @@ fn println_changes(changes: &Changes) {
 }
 
 pub struct PlanOutput {
-  plan: Option<Plan>
+  plan: Option<Plan>,
+  id: Option<ProjectId>,
+  template: Option<String>,
+  orig_dir: Option<PathBuf>
 }
 
 impl Default for PlanOutput {
@@ -305,113 +309,156 @@ impl Default for PlanOutput {
 }
 
 impl PlanOutput {
-  pub fn new() -> PlanOutput { PlanOutput { plan: None } }
+  pub fn new() -> PlanOutput { PlanOutput { plan: None, id: None, template: None, orig_dir: None } }
 
-  pub fn write_plan(&mut self, plan: Plan) -> Result<()> {
+  pub fn write_plan(
+    &mut self, plan: Plan, id: Option<ProjectId>, template: Option<&str>, orig_dir: &Path
+  ) -> Result<()> {
     self.plan = Some(plan);
+    self.id = id;
+    self.template = template.map(|s| s.to_string());
+    self.orig_dir = Some(orig_dir.to_path_buf());
+
     Ok(())
   }
 
-  pub fn commit(&mut self, mono: &Mono) -> Result<()> {
+  pub async fn commit(&mut self, mono: &Mono) -> Result<()> {
     if let Some(plan) = &self.plan {
-      println_plan(plan, mono)
+      self.println_plan(plan, mono).await
     } else {
       println!("No plan.");
       Ok(())
     }
   }
-}
 
-fn println_plan(plan: &Plan, mono: &Mono) -> Result<()> {
-  println_plan_incrs(plan, mono)?;
-  println_plan_ineff(plan);
-  Ok(())
-}
-
-fn println_plan_incrs(plan: &Plan, mono: &Mono) -> Result<()> {
-  if plan.incrs().is_empty() {
-    println!("(No projects)");
-    return Ok(());
+  async fn println_plan(&self, plan: &Plan, mono: &Mono) -> Result<()> {
+    self.println_plan_incrs(plan, mono).await?;
+    self.println_plan_ineff(plan);
+    Ok(())
   }
 
-  for (id, (size, changelog)) in plan.incrs() {
-    let curt_proj = mono.get_project(id).unwrap();
-    println!("{} : {}", curt_proj.name(), size);
+  async fn println_plan_incrs(&self, plan: &Plan, mono: &Mono) -> Result<()> {
+    if self.template.is_some() {
+      return self.println_template_plan(plan, mono).await;
+    }
 
-    let curt_config = mono.config();
-    let prev_config = curt_config.slice_to_prev(mono.repo())?;
-    let prev_vers = prev_config.get_value(id).chain_err(|| format!("Unable to find prev {} value.", id))?;
-    let curt_vers = curt_config
-      .get_value(id)
-      .chain_err(|| format!("Unable to find project {} value.", id))?
-      .unwrap_or_else(|| panic!("No such project {}.", id));
+    if plan.incrs().is_empty() {
+      println!("(No projects)");
+      return Ok(());
+    }
 
-    if let Some(prev_vers) = prev_vers {
-      if size != &Size::Empty {
-        let target = size.apply(&prev_vers)?;
-        if Size::less_than(&curt_vers, &target)? {
-          if curt_proj.verify_restrictions(&target).is_err() {
+    for (id, (size, changelog)) in plan.incrs() {
+      if let Some(self_id) = self.id.as_ref() {
+        if id != self_id {
+          continue;
+        }
+      }
+
+      let curt_proj = mono.get_project(id).unwrap();
+      println!("{} : {}", curt_proj.name(), size);
+
+      let curt_config = mono.config();
+      let prev_config = curt_config.slice_to_prev(mono.repo())?;
+      let prev_vers = prev_config.get_value(id).chain_err(|| format!("Unable to find prev {} value.", id))?;
+      let curt_vers = curt_config
+        .get_value(id)
+        .chain_err(|| format!("Unable to find project {} value.", id))?
+        .unwrap_or_else(|| panic!("No such project {}.", id));
+
+      if let Some(prev_vers) = prev_vers {
+        if size != &Size::Empty {
+          let target = size.apply(&prev_vers)?;
+          if Size::less_than(&curt_vers, &target)? {
+            if curt_proj.verify_restrictions(&target).is_err() {
+              println!("  ! Illegal size change for restricted project {}.", curt_proj.id());
+            }
+          } else if curt_proj.verify_restrictions(&curt_vers).is_err() {
             println!("  ! Illegal size change for restricted project {}.", curt_proj.id());
           }
-        } else if curt_proj.verify_restrictions(&curt_vers).is_err() {
-          println!("  ! Illegal size change for restricted project {}.", curt_proj.id());
+        }
+      }
+
+      for entry in changelog.entries() {
+        match entry {
+          ChangelogEntry::Pr(pr, size) => {
+            if !pr.commits().iter().any(|c| c.included()) {
+              continue;
+            }
+            if pr.number() == 0 {
+              // "PR zero" is the top-level set of commits.
+              println!("  Other commits : {}", size);
+            } else {
+              println!("  PR {} : {}", pr.number(), size);
+            }
+            for c in pr.commits().iter().filter(|c| c.included()) {
+              let symbol = if c.duplicate() {
+                "."
+              } else if c.applies() {
+                "*"
+              } else {
+                " "
+              };
+              println!("    {} commit {} ({}) : {}", symbol, &c.oid()[.. 7], c.size(), c.message().trim());
+            }
+          }
+          ChangelogEntry::Dep(proj_id, proj_name) => {
+            println!("  Depends on: {} ({})", proj_name, proj_id);
+          }
         }
       }
     }
 
-    for entry in changelog.entries() {
-      match entry {
-        ChangelogEntry::Pr(pr, size) => {
-          if !pr.commits().iter().any(|c| c.included()) {
-            continue;
-          }
-          if pr.number() == 0 {
-            // "PR zero" is the top-level set of commits.
-            println!("  Other commits : {}", size);
-          } else {
-            println!("  PR {} : {}", pr.number(), size);
-          }
-          for c in pr.commits().iter().filter(|c| c.included()) {
-            let symbol = if c.duplicate() {
-              "."
-            } else if c.applies() {
-              "*"
-            } else {
-              " "
-            };
-            println!("    {} commit {} ({}) : {}", symbol, &c.oid()[.. 7], c.size(), c.message().trim());
-          }
-        }
-        ChangelogEntry::Dep(proj_id, proj_name) => {
-          println!("  Depends on: {} ({})", proj_name, proj_id);
-        }
+    Ok(())
+  }
+
+  fn println_plan_ineff(&self, plan: &Plan) {
+    for pr in plan.ineffective() {
+      if !pr.commits().iter().any(|c| c.included()) {
+        continue;
+      }
+      if pr.number() == 0 {
+        println!("  Unapplied commits");
+      } else {
+        println!("  Unapplied PR {}", pr.number());
+      }
+      for c in pr.commits().iter().filter(|c| c.included()) {
+        let symbol = if c.duplicate() {
+          "."
+        } else if c.applies() {
+          "*"
+        } else {
+          " "
+        };
+        println!("    {} commit {} ({}) : {}", symbol, &c.oid()[.. 7], c.size(), c.message());
       }
     }
   }
 
-  Ok(())
-}
+  async fn println_template_plan(&self, plan: &Plan, mono: &Mono) -> Result<()> {
+    let orig_dir = self.orig_dir.as_ref().ok_or_else(|| bad!("No orig dir for template format."))?;
+    let tmpl = self.template.as_ref().ok_or_else(|| bad!("No template for template format."))?;
 
-fn println_plan_ineff(plan: &Plan) {
-  for pr in plan.ineffective() {
-    if !pr.commits().iter().any(|c| c.included()) {
-      continue;
+    let template = read_template(tmpl, Some(orig_dir), false).await?;
+
+    for (id, (_, changelog)) in plan.incrs() {
+      if let Some(self_id) = self.id.as_ref() {
+        if id != self_id {
+          continue;
+        }
+      }
+
+      let curt_config = mono.config();
+      let curt_vers = curt_config
+        .get_value(id)
+        .chain_err(|| format!("Unable to find project {} value.", id))?
+        .unwrap_or_else(|| panic!("No such project {}.", id));
+
+      let html = construct_changelog_html(changelog, &curt_vers, "".to_string(), template)?;
+      println!("{}", html);
+      break;
     }
-    if pr.number() == 0 {
-      println!("  Unapplied commits");
-    } else {
-      println!("  Unapplied PR {}", pr.number());
-    }
-    for c in pr.commits().iter().filter(|c| c.included()) {
-      let symbol = if c.duplicate() {
-        "."
-      } else if c.applies() {
-        "*"
-      } else {
-        " "
-      };
-      println!("    {} commit {} ({}) : {}", symbol, &c.oid()[.. 7], c.size(), c.message());
-    }
+
+    Ok(())
   }
 }
 
@@ -436,6 +483,7 @@ impl ReleaseOutput {
   pub fn write_commit(&mut self) { self.result.append_commit(); }
   pub fn write_pause(&mut self) { self.result.append_pause(); }
   pub fn write_dry(&mut self) { self.result.append_dry(); }
+  pub fn write_wrote_changelogs(&mut self) { self.result.append_wrote_channgelogs(); }
 
   pub fn write_changed(&mut self, name: String, prev: String, curt: String, targ: String) {
     self.result.append_changed(name, prev, curt, targ);
@@ -465,6 +513,7 @@ impl ReleaseResult {
   fn append_commit(&mut self) { self.append(ReleaseEvent::Commit); }
   fn append_pause(&mut self) { self.append(ReleaseEvent::Pause); }
   fn append_dry(&mut self) { self.append(ReleaseEvent::Dry); }
+  fn append_wrote_channgelogs(&mut self) { self.append(ReleaseEvent::WroteChangelogs); }
 
   fn append_changed(&mut self, name: String, prev: String, curt: String, targ: String) {
     self.append(ReleaseEvent::Changed(name, prev, curt, targ));
@@ -525,6 +574,7 @@ enum ReleaseEvent {
   Commit,
   Pause,
   Dry,
+  WroteChangelogs,
   Done
 }
 
@@ -536,6 +586,7 @@ impl ReleaseEvent {
       ReleaseEvent::Commit => println!("Changes committed."),
       ReleaseEvent::Pause => println!("Paused for commit: use --resume to continue."),
       ReleaseEvent::Dry => println!("Dry run: no actual changes."),
+      ReleaseEvent::WroteChangelogs => println!("Changelogs only: only changelogs written."),
       ReleaseEvent::Changed(name, prev, curt, targ) => {
         if prev == curt {
           println!("  {} : {} -> {}", name, prev, targ);

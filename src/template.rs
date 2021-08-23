@@ -5,8 +5,9 @@ use crate::mono::{Changelog, ChangelogEntry};
 use chrono::prelude::Utc;
 use error_chain::bail;
 use liquid::ParserBuilder;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use hyper::Client;
+use path_slash::PathBufExt;
 
 /// Extract everything in an old changelog between the `BEGIN CONTENT` and `END CONTENT` lines.
 pub fn extract_old_content(path: &Path) -> Result<String> {
@@ -102,7 +103,7 @@ pub fn construct_changelog_html(cl: &Changelog, new_vers: &str, old_content: Str
   Ok(tmpl.render(&globals)?)
 }
 
-pub async fn read_template(tmpl_url: &str, base_path: Option<&Path>) -> Result<String> {
+pub async fn read_template(tmpl_url: &str, base_path: Option<&Path>, forward_slash: bool) -> Result<String> {
   let parts: Vec<_> = tmpl_url.splitn(2, ':').collect();
   if parts.len() > 1 {
     match parts[0] {
@@ -111,9 +112,16 @@ pub async fn read_template(tmpl_url: &str, base_path: Option<&Path>) -> Result<S
         "json" => Ok(include_str!("tmpl/json.liquid").to_string()),
         _ => bail!("Unknown builtin template: {}", parts[1])
       }
-      "file" => match base_path {
-        Some(base_path) => Ok(std::fs::read_to_string(base_path.join(&parts[1]))?),
-        None => Ok(std::fs::read_to_string(&parts[1])?)
+      "file" => {
+        let path = if forward_slash {
+          PathBuf::from_slash(parts[1])
+        } else {
+          PathBuf::from(parts[1])
+        };
+        match base_path {
+          Some(base_path) => Ok(std::fs::read_to_string(base_path.join(path))?),
+          None => Ok(std::fs::read_to_string(path)?)
+        }
       }
       "http" | "https" => {
         let resp = Client::new().get(tmpl_url.parse()?).await?;

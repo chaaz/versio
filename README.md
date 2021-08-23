@@ -40,7 +40,7 @@ $ git push
 $ versio release
 ```
 
-## Finding Versio
+## Who's using Versio?
 
 Versio is listed some places, and used by some projects. If you find
 Versio in the wild--or if you use it in your project--and it's not shown

@@ -146,6 +146,12 @@ along with their options and flags. You can always use `versio help` or
 - `diff`: See differences between the current and previous versions.
 - `files`: See all files that have changed since the previous version.
 - `plan`: View the update plan.
+  - `--id` (`-i <ID>`): only show the plan of a single project with the
+    given ID.
+  - `--template` (`-t <url>`): use a changelog template (such as
+    `builtin:json`), instead of a simple text output, when displaying
+    the plan. Must be used with `--id` if the repo contains more than
+    one project. See [Changelog Management](./changelog.md) for more.
 - `info`: Outputs a JSON document with information about projects:
   - `--id` (`-i <ID>`): include a single project with the given ID (you
     can provide this option more than once).
@@ -200,9 +206,17 @@ along with their options and flags. You can always use `versio help` or
   - `--dry-run` (`-d`): Don't actually commit, push, tag, or change any
     files, but otherwise run as if you would. `dry-run` is incompatible
     with `--pause`, `--resume`, and `--abort`.
+  - `--changelog-only` (`-c`): Just like `--dry-run`, but allows
+    changelogs to be created/updated to disk, allowing workflows to
+    create "preview" changelogs. See [Changelog
+    Management](./changelog.md)
 - `init`:
   - `--max-depth` (`-d <depth>`): The maximum directory depth that
     Versio will search for projects. Defaults to `5`.
+- `template`: Output a changelog template.
+  - `--template` (`-t <url>`, required): pick which changelog template
+    (such as `builtin:json`) to output. See [Changelog
+    Management](./changelog.md).
 
   Run this command at the base directory of an uninitialized repository.
   It will search the repository for projects, and create a new

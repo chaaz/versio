@@ -382,8 +382,8 @@ impl Project {
     if let Some((log_path, template)) = self.changelog().as_ref() {
       let log_path = PathBuf::from_slash(log_path.as_ref());
       let old_content = extract_old_content(&log_path)?;
-      let tmpl = read_template(template, self.root().map(PathBuf::from_slash).as_deref()).await?;
-      write.write_file(log_path.clone(), construct_changelog_html(cl, new_vers, old_content, tmpl)?, self.id())?;
+      let tmpl = read_template(template, self.root().map(PathBuf::from_slash).as_deref(), true).await?;
+      write.write_file(log_path.clone(), construct_changelog_html(cl, new_vers, old_content, tmpl)?, self.id(), true)?;
       Ok(Some(log_path))
     } else {
       Ok(None)
