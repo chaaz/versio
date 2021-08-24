@@ -22,7 +22,7 @@ use std::fmt;
 /// rebase). The squash commit is excluded from all PRs: instead the PR's own commits are examined normally. In
 /// this way, the original type and size information from the PR is preserved.
 #[allow(clippy::map_entry)]
-pub fn changes(auth: &Auth, repo: &Repo, baseref: FromTagBuf, headref: String) -> Result<Changes> {
+pub async fn changes(auth: &Auth, repo: &Repo, baseref: FromTagBuf, headref: String) -> Result<Changes> {
   let mut all_commits = HashSet::new();
   let mut all_prs = HashMap::new();
 
@@ -48,7 +48,7 @@ pub fn changes(auth: &Auth, repo: &Repo, baseref: FromTagBuf, headref: String) -
   };
 
   while let Some(span) = queue.pop_front() {
-    let commit_list = commits_from_v4_api(&github_info, &span)?;
+    let commit_list = commits_from_v4_api(&github_info, &span).await?;
     let commit_list: Vec<_> = commit_list
       .into_iter()
       .filter_map(|commit| {
@@ -99,7 +99,7 @@ pub fn line_commits_head(repo: &Repo, base: FromTag) -> Result<Vec<CommitInfoBuf
   repo.commits_to_head(base, false)?.map(|i| i?.buffer()).collect::<Result<_>>()
 }
 
-fn commits_from_v4_api(github_info: &GithubInfo, span: &Span) -> Result<Vec<ApiCommit>> {
+async fn commits_from_v4_api(github_info: &GithubInfo, span: &Span) -> Result<Vec<ApiCommit>> {
   let query = r#"query associatedPRs($since:GitTimestamp!, $sha:String!, $repo:String!, $owner:String!){
   repository(name:$repo, owner:$owner){
     commit:object(expression: $sha){
@@ -153,9 +153,7 @@ fragment commitResult on Commit {
   let octo = if let Some(token) = token { octo.personal_token(token) } else { octo };
   let octo = octo.build()?;
   let full_query = serde_json::json!({"query": &query, "variables": &variables});
-  let value = octo.post("/graphql", Some(&full_query));
-  let rt = tokio::runtime::Runtime::new()?;
-  let changes: ChangesResponse = rt.block_on(value)?;
+  let changes: ChangesResponse = octo.post("/graphql", Some(&full_query)).await?;
 
   let changes = changes.data.repository.commit.history.nodes;
   let mut changes: HashMap<String, ApiCommit> = changes.into_iter().map(|c| (c.oid().to_string(), c)).collect();

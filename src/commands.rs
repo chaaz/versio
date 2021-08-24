@@ -141,21 +141,21 @@ pub fn diff(pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
   output.commit()
 }
 
-pub fn files(pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
+pub async fn files(pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
   let mono = with_opts(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart, ignore_current)?;
   let output = Output::new();
   let mut output = output.files();
 
-  output.write_files(mono.keyed_files()?)?;
+  output.write_files(mono.keyed_files().await?)?;
   output.commit()
 }
 
-pub fn changes(pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
+pub async fn changes(pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
   let mono = with_opts(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart, ignore_current)?;
   let output = Output::new();
   let mut output = output.changes();
 
-  output.write_changes(mono.changes()?)?;
+  output.write_changes(mono.changes().await?)?;
   output.commit();
   Ok(())
 }
@@ -166,7 +166,7 @@ pub async fn plan(
   let mono = with_opts(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart, ignore_current)?;
   let output = Output::new();
   let mut output = output.plan();
-  let plan = mono.build_plan()?;
+  let plan = mono.build_plan().await?;
   let id = id.map(|i| i.parse()).transpose()?;
   let orig_dir = early_info.orig_dir();
 
@@ -288,7 +288,7 @@ pub async fn release(pref_vcs: Option<VcsRange>, all: bool, dry: &Engagement, pa
   let mut mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
   let output = Output::new();
   let mut output = output.release();
-  let plan = mono.build_plan()?;
+  let plan = mono.build_plan().await?;
 
   if let Err((should, is)) = mono.check_branch() {
     bail!("Branch name \"{}\"\" doesn't match \"{}\".", is, should);

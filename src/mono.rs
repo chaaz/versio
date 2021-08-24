@@ -158,8 +158,8 @@ impl Mono {
     Ok(())
   }
 
-  pub fn keyed_files(&self) -> Result<impl Iterator<Item = Result<(String, String)>> + '_> {
-    let changes = self.changes()?;
+  pub async fn keyed_files(&self) -> Result<impl Iterator<Item = Result<(String, String)>> + '_> {
+    let changes = self.changes().await?;
     let prs = changes.into_groups().into_iter().map(|(_, v)| v).filter(|pr| !pr.best_guess());
 
     let mut vec = Vec::new();
@@ -170,11 +170,11 @@ impl Mono {
     Ok(vec.into_iter().flatten())
   }
 
-  pub fn build_plan(&self) -> Result<Plan> {
+  pub async fn build_plan(&self) -> Result<Plan> {
     let mut plan = PlanBuilder::create(&self.repo, self.current.file(), self.user_prefs.auth());
 
     // Consider the grouped, unsquashed commits to determine project sizing and changelogs.
-    for pr in self.changes()?.groups().values() {
+    for pr in self.changes().await?.groups().values() {
       plan.start_pr(pr)?;
       for commit in pr.included_commits() {
         plan.start_commit(commit.clone())?;
@@ -196,9 +196,9 @@ impl Mono {
     Ok(plan.build())
   }
 
-  pub fn changes(&self) -> Result<Changes> {
+  pub async fn changes(&self) -> Result<Changes> {
     let base = FromTagBuf::new(self.current.prev_tag().to_string(), true);
-    changes(&self.user_prefs.auth, &self.repo, base, "HEAD".into())
+    changes(&self.user_prefs.auth, &self.repo, base, "HEAD".into()).await
   }
 }
 
