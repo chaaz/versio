@@ -203,6 +203,11 @@ along with their options and flags. You can always use `versio help` or
     part of the previous `release --pause`; if needed, you should do
     that yourself with e.g. `git checkout -- .`. You can't use both
     `--resume` and `--abort`.
+  - `--lock-tags (`-l`): Normally, if a project contains changes that
+    all map to a "none" size, then the project version will be
+    unchanged, but Versio will still move the versio tag to the latest
+    commit. This flag removes that behavior, ensuring that tags are
+    never moved--only new tags will be created for new versions.
   - `--dry-run` (`-d`): Don't actually commit, push, tag, or change any
     files, but otherwise run as if you would. `dry-run` is incompatible
     with `--pause`, `--resume`, and `--abort`.

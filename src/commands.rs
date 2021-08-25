@@ -284,7 +284,9 @@ impl InfoShow {
   }
 }
 
-pub async fn release(pref_vcs: Option<VcsRange>, all: bool, dry: &Engagement, pause: bool) -> Result<()> {
+pub async fn release(
+  pref_vcs: Option<VcsRange>, all: bool, dry: &Engagement, locktags: bool, pause: bool
+) -> Result<()> {
   let mut mono = build(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
   let output = Output::new();
   let mut output = output.release();
@@ -313,7 +315,7 @@ pub async fn release(pref_vcs: Option<VcsRange>, all: bool, dry: &Engagement, pa
     let prev_vers = prev_config.get_value(id).chain_err(|| format!("Unable to find prev {} value.", id))?;
 
     let new_vers = if size == &Size::Empty {
-      output.write_no_change(all, name.clone(), prev_vers.clone(), curt_vers.clone());
+      output.write_no_change(all, false, name.clone(), prev_vers.clone(), curt_vers.clone());
       curt_vers
     } else if let Some(prev_vers) = prev_vers {
       let target = size.apply(&prev_vers)?;
@@ -323,14 +325,22 @@ pub async fn release(pref_vcs: Option<VcsRange>, all: bool, dry: &Engagement, pa
         output.write_changed(name.clone(), prev_vers.clone(), curt_vers.clone(), target.clone());
       } else {
         proj.verify_restrictions(&curt_vers)?;
-        mono.forward_by_id(id, &curt_vers)?;
-        output.write_forward(all, name.clone(), prev_vers.clone(), curt_vers.clone(), target.clone());
+        if locktags {
+          output.write_no_change(all, true, name.clone(), Some(prev_vers.clone()), curt_vers.clone());
+        } else {
+          mono.forward_by_id(id, &curt_vers)?;
+          output.write_forward(all, name.clone(), prev_vers.clone(), curt_vers.clone(), target.clone());
+        }
       }
       target
     } else {
       proj.verify_restrictions(&curt_vers)?;
-      mono.forward_by_id(id, &curt_vers)?;
-      output.write_new(all, name.clone(), curt_vers.clone());
+      if locktags {
+        output.write_no_change(all, true, name.clone(), prev_vers.clone(), curt_vers.clone());
+      } else {
+        mono.forward_by_id(id, &curt_vers)?;
+        output.write_new(all, name.clone(), curt_vers.clone());
+      }
       curt_vers
     };
 

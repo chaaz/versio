@@ -259,6 +259,15 @@ pub async fn execute(info: &EarlyInfo) -> Result<()> {
             .display_order(1)
             .help("Don't do anything except write changelogs")
         )
+        .arg(
+          Arg::with_name("locktags")
+            .short("l")
+            .long("lock-tags")
+            .takes_value(false)
+            .conflicts_with_all(&["pause", "resume", "abort"])
+            .display_order(1)
+            .help("Don't forward project tags")
+        )
         .display_order(1)
     )
     .subcommand(
@@ -442,7 +451,7 @@ async fn parse_matches(m: ArgMatches<'_>, early_info: &EarlyInfo) -> Result<()> 
         Engagement::Full
       };
 
-      release(pref_vcs, m.is_present("all"), &dry, m.is_present("pause")).await?
+      release(pref_vcs, m.is_present("all"), &dry, m.is_present("locktags"), m.is_present("pause")).await?
     }
     ("init", Some(m)) => init(m.value_of("maxdepth").map(|d| d.parse().unwrap()).unwrap_or(5))?,
     ("info", Some(m)) => {

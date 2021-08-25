@@ -506,8 +506,8 @@ impl ReleaseOutput {
     self.result.append_forward(all, name, prev, curt, targ);
   }
 
-  pub fn write_no_change(&mut self, all: bool, name: String, prev: Option<String>, curt: String) {
-    self.result.append_no_change(all, name, prev, curt);
+  pub fn write_no_change(&mut self, all: bool, locked: bool, name: String, prev: Option<String>, curt: String) {
+    self.result.append_no_change(all, locked, name, prev, curt);
   }
 
   pub fn write_new(&mut self, all: bool, name: String, curt: String) { self.result.append_new(all, name, curt); }
@@ -536,8 +536,8 @@ impl ReleaseResult {
     self.append(ReleaseEvent::Forward(all, name, prev, curt, targ));
   }
 
-  fn append_no_change(&mut self, all: bool, name: String, prev: Option<String>, curt: String) {
-    self.append(ReleaseEvent::NoChange(all, name, prev, curt));
+  fn append_no_change(&mut self, all: bool, locked: bool, name: String, prev: Option<String>, curt: String) {
+    self.append(ReleaseEvent::NoChange(all, locked, name, prev, curt));
   }
 
   fn append_new(&mut self, all: bool, name: String, curt: String) { self.append(ReleaseEvent::New(all, name, curt)); }
@@ -582,7 +582,7 @@ enum ReleaseEvent {
   Logged(PathBuf),
   Changed(String, String, String, String),
   Forward(bool, String, String, String, String),
-  NoChange(bool, String, Option<String>, String),
+  NoChange(bool, bool, String, Option<String>, String),
   New(bool, String, String),
   Commit,
   Pause,
@@ -607,16 +607,17 @@ impl ReleaseEvent {
           println!("  {} : {} -> {} instead of {}", name, prev, targ, curt);
         }
       }
-      ReleaseEvent::NoChange(all, name, prev, curt) => {
+      ReleaseEvent::NoChange(all, locked, name, prev, curt) => {
         if *all {
+          let lockmsg = if *locked { " (locked)" } else { "" };
           if let Some(prev) = prev {
             if prev == curt {
-              println!("  {} : untouched at {}", name, curt);
+              println!("  {} : untouched at {}{}", name, curt, lockmsg);
             } else {
-              println!("  {} : untouched: {} -> {}", name, prev, curt);
+              println!("  {} : untouched: {} -> {}{}", name, prev, curt, lockmsg);
             }
           } else {
-            println!("  {} : untouched non-existent at {}", name, curt);
+            println!("  {} : untouched non-existent at {}{}", name, curt, lockmsg);
           }
         }
       }
