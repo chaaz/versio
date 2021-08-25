@@ -20,7 +20,7 @@ git2 = "0.12"
 ignore = "0.4.16"
 glob = "0.3"
 hyper = { version = "0.14", features = ["client", "http1", "http2", "tcp"] }
-liquid = "0.21"
+liquid = "0.22"
 log = "0.4"
 octocrab = "0.12"
 path-slash = "0.1"

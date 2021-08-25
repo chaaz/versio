@@ -805,9 +805,9 @@ checksum = "7fb9b38af92608140b86b693604b9ffcc5824240a484d1ecd4795bacb2fe88f3"
 
 [[package]]
 name = "liquid"
-version = "0.21.5"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ebeca3e471d40ca4816a8f77cb2e89590275d9ba74da4acb37b267f6250b358"
+checksum = "c09860255f7e7ab76fe682f8d46c1b8b0b4c4330d64136056f650d0e2d49c144"
 dependencies = [
  "doc-comment",
  "kstring",
@@ -819,9 +819,9 @@ dependencies = [
 
 [[package]]
 name = "liquid-core"
-version = "0.21.3"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "719573721a84bb8383be7e4f48337c78fcc2048778f780090d5ee5b6e0d6c66f"
+checksum = "be5a88630d73ac78b46277169f92ef135fb09ad50af039f76ccfc35264796cc5"
 dependencies = [
  "anymap",
  "chrono",
@@ -836,9 +836,9 @@ dependencies = [
 
 [[package]]
 name = "liquid-derive"
-version = "0.21.1"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5ed0397fd0b3bd70965471955f4ff83d69515c6d58e09f735efd10f2084e7f1"
+checksum = "88408698b7c2a426811369778ed472e219888aa4934f4de69568cc5bf05c8bc9"
 dependencies = [
  "proc-macro2",
  "proc-quote",
@@ -847,9 +847,9 @@ dependencies = [
 
 [[package]]
 name = "liquid-lib"
-version = "0.21.2"
+version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4780544c8d62eb1881dffddfd82ffe23990a18cc952de27b570b910214543ac"
+checksum = "10c14f535f61c4263e57cd4f6ad9701b97459f026420347ed978c4ab0d2512cc"
 dependencies = [
  "chrono",
  "itertools",
@@ -1332,9 +1332,9 @@ dependencies = [
 
 [[package]]
 name = "rustc-demangle"
-version = "0.1.20"
+version = "0.1.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dead70b0b5e03e9c814bcb6b01e03e68f7c57a80aa48c72ec92152ab3e818d49"
+checksum = "7ef03e0a2b150c7a90d01faf6254c9c48a41e95fb2a8c2ac1c6f0d2b9aefc342"
 
 [[package]]
 name = "ryu"
@@ -1607,9 +1607,9 @@ checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 
 [[package]]
 name = "tokio"
-version = "1.10.0"
+version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01cf844b23c6131f624accf65ce0e4e9956a8bb329400ea5bcc26ae3a5c20b0b"
+checksum = "92036be488bb6594459f2e03b60e42df6f937fe6ca5c5ffdcb539c6b84dc40f5"
 dependencies = [
  "autocfg",
  "bytes",
