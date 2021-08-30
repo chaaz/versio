@@ -29,6 +29,16 @@ If a project uses `version: tags:`, you may want to use the
 `--vcs-level=max` option while running the `versio set` command for that
 project.
 
+## Using --lock-tags
+
+The `release` command accepts a `--lock-tags` argument, which is helpful
+if you're using deploy tools that require tags to always refer to the
+same commit, but might mean that users who use your tags don't always
+get the latest changes. If you absolutely need to use `--lock-tags`, you
+consider making most change types have the `patch` increment size,
+rather than `none`: see the sizes documentation in the config file
+section of the [Reference](./reference).
+
 ## In Go projects
 
 If the tag prefix is *empty* (`tag_prefix: ""`), then tags for the
