@@ -13,7 +13,7 @@ use error_chain::bail;
 use log::trace;
 use serde::Deserialize;
 use std::cmp::{max, Ordering};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::iter::{empty, once};
 use std::path::{Path, PathBuf};
 
@@ -293,16 +293,34 @@ fn pr_keyed_files(repo: &Repo, pr: FullPr) -> impl Iterator<Item = Result<(Strin
   }
 }
 
+/// Additional information about a plan that doesn't contribute to plan's execution, but may still be of
+/// interested to the user.
+pub struct PlanInfo {
+  failed_commits: BTreeSet<CommitInfoBuf>
+}
+
+impl Default for PlanInfo {
+  fn default() -> PlanInfo { PlanInfo::new() }
+}
+
+impl PlanInfo {
+  pub fn new() -> PlanInfo { PlanInfo { failed_commits: BTreeSet::new() } }
+  pub fn failed_commits(&self) -> &BTreeSet<CommitInfoBuf> { &self.failed_commits }
+  pub fn add_failed_commit(&mut self, failure: CommitInfoBuf) { self.failed_commits.insert(failure); }
+}
+
 pub struct Plan {
   incrs: HashMap<ProjectId, (Size, Changelog)>, // proj ID, incr size, changelog
   ineffective: Vec<LoggedPr>,                   // PRs that didn't apply to any project
-  chain_writes: Vec<(ProjectId, ProjectId)>
+  chain_writes: Vec<(ProjectId, ProjectId)>,
+  info: PlanInfo
 }
 
 impl Plan {
   pub fn incrs(&self) -> &HashMap<ProjectId, (Size, Changelog)> { &self.incrs }
   pub fn ineffective(&self) -> &[LoggedPr] { &self.ineffective }
   pub fn chain_writes(&self) -> &[(ProjectId, ProjectId)] { &self.chain_writes }
+  pub fn info(&self) -> &PlanInfo { &self.info }
 }
 
 pub struct Changelog {
@@ -389,7 +407,8 @@ struct PlanBuilder<'s> {
   incrs: HashMap<ProjectId, (Size, Changelog)>, // proj ID, incr size, changelog
   ineffective: Vec<LoggedPr>,                   // PRs that didn't apply to any project
   github_info: Option<GithubInfo>,
-  chain_writes: Vec<(ProjectId, ProjectId)>
+  chain_writes: Vec<(ProjectId, ProjectId)>,
+  info: PlanInfo
 }
 
 impl<'s> PlanBuilder<'s> {
@@ -405,7 +424,8 @@ impl<'s> PlanBuilder<'s> {
       incrs: HashMap::new(),
       ineffective: Vec::new(),
       github_info,
-      chain_writes: Vec::new()
+      chain_writes: Vec::new(),
+      info: PlanInfo::new()
     }
   }
 
@@ -451,7 +471,6 @@ impl<'s> PlanBuilder<'s> {
     let kind = commit.kind().to_string();
     let summary = commit.summary().to_string();
     let msg = commit.message().to_string();
-    self.on_commit = Some(commit);
     self.prev.slice_to(FromTagBuf::new(id.clone(), false))?;
 
     let url = self
@@ -463,10 +482,14 @@ impl<'s> PlanBuilder<'s> {
     for (proj_id, logged_pr) in &mut self.on_pr_sizes {
       if let Some(cur_project) = self.current.get_project(proj_id) {
         let size = cur_project.size(self.current.sizes(), &kind)?;
+        if size.is_failure() {
+          self.info.add_failed_commit(commit.clone());
+        }
         logged_pr.commits.push(LoggedCommit::new(id.clone(), summary.clone(), msg.clone(), size, url.clone()));
       }
     }
 
+    self.on_commit = Some(commit);
     Ok(())
   }
 
@@ -570,7 +593,7 @@ impl<'s> PlanBuilder<'s> {
   }
 
   pub fn build(self) -> Plan {
-    Plan { incrs: self.incrs, ineffective: self.ineffective, chain_writes: self.chain_writes }
+    Plan { incrs: self.incrs, ineffective: self.ineffective, chain_writes: self.chain_writes, info: self.info }
   }
 }
 

@@ -1,9 +1,8 @@
 //! Interactions with github API v4.
 
 use crate::errors::Result;
-use crate::git::{Auth, CommitInfoBuf, FromTag, FromTagBuf, FullPr, GithubInfo, Repo, Span};
+use crate::git::{time_to_datetime, Auth, CommitInfoBuf, FromTag, FromTagBuf, FullPr, GithubInfo, Repo, Span};
 use chrono::{DateTime, FixedOffset, TimeZone, Utc};
-use git2::Time;
 use octocrab::Octocrab;
 use serde::de::{self, Deserializer, Visitor};
 use serde::Deserialize;
@@ -170,11 +169,6 @@ fragment commitResult on Commit {
   }
 
   Ok(changes.into_iter().map(|(_, v)| v).collect())
-}
-
-fn time_to_datetime(time: &Time) -> DateTime<FixedOffset> {
-  const MINUTES: i32 = 60;
-  FixedOffset::east(time.offset_minutes() * MINUTES).timestamp(time.seconds(), 0)
 }
 
 pub struct Changes {

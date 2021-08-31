@@ -1,7 +1,7 @@
 //! The way we output things to the user.
 
 use crate::analyze::Analysis;
-use crate::commands::InfoShow;
+use crate::commands::{failed_hashes, InfoShow};
 use crate::config::{Project, ProjectId, Size};
 use crate::errors::{Result, ResultExt};
 use crate::github::Changes;
@@ -376,7 +376,9 @@ impl PlanOutput {
         .unwrap_or_else(|| panic!("No such project {}.", id));
 
       if let Some(prev_vers) = prev_vers {
-        if size != &Size::Empty {
+        if size.is_failure() {
+          println!("  ! Non-parseable conventional commits: {}", failed_hashes(plan));
+        } else if size != &Size::Empty {
           let target = size.apply(&prev_vers)?;
           if Size::less_than(&curt_vers, &target)? {
             if curt_proj.verify_restrictions(&target).is_err() {

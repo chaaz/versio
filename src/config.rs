@@ -1078,7 +1078,8 @@ pub enum Size {
 }
 
 impl Size {
-  fn is_size(v: &str) -> bool { Size::from_str(v).is_ok() }
+  pub fn is_size(v: &str) -> bool { Size::from_str(v).is_ok() }
+  pub fn is_failure(&self) -> bool { matches!(self, Size::Fail) }
 
   fn from_str(v: &str) -> Result<Size> {
     match v {
@@ -1120,7 +1121,7 @@ impl Size {
       Size::Patch => format!("{}.{}.{}", parts[0], parts[1], parts[2] + 1),
       Size::None => format!("{}.{}.{}", parts[0], parts[1], parts[2]),
       Size::Empty => format!("{}.{}.{}", parts[0], parts[1], parts[2]),
-      Size::Fail => bail!("'fail' size encountered.")
+      Size::Fail => bail!("Unparseable conventional commit encountered.")
     };
 
     Ok(newv)

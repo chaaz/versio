@@ -3,7 +3,7 @@
 use crate::config::{Config, ConfigFile, ProjectId, Size};
 use crate::errors::{Result, ResultExt};
 use crate::git::Repo;
-use crate::mono::Mono;
+use crate::mono::{Mono, Plan};
 use crate::output::{Output, ProjLine};
 use crate::state::{CommitState, StateRead};
 use crate::template::read_template;
@@ -318,6 +318,9 @@ pub async fn release(
       output.write_no_change(all, false, name.clone(), prev_vers.clone(), curt_vers.clone());
       curt_vers
     } else if let Some(prev_vers) = prev_vers {
+      if size.is_failure() {
+        bail!("Couldn't parse conventional commit(s): {}", failed_hashes(&plan));
+      }
       let target = size.apply(&prev_vers)?;
       if Size::less_than(&curt_vers, &target)? {
         proj.verify_restrictions(&target)?;
@@ -435,4 +438,18 @@ fn combine_vcs(
   let pref_vcs = user_pref_vcs.unwrap_or_else(move || VcsRange::new(my_pref_lo, my_pref_hi));
   let reqd_vcs = VcsRange::new(my_reqd_lo, my_reqd_hi);
   VcsRange::detect_and_combine(&pref_vcs, &reqd_vcs)
+}
+
+pub fn failed_hashes(plan: &Plan) -> String {
+  let mut commits =
+    plan.info().failed_commits().iter().rev().take(5).map(|c| c.id()[.. 7].to_string()).collect::<Vec<_>>().join(",");
+  if plan.info().failed_commits().len() > 5 {
+    commits.push_str(",...");
+  }
+  if commits.is_empty() {
+    // This shouldn't happen.
+    commits.push_str("<unfound>");
+  }
+
+  commits
 }

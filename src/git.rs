@@ -4,7 +4,8 @@ use crate::config::CONFIG_FILENAME;
 use crate::either::IterEither2 as E2;
 use crate::errors::{Result, ResultExt};
 use crate::vcs::{VcsLevel, VcsState};
-use chrono::{DateTime, FixedOffset};
+use chrono::offset::Utc;
+use chrono::{DateTime, FixedOffset, TimeZone};
 use error_chain::bail;
 use git2::build::CheckoutBuilder;
 use git2::string_array::StringArray;
@@ -17,7 +18,7 @@ use path_slash::PathBufExt as _;
 use regex::Regex;
 use serde::Deserialize;
 use std::cell::RefCell;
-use std::cmp::{min, Ord};
+use std::cmp::{min, Ord, Ordering, PartialOrd};
 use std::collections::HashMap;
 use std::env::var;
 use std::ffi::OsStr;
@@ -534,21 +535,46 @@ impl GithubInfo {
   pub fn token(&self) -> &Option<String> { &self.token }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Eq)]
 pub struct CommitInfoBuf {
   id: String,
   summary: String,
   message: String,
   kind: String,
-  files: Vec<String>
+  files: Vec<String>,
+  time: DateTime<FixedOffset>
+}
+
+impl PartialEq for CommitInfoBuf {
+  fn eq(&self, other: &CommitInfoBuf) -> bool { self.id == other.id }
+}
+
+impl PartialOrd for CommitInfoBuf {
+  fn partial_cmp(&self, other: &CommitInfoBuf) -> Option<Ordering> {
+    if self.id == other.id {
+      Some(Ordering::Equal)
+    } else {
+      Some(self.time.cmp(&other.time))
+    }
+  }
+}
+
+impl Ord for CommitInfoBuf {
+  fn cmp(&self, other: &CommitInfoBuf) -> Ordering { self.partial_cmp(other).unwrap() }
 }
 
 impl CommitInfoBuf {
-  pub fn new(id: String, kind: String, summary: String, message: String, files: Vec<String>) -> CommitInfoBuf {
-    CommitInfoBuf { id, summary, message, kind, files }
+  pub fn new(
+    id: String, kind: String, summary: String, message: String, files: Vec<String>, time: DateTime<FixedOffset>
+  ) -> CommitInfoBuf {
+    CommitInfoBuf { id, summary, message, kind, files, time }
   }
 
-  pub fn guess(id: String) -> CommitInfoBuf { CommitInfoBuf::new(id, "-".into(), "-".into(), "".into(), Vec::new()) }
+  pub fn guess(id: String) -> CommitInfoBuf {
+    let offset = FixedOffset::west(0);
+    let now = offset.timestamp(Utc::now().timestamp(), 0);
+    CommitInfoBuf::new(id, "-".into(), "-".into(), "".into(), Vec::new(), now)
+  }
 
   pub fn extract<'a>(repo: &'a Repository, commit: &Commit<'a>) -> Result<CommitInfoBuf> {
     let id = commit.id().to_string();
@@ -556,7 +582,7 @@ impl CommitInfoBuf {
     let message = commit.message().unwrap_or("-").to_string();
     let kind = extract_kind(&message);
     let files = files_from_commit(repo, commit)?.collect();
-    Ok(CommitInfoBuf::new(id, kind, summary, message, files))
+    Ok(CommitInfoBuf::new(id, kind, summary, message, files, time_to_datetime(&commit.time())))
   }
 
   pub fn id(&self) -> &str { &self.id }
@@ -579,6 +605,7 @@ impl<'a> CommitInfo<'a> {
   pub fn message(&self) -> &str { self.commit.message().unwrap_or("-") }
   pub fn kind(&self) -> String { extract_kind(self.message()) }
   pub fn files(&self) -> Result<impl Iterator<Item = String> + 'a> { files_from_commit(self.repo, &self.commit) }
+  pub fn time(&self) -> DateTime<FixedOffset> { time_to_datetime(&self.commit.time()) }
 
   pub fn buffer(self) -> Result<CommitInfoBuf> {
     Ok(CommitInfoBuf::new(
@@ -586,7 +613,8 @@ impl<'a> CommitInfo<'a> {
       self.kind(),
       self.summary().to_string(),
       self.message().to_string(),
-      self.files()?.collect()
+      self.files()?.collect(),
+      self.time()
     ))
   }
 }
@@ -1269,6 +1297,11 @@ pub fn do_push(repo: &Repository, remote_name: &str, specs: &[String]) -> Result
   let mut remote = repo.find_remote(remote_name)?;
   remote.push(specs, Some(&mut push_opts))?;
   Ok(())
+}
+
+pub fn time_to_datetime(time: &Time) -> DateTime<FixedOffset> {
+  const MINUTES: i32 = 60;
+  FixedOffset::east(time.offset_minutes() * MINUTES).timestamp(time.seconds(), 0)
 }
 
 #[cfg(test)]
