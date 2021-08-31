@@ -209,18 +209,35 @@ sudo apt install libgpgme-dev
 
 [windows]: #windows
 
-We compile using the MSVC linker (which is the default), so you'll need
-to install either Visual Studio (Community Edition 2017 works), or
+We compile using the MSVC toolchain (which is the default), so you'll
+need to install either Visual Studio (Community Edition 2017 works), or
 install the MSVC runtime components. Make sure you install the C/C++
 base components during the installation dialog. If you try to install
 Rust without these, it will provide intructions.
 
-It is theoretically possible to build versio using the GNU toolchain
-instead of MSVC (we don't make any calls to Windows ABI directly, for
-example), but this is untested.
+Because of the distribution of the GnuPG libraries for Windows, we build
+using the MSVC 32-bit toolchain to cross-compile for the GNU 32-bit
+target: see our GitHub Actions "release" workflow to see how we do that.
+It may be possible to build solely with the GNU toolchain via MSYS2
+and/or Mingw32, but this is currently untested. Additionally, statically
+linking in the GnuPG libraries is problematic, even if you can get it to
+work, and is not recommended.
+
+Additionally, you need to have the GpgME libraries installed to build;
+using Chocolatey is probably the easiest:
+
+```
+choco install -y gnupg
+```
 
 ### MacOS
 
 [macos]: #macos
 
-No special build instructions for MacOS at this time.
+You need to have the GpgME libraries installed to build this; homebrew
+is probably the easiest:
+
+```
+brew update
+brew install gpgme
+```
