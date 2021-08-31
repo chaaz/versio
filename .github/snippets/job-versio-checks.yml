@@ -5,8 +5,7 @@ value:
   steps:
     - name: Checkout code
       uses: actions/checkout@v2
-    - name: Get versio
-      uses: chaaz/versio-actions/install@v1.1
+    - SNIPPET_versio-actions-install
     - name: Fetch history
       run: git fetch --unshallow
     - name: Check projects

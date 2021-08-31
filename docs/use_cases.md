@@ -178,7 +178,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
       - name: Get versio
-        uses: chaaz/versio-actions/install@v1
+        uses: chaaz/versio-actions/install@v1.2
       - name: Find npm matrix
         id: find-npm-matrix
         run: "echo \"::set-output name=matrix::{\\\"include\\\":$(versio -l none info -l npm -R -N)}\""
@@ -226,7 +226,7 @@ project(s) version numbers.
 Note the use of `checkout@v2`, and the following `git fetch --unshallow`
 command, which is necessary to fill in the git history before `versio`
 is asked to analyze it. Also, we've provided a
-`versio-actions/install@v1` command which installs the `versio` command
+`versio-actions/install@v1.2` command which installs the `versio` command
 into the job. (Currently, the `versio-actions/install` action only works
 for linux-based runners.)
 
@@ -246,7 +246,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
       - name: Get versio
-        uses: chaaz/versio-actions/install@v1
+        uses: chaaz/versio-actions/install@v1.2
       - name: Fetch history
         run: git fetch --unshallow
       - name: Check projects
@@ -288,7 +288,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
       - name: Get versio
-        uses: chaaz/versio-actions/install@v1
+        uses: chaaz/versio-actions/install@v1.2
       - name: Fetch history
         run: git fetch --unshallow
       - name: Generate release
