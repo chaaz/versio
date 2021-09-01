@@ -203,7 +203,7 @@ along with their options and flags. You can always use `versio help` or
     part of the previous `release --pause`; if needed, you should do
     that yourself with e.g. `git checkout -- .`. You can't use both
     `--resume` and `--abort`.
-  - `--lock-tags (`-l`): Normally, if a project contains changes that
+  - `--lock-tags` (`-l`): Normally, if a project contains changes that
     all map to a "none" size, then the project version will be
     unchanged, but Versio will still move the project tag to the latest
     commit. This flag removes that behavior, ensuring that tags are
@@ -221,10 +221,6 @@ along with their options and flags. You can always use `versio help` or
 - `init`:
   - `--max-depth` (`-d <depth>`): The maximum directory depth that
     Versio will search for projects. Defaults to `5`.
-- `template`: Output a changelog template.
-  - `--template` (`-t <url>`, required): pick which changelog template
-    (such as `builtin:json`) to output. See [Changelog
-    Management](./changelog.md).
 
   Run this command at the base directory of an uninitialized repository.
   It will search the repository for projects, and create a new
@@ -233,6 +229,10 @@ along with their options and flags. You can always use `versio help` or
   using the `release --pause` command. `init` will skip any hidden
   directories and files, as well as directories and files listed in
   `.gitignore` files.
+- `template`: Output a changelog template.
+  - `--template` (`-t <url>`, required): pick which changelog template
+    (such as `builtin:json`) to output. See [Changelog
+    Management](./changelog.md).
 
 ## Common project types
 [Common project types]: #common-project-types
