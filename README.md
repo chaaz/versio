@@ -21,8 +21,32 @@ this:
 $ cargo install versio
 ```
 
-Or, you can download one of the pre-built binaries for your platform
-from the [Releases
+You may first need to install some GPG libaries if this installation
+doesn't work:
+
+- Linux (using `apt`)
+
+    ```
+    sudo apt update
+    sudo apt install libgpg-error-dev
+    sudo apt install libgpgme-dev
+    ```
+
+- Windows (using Chocolatey)
+
+    ```
+    choco install -y gnupg
+    ```
+
+- MacOS
+
+    ```
+    brew update
+    brew install gpgme
+    ```
+
+Alternately, you can download one of the pre-built binaries for your
+platform from the [Releases
 page](https://github.com/chaaz/versio/releases).
 
 Versio requires GnuPG to be installed: this is commonly pre-packaged on
