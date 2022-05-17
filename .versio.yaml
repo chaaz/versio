@@ -1,5 +1,5 @@
 options:
-  prev_tag: "versio-prev"
+  prev_tag: "versio-prev-hotfix-test"
 
 projects:
   - name: "versio"
