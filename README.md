@@ -22,7 +22,7 @@ $ cargo install versio
 ```
 
 You may first need to install some GPG libaries if this installation
-doesn't work:
+doesn't work. Here are some examples of what you might need:
 
 - Linux (using `apt`)
 
@@ -38,7 +38,7 @@ doesn't work:
     choco install -y gnupg
     ```
 
-- MacOS
+- MacOS (using Homebrew)
 
     ```
     brew update
