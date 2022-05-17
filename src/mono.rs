@@ -667,6 +667,10 @@ fn find_old_tags<'s, I: Iterator<Item = &'s Project>>(projects: I, prev_tag: &st
   let mut by_proj_oid = HashMap::new(); // Map<proj_id, Map<oid, Vec<tag>>>
   let mut proj_ids = HashSet::new();
 
+  // TODO(performance): tags requests on the server can take a while. We should combine all tag patterns for all
+  // projects into a single list and make only one `repo.tag_names()` request. Then, we can collate the results
+  // into their respective projects using the patterns.
+
   for proj in projects {
     proj_ids.insert(proj.id().clone());
     for fnmatch in tag_fnmatches(proj) {
