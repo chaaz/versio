@@ -226,9 +226,9 @@ project(s) version numbers.
 Note the use of `checkout@v2`, and the following `git fetch --unshallow`
 command, which is necessary to fill in the git history before `versio`
 is asked to analyze it. Also, we've provided a
-`versio-actions/install@v1.2` command which installs the `versio` command
-into the job. (Currently, the `versio-actions/install` action only works
-for linux-based runners.)
+`versio-actions/install@v1.2` command which installs the `versio`
+command into the job. (Currently, the `versio-actions/install` action
+only works for linux-based runners.)
 
 ```
 ---

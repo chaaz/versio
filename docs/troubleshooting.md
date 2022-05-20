@@ -23,6 +23,9 @@ You might also want to look at the [dependency
 page](https://github.com/chaaz/versio/blob/main/docs/dependencies.md),
 to make sure that all of Versio's external requirements are available.
 
+Also, take a look at our [use case page](./use_cases.md): in case you're
+trying to use one of the use-cases there.
+
 While we always like feedback of any size and style, you'll have a much
 better chance of being heard if you include the following in your
 ticket:
@@ -51,8 +54,7 @@ ticket:
 - Any other considerations that might be important. Are you running this
   on a 20-year old computer? Is this part of a CI/CD project you're
   putting together? Does the error only happen on Tuesdays with a full
-  moon? Did you get your copy of Versio from a shady-looking figure in a
-  back alley? This is all useful data to us.
+  moon? This is all useful data to us.
 
 You can also attach some technical notes: if your issue deals with a
 particular command, you can run it with some environment variables like
