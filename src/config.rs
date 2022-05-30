@@ -151,13 +151,26 @@ impl<S: StateRead> Config<S> {
   pub fn get_project(&self, id: &ProjectId) -> Option<&Project> { self.file.get_project(id) }
   pub fn branch(&self) -> &Option<String> { self.file.branch() }
 
-  pub fn find_unique(&self, name: &str) -> Result<&ProjectId> {
-    let mut iter = self.file.projects.iter().filter(|p| p.name.contains(name)).map(|p| p.id());
-    let id = iter.next().ok_or_else(|| bad!("No project named {}", name))?;
-    if iter.next().is_some() {
-      bail!("Multiple projects with name {}", name);
+  /// Returns a matching project for the given name
+  ///
+  /// Picks either an exact match, or a single partial match
+  /// Returns an error if no match or multiple partial matches are found
+  pub fn find_match(&self, name: &str) -> Result<&ProjectId> {
+    let mut matches = self.file.projects.iter().filter(|p| p.name.contains(name)).peekable();
+
+    let first_match = matches.next().ok_or_else(|| bad!("No project named {}", name))?;
+    if first_match.name.eq(name) || matches.peek().is_none() {
+      return Ok(first_match.id());
     }
-    Ok(id)
+
+    for p in matches {
+      // return exact match
+      if p.name.eq(name) {
+        return Ok(p.id());
+      }
+    }
+
+    bail!("Found multiple matches for project name {}", name);
   }
 
   pub fn annotate(&self) -> Result<Vec<AnnotatedMark>> {
@@ -1273,7 +1286,7 @@ fn match_opts() -> MatchOptions { MatchOptions { require_literal_separator: true
 
 #[cfg(test)]
 mod test {
-  use super::{ConfigFile, FileLocation, HashMap, Location, Picker, Project, ProjectId, ScanningPicker, Size};
+  use super::*;
   use crate::scan::parts::Part;
 
   #[test]
@@ -1552,5 +1565,70 @@ sizes:
     assert_eq!(&Size::None, config.sizes.get("refactor").unwrap());
     assert_eq!(&Size::None, config.sizes.get("style").unwrap());
     assert_eq!(&Size::None, config.sizes.get("test").unwrap());
+  }
+
+
+
+  pub struct TestState {
+    tag: String,
+  }
+  impl TestState {
+    pub fn new() -> TestState { TestState { tag: String::new() } }
+  }
+  impl StateRead for TestState {
+    fn latest_tag(&self, _proj: &ProjectId) -> Option<&String> {
+      Some(&self.tag)
+    }
+  }
+  impl FilesRead for TestState {
+    fn has_file(&self, _path: &Path) -> Result<bool> {
+      Ok(true)
+    }
+    fn read_file(&self, _path: &Path) -> Result<String> {
+      Ok(String::new())
+    }
+    fn subdirs(&self, _root: Option<&String>, _regex: &str) -> Result<Vec<String>> {
+      Ok(vec![])
+    }
+  }
+
+  #[test]
+  fn test_find_match() {
+    let config = r#"
+projects:
+  - name: project-a
+    id: 1
+    tag_prefix: "_proj1-abc"
+    version: { file: f }
+
+  - name: project-a1
+    id: 2
+    tag_prefix: proj2
+    version: { file: f }
+
+  - name: project-b1
+    id: 3
+    version: { file: f }
+
+  - name: project-c1
+    id: 4
+    version: { file: f }
+
+  - name: project-c2
+    id: 5
+    version: { file: f }
+    "#;
+
+    let config_file = ConfigFile::read(config).unwrap();
+    let config = Config::new(TestState::new(), config_file);
+
+    // should prefer exact match
+    assert_eq!(config.find_match("project-a").unwrap(), &ProjectId::from_id(1));
+
+    // should pick single partial match
+    assert_eq!(config.find_match("project-b").unwrap(), &ProjectId::from_id(3));
+
+    // should bail on multiple partial matches
+    assert!(config.find_match("project-c").is_err());
   }
 }

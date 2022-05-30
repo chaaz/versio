@@ -85,7 +85,7 @@ fn get_using_cfg<R: StateRead>(
     let id = id.parse()?;
     output.write_project(ProjLine::from(cfg.get_project(&id).ok_or_else(&ensure)?, reader)?)?;
   } else if let Some(name) = name {
-    let id = cfg.find_unique(name)?;
+    let id = cfg.find_match(name)?;
     output.write_project(ProjLine::from(cfg.get_project(id).ok_or_else(&ensure)?, reader)?)?;
   } else {
     if cfg.projects().len() != 1 {

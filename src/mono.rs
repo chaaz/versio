@@ -120,7 +120,7 @@ impl Mono {
   }
 
   pub fn set_by_name(&mut self, name: &str, val: &str) -> Result<()> {
-    let id = self.current.find_unique(name)?.clone();
+    let id = self.current.find_match(name)?.clone();
     self.set_by_id(&id, val)
   }
 

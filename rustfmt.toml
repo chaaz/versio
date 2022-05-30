@@ -13,3 +13,4 @@ trailing_comma = "Never"
 use_field_init_shorthand = true
 use_small_heuristics = "Max"
 use_try_shorthand = true
+edition = "2021"
