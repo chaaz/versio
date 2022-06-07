@@ -442,9 +442,9 @@ checksum = "f0a01e0497841a3b2db4f8afa483cce65f7e96a3498bd6c541734792aeac8fe7"
 
 [[package]]
 name = "git2"
-version = "0.12.0"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26e07ef27260a78f7e8d218ebac2c72f2c4db50493741b190b6e8eade1da7c68"
+checksum = "d0155506aab710a86160ddb504a480d2964d7ab5b9e62419be69e0032bc5931c"
 dependencies = [
  "bitflags",
  "libc",
@@ -749,9 +749,9 @@ checksum = "3cb00336871be5ed2c8ed44b60ae9959dc5b9f08539422ed43f09e34ecaeba21"
 
 [[package]]
 name = "libgit2-sys"
-version = "0.11.0+0.99.0"
+version = "0.13.4+1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d5d1459353d397a029fb18862166338de938e6be976606bd056cf8f1a912ecf"
+checksum = "d0fa6563431ede25f5cc7f6d803c6afbc1c5d3ad3d4925d12c882bf2b526f5d1"
 dependencies = [
  "cc",
  "libc",
