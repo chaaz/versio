@@ -311,7 +311,7 @@ impl FileVersionSummary {
   }
 }
 
-fn yaml_escape_single(val: &str) -> String { val.replace("'", "''") }
+fn yaml_escape_single(val: &str) -> String { val.replace('\'', "''") }
 
 struct TagVersionSummary {}
 

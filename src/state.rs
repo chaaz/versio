@@ -304,13 +304,9 @@ impl CommitState {
   }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Default)]
 pub struct PrevTagMessage {
   versions: HashMap<ProjectId, String>
-}
-
-impl Default for PrevTagMessage {
-  fn default() -> PrevTagMessage { PrevTagMessage { versions: HashMap::new() } }
 }
 
 impl PrevTagMessage {

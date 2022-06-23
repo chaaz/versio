@@ -226,13 +226,9 @@ fn read_user_prefs() -> Result<UserPrefs> {
   Ok(user_prefs)
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Default)]
 struct UserPrefs {
   auth: Auth
-}
-
-impl Default for UserPrefs {
-  fn default() -> UserPrefs { UserPrefs { auth: Default::default() } }
 }
 
 impl UserPrefs {

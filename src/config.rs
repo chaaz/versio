@@ -691,13 +691,9 @@ impl RelativeSize {
   }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct HookSet {
   hooks: HashMap<String, Hook>
-}
-
-impl Default for HookSet {
-  fn default() -> HookSet { HookSet { hooks: Default::default() } }
 }
 
 impl HookSet {

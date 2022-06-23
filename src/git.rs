@@ -863,13 +863,9 @@ impl fmt::Display for FromTagBuf {
   }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Default)]
 pub struct Auth {
   github_token: Option<String>
-}
-
-impl Default for Auth {
-  fn default() -> Auth { Auth { github_token: None } }
 }
 
 impl Auth {
