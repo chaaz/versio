@@ -2,7 +2,7 @@
 name = "versio"
 version = "0.6.2"
 authors = ["Charlie Ozinga <ozchaz@gmail.com>"]
-edition = "2018"
+edition = "2021"
 description = "Versio is a tool to manage and publish projects."
 homepage = "https://github.com/chaaz/versio/"
 repository = "https://github.com/chaaz/versio/"
