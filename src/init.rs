@@ -13,6 +13,7 @@ use std::ffi::OsStr;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
+use std::fmt::Write as _;
 
 pub fn init(max_depth: u16) -> Result<()> {
   if Path::new(CONFIG_FILENAME).exists() {
@@ -157,19 +158,19 @@ fn generate_yaml(projs: &[ProjSummary]) -> String {
 
   let mut prefixes = HashSet::new();
   for (id, proj) in projs.iter().enumerate() {
-    yaml.push_str(&format!("  - name: \"{}\"\n", proj.name()));
+    writeln!(yaml, "  - name: \"{}\"", proj.name()).unwrap();
     if let Some(root) = proj.root() {
-      yaml.push_str(&format!("    root: \"{}\"\n", root));
+      writeln!(yaml, "    root: \"{}\"", root).unwrap();
     }
-    yaml.push_str(&format!("    id: {}\n", id + 1));
-    yaml.push_str(&format!("    tag_prefix: \"{}\"\n", proj.tag_prefix(projs.len(), &mut prefixes)));
+    writeln!(yaml, "    id: {}", id + 1).unwrap();
+    writeln!(yaml, "    tag_prefix: \"{}\"", proj.tag_prefix(projs.len(), &mut prefixes)).unwrap();
     if !proj.labels().is_empty() {
       if proj.labels().len() == 1 {
-        yaml.push_str(&format!("    labels: {}\n", &proj.labels()[0]));
+        writeln!(yaml, "    labels: {}", &proj.labels()[0]).unwrap();
       } else {
         yaml.push_str("    labels:\n");
         for l in proj.labels() {
-          yaml.push_str(&format!("      - {}\n", l));
+          writeln!(yaml, "      - {}", l).unwrap();
         }
       }
     }
@@ -181,7 +182,7 @@ fn generate_yaml(projs: &[ProjSummary]) -> String {
       hooks.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
       yaml.push_str("    hooks:\n");
       for (k, v) in hooks {
-        yaml.push_str(&format!("      {}: '{}'\n", k, yaml_escape_single(v)));
+        writeln!(yaml, "      {}: '{}'", k, yaml_escape_single(v)).unwrap();
       }
     }
 
@@ -302,11 +303,11 @@ impl FileVersionSummary {
   }
 
   pub fn append(&self, yaml: &mut String) {
-    yaml.push_str(&format!("      file: \"{}\"\n", self.file));
+    writeln!(yaml, "      file: \"{}\"", self.file).unwrap();
     if self.file_type == "pattern" {
-      yaml.push_str(&format!("      {}: '{}'\n", self.file_type, yaml_escape_single(&self.parts)));
+      writeln!(yaml, "      {}: '{}'", self.file_type, yaml_escape_single(&self.parts)).unwrap();
     } else {
-      yaml.push_str(&format!("      {}: \"{}\"\n", self.file_type, self.parts));
+      writeln!(yaml, "      {}: \"{}\"", self.file_type, self.parts).unwrap();
     }
   }
 }

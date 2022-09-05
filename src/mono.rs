@@ -741,11 +741,12 @@ fn tag_fnmatches(proj: &Project) -> impl Iterator<Item = String> + '_ {
     E2::B(once("v*".to_string()))
   };
 
+  let sep = proj.tag_prefix_separator();
   let tag_prefix = proj.tag_prefix().as_ref().map(|p| p.as_str());
   match tag_prefix {
     None => E3::A(empty()),
     Some("") => E3::B(majors_v),
-    Some(pref) => E3::C(majors_v.map(move |major_v| format!("{}-{}", pref, major_v)))
+    Some(pref) => E3::C(majors_v.map(move |major_v| format!("{}{}{}", pref, sep, major_v)))
   }
 }
 

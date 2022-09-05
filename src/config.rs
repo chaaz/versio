@@ -308,7 +308,7 @@ impl Options {
 fn legal_tag(prefix: &str) -> bool {
   prefix.is_empty()
     || ((prefix.starts_with('_') || prefix.chars().next().unwrap().is_alphabetic())
-      && (prefix.chars().all(|c| c.is_ascii() && (c == '_' || c == '-' || c.is_alphanumeric()))))
+      && (prefix.chars().all(|c| c.is_ascii() && (c == '/' || c == '_' || c == '-' || c.is_alphanumeric()))))
 }
 
 #[derive(Deserialize, Debug)]
@@ -329,6 +329,7 @@ pub struct Project {
   #[serde(default, deserialize_with = "deser_labels")]
   labels: Vec<String>,
   tag_prefix: Option<String>,
+  tag_prefix_separator: Option<String>,
   #[serde(default)]
   subs: Option<Subs>,
   #[serde(default)]
@@ -371,6 +372,7 @@ impl Project {
   }
 
   pub fn tag_prefix(&self) -> &Option<String> { &self.tag_prefix }
+  pub fn tag_prefix_separator(&self) -> &str { self.tag_prefix_separator.as_deref().unwrap_or("-") }
   pub fn tag_majors(&self) -> Option<&[u32]> { self.version.tag_majors() }
 
   pub async fn write_changelog(
@@ -493,11 +495,13 @@ impl Project {
   }
 
   pub fn full_version(&self, vers: &str) -> Option<String> {
+    let tag_prefix_separator = self.tag_prefix_separator();
+
     self.tag_prefix.as_ref().map(|tag_prefix| {
       if tag_prefix.is_empty() {
         format!("v{}", vers)
       } else {
-        format!("{}-v{}", tag_prefix, vers)
+        format!("{}{}v{}", tag_prefix, tag_prefix_separator, vers)
       }
     })
   }
@@ -528,6 +532,7 @@ impl Project {
         also: expand_also(&self.also),
         labels: Default::default(),
         tag_prefix: self.tag_prefix.clone(),
+        tag_prefix_separator: self.tag_prefix_separator.clone(),
         subs: None,
         hooks: self.hooks.clone()
       })))
@@ -1373,6 +1378,19 @@ projects:
   }
 
   #[test]
+  fn test_validate_legal_prefix_slash() {
+    let config = r#"
+projects:
+  - name: p1
+    id: 1
+    tag_prefix: "ixth/o"
+    version: { file: f1 }
+    "#;
+
+    assert!(ConfigFile::read(config).is_ok());
+  }
+
+  #[test]
   fn test_validate_unascii_prefix() {
     let config = r#"
 projects:
@@ -1472,6 +1490,7 @@ sizes:
       }),
       also: Vec::new(),
       tag_prefix: None,
+      tag_prefix_separator: None,
       labels: Default::default(),
       hooks: Default::default(),
       subs: None
@@ -1498,6 +1517,7 @@ sizes:
       }),
       also: Vec::new(),
       tag_prefix: None,
+      tag_prefix_separator: None,
       labels: Default::default(),
       hooks: Default::default(),
       subs: None
@@ -1523,6 +1543,7 @@ sizes:
       }),
       also: Vec::new(),
       tag_prefix: None,
+      tag_prefix_separator: None,
       labels: Default::default(),
       hooks: Default::default(),
       subs: None
