@@ -742,7 +742,7 @@ fn tag_fnmatches(proj: &Project) -> impl Iterator<Item = String> + '_ {
   };
 
   let sep = proj.tag_prefix_separator();
-  let tag_prefix = proj.tag_prefix().as_ref().map(|p| p.as_str());
+  let tag_prefix = proj.tag_prefix().as_deref();
   match tag_prefix {
     None => E3::A(empty()),
     Some("") => E3::B(majors_v),

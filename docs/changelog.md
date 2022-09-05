@@ -139,10 +139,14 @@ format. The following variables are available to the template:
     - `id`: The ID of the project.
     - `name`: The name of the project.
     - `tag_prefix`: The tag-prefix of the project (if it exists).
+    - `tag_prefix_separator`: The tag-prefix separator of the project
+      (defaults to "-")
     - `version`: The current version of the project (which should match
       `release.version`).
-    - `full_version`: The version of the release, prefixed with the its
-      `tag_prefix` (if any).
+    - `full_version`: The full version name of the project. The version
+      number is preceded by the letter `v`. If there is a `tag_prefix`,
+      it is prepended and separated from the version number with
+      `tag_prefix_separator`.
     - `root`: The directory root of the project, (relative to the
       repository root)
 - `release`: this is a structure that contains details of the current

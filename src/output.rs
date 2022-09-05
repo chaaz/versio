@@ -140,6 +140,7 @@ pub struct ProjLine {
   pub id: ProjectId,
   pub name: String,
   pub tag_prefix: Option<String>,
+  pub tag_prefix_separator: String,
   pub version: String,
   pub full_version: Option<String>,
   pub root: Option<String>
@@ -151,9 +152,10 @@ impl ProjLine {
     let name = p.name().to_string();
     let version = p.get_value(read)?;
     let tag_prefix = p.tag_prefix().clone();
+    let tag_prefix_separator = p.tag_prefix_separator().to_string();
     let full_version = p.full_version(&version);
     let root = p.root().cloned();
-    Ok(ProjLine { id: id.clone(), name, tag_prefix, version, full_version, root })
+    Ok(ProjLine { id: id.clone(), name, tag_prefix, tag_prefix_separator, version, full_version, root })
   }
 
   pub fn from_version(p: &Project, vers: String) -> Result<ProjLine> {
@@ -161,9 +163,10 @@ impl ProjLine {
     let name = p.name().to_string();
     let version = vers;
     let tag_prefix = p.tag_prefix().clone();
+    let tag_prefix_separator = p.tag_prefix_separator().to_string();
     let full_version = p.full_version(&version);
     let root = p.root().cloned();
-    Ok(ProjLine { id: id.clone(), name, tag_prefix, version, full_version, root })
+    Ok(ProjLine { id: id.clone(), name, tag_prefix, tag_prefix_separator, version, full_version, root })
   }
 }
 

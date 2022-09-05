@@ -274,6 +274,7 @@ projects:
     id: 1
     root: "proj_1"
     tag_prefix: "proj1"
+    tag_prefix_separator: "/"
     labels: npm
     version:
       file: "package.json"
@@ -363,6 +364,10 @@ relative to the base of the repo; other paths are relative to that root
     providing this will result in no tags being written. Using the empty
     string "" will use tags with no prefix. Each project's tag prefix,
     if any, must be unique.
+  - `tag_prefix_separator`: (optional, defaults to "-") The
+    separator used between the tag prefix and the version number when
+    generating the full tag for this project. In the above example, the
+    first project's version tags would look like `proj1/v1.2.3`.
   - `subs`: If provided, allows a project to be subdivided into "major"
     versions, each in its own subdirectory. See [Major
     Subdirectories](./subs.md) for more info on this feature.

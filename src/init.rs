@@ -164,6 +164,9 @@ fn generate_yaml(projs: &[ProjSummary]) -> String {
     }
     writeln!(yaml, "    id: {}", id + 1).unwrap();
     writeln!(yaml, "    tag_prefix: \"{}\"", proj.tag_prefix(projs.len(), &mut prefixes)).unwrap();
+    if proj.tag_prefix_separator() != "-" {
+      writeln!(yaml, "    tag_prefix_separator: \"{}\"", proj.tag_prefix_separator()).unwrap();
+    }
     if !proj.labels().is_empty() {
       if proj.labels().len() == 1 {
         writeln!(yaml, "    labels: {}", &proj.labels()[0]).unwrap();
@@ -207,6 +210,7 @@ fn append_ignore() -> Result<()> {
 struct ProjSummary {
   name: String,
   labels: Vec<String>,
+  tag_prefix_separator: String,
   root: String,
   subs: bool,
   version: VersionSummary,
@@ -223,6 +227,7 @@ impl ProjSummary {
       root: root.to_string(),
       subs: false,
       labels: labels.iter().map(|s| s.to_string()).collect(),
+      tag_prefix_separator: "-".into(),
       version: VersionSummary::File(FileVersionSummary::new(
         file.to_string(),
         file_type.to_string(),
@@ -243,6 +248,7 @@ impl ProjSummary {
       root: root.to_string(),
       subs,
       labels: labels.iter().map(|s| s.to_string()).collect(),
+      tag_prefix_separator: "-".into(),
       version: VersionSummary::Tag(TagVersionSummary::new()),
       hooks: HashMap::new()
     }
@@ -251,6 +257,8 @@ impl ProjSummary {
   fn name(&self) -> &str { &self.name }
   fn labels(&self) -> &[String] { &self.labels }
   fn hooks(&self) -> &HashMap<String, String> { &self.hooks }
+  fn subs(&self) -> bool { self.subs }
+  fn tag_prefix_separator(&self) -> &str { &self.tag_prefix_separator }
 
   fn root(&self) -> Option<&str> {
     if &self.root == "." {
@@ -261,8 +269,6 @@ impl ProjSummary {
       Some(&self.root)
     }
   }
-
-  fn subs(&self) -> bool { self.subs }
 
   fn tag_prefix(&self, projs_len: usize, prefixes: &mut HashSet<String>) -> String {
     let prefix = if projs_len == 1 { "".into() } else { tag_sanitize(&self.name) };

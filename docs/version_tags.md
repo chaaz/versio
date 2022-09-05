@@ -18,12 +18,13 @@ The `tag_prefix` property causes Versio to write out a new
 "[tag\_prefix]-v*x.y.z*" tag for the project when the version number is
 changed. The property is optional for most projects, but required for
 projects that use `version: tags`. The default value is used when no
-existing "projname-v*x.y.z*" tags currently exist.
+existing "projname-v*x.y.z*" tags currently exist. You can use the
+`tag_prefix_separator` property to use a separator other than `-`.
 
 Since `tag_prefix` is used to find older tags of a project, you should
-not change it. If you change the `tag_prefix`, you may need to manually
-re-tag your commit history, or else Versio may be unable to locate past
-version numbers.
+not change it. If you change the `tag_prefix` or `tag_prefix_separator`,
+you may need to manually re-tag your commit history, or else Versio may
+be unable to locate past version numbers.
 
 If a project uses `version: tags:`, you may want to use the
 `--vcs-level=max` option while running the `versio set` command for that
@@ -42,7 +43,7 @@ section of the [Reference](./reference).
 ## In Go projects
 
 If the tag prefix is *empty* (`tag_prefix: ""`), then tags for the
-project take a non-prefixed form "v*a.b.c*", which is combatible with
+project take a non-prefixed form "v*a.b.c*", which is compatible with
 most Go tools. Especially `go get` and `go mod`, which search for
 version tags in that form. If you do use a prefix, you'll need to
 reference your project with the fully-qualified tag: e.g. `go get

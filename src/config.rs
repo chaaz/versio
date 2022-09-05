@@ -1384,10 +1384,14 @@ projects:
   - name: p1
     id: 1
     tag_prefix: "ixth/o"
+    tag_prefix_separator: "/"
     version: { file: f1 }
     "#;
 
-    assert!(ConfigFile::read(config).is_ok());
+    let config = ConfigFile::read(config).unwrap();
+
+    assert_eq!(config.projects[0].id, ProjectId::from_id(1));
+    assert_eq!(config.projects[0].full_version("1.2.3"), Some("ixth/o/v1.2.3".to_string()));
   }
 
   #[test]
