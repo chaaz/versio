@@ -10,10 +10,10 @@ use log::warn;
 use path_slash::PathExt;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
+use std::fmt::Write as _;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
-use std::fmt::Write as _;
 
 pub fn init(max_depth: u16) -> Result<()> {
   if Path::new(CONFIG_FILENAME).exists() {

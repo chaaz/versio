@@ -918,7 +918,7 @@ fn find_branch_name(repo: &Repository) -> Result<Option<String>> {
         if let Some(bname_suff) = branch_name.strip_prefix("refs/heads/") {
           Ok(Some(bname_suff.to_string()))
         } else {
-          return err!("Current {} is not a branch.", branch_name);
+          err!("Current {} is not a branch.", branch_name)
         }
       }
     }
