@@ -158,6 +158,51 @@ directories or files listed in any `.gitignore` files. If you want to
 include projects in hidden or ignored locations, you'll have to add
 those by hand to the resulting `.versio.yaml` file.
 
+## Using Gitflow / Oneflow
+
+If you're using
+[Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow),
+[Oneflow](https://www.endoflineblog.com/oneflow-a-git-branching-model-and-workflow),
+or a similar process, you may want to have separate branchs for hotfixes
+or maintained versions.
+
+To do this, you can use the "prev tag" option. What you want to do for a
+hotfix is have the hotfix branch use a different tag than the tag on
+your main branch (which is `versio-prev` by default). Here's what to do:
+
+1. Create a new branch as normal for a hotfix: this will be at a
+   branch-point, where the branch diverges from the main release trunk.
+   E.g. `git checkout -b hotfix-1234 v1.0.0`
+2. Tag the branch-point with a unique "prev" tag; something based on the
+   branch name would be ideal. E.g. `git tag versio-prev-hotfix-1234`.
+   If there are specific project versions you want that branch to start
+   from, you can help the process by annotating the tag: `git tag -f -a
+   -m '{"versions":{"1":"0.1.2","2":"5.2.1"}}' versio-prev-hotfix-1234`.
+   Otherwise, Versio will try to figure it out.
+3. Change the `prev-tag` option in the `.versio.yaml` file in that new
+   branch to point to your new "prev tag":
+   ```
+   options:
+     prev_tag: "versio-prev-hotfix-1234"
+   ```
+4. Commit / push your change. `git commit -am 'build: update versio for
+   branch' ; git push -u origin hotfix-1234`
+5. Now the hotfix branch will use `versio-prev-hotfix-1234` instead of
+   `versio-prev` as its "prev tag". But because you didn't change the
+   `.versio.yaml` file on the main branch, main will still use
+   `versio-prev`.
+6. You can `versio release` as normal on both the main branch and the
+   hotfix branch independently. The first time you run it on the hotfix
+   branch, it will re-calculate the version number based on your
+   annotation, and/or whatever tags exist on or before the branch-point.
+
+**Warning**: Using this strategy won't guard against re-using version
+numbers: it's possible that you could inadvertently release e.g. v1.0.3
+on both the main branch and the hotfix branch: in that case, the tag
+will move to whichever is released last, which is probably not what you
+want. Be certain that you aren't clobbering your version numbers when
+you release. `versio release --dry-run` can be useful.
+
 ## CI/CD
 
 ### GitHub Action Matrixes

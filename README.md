@@ -126,9 +126,10 @@ thenceforth Versio will be able to manage them.
 ## Running
 
 Check out the [Use Cases](./docs/use_cases.md) to learn how to use
-Versio via specific use cases that you or your organization might be
-interested in, or the [Versio Reference](./docs/reference.md) for all
-command-line options and the format of the `.versio.yaml` config file.
+Versio via specific use cases--including managing your repo, using
+specific flows, or integrating Versio into CI/CD; or look at the [Versio
+Reference](./docs/reference.md) for all command-line options and the
+format of the `.versio.yaml` config file.
 
 ## Features
 
