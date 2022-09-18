@@ -160,6 +160,15 @@ impl<S: StateRead> Config<S> {
     Ok(id)
   }
 
+  pub fn find_exact(&self, name: &str) -> Result<&ProjectId> {
+    let mut iter = self.file.projects.iter().filter(|p| p.name == name).map(|p| p.id());
+    let id = iter.next().ok_or_else(|| bad!("No project named {}", name))?;
+    if iter.next().is_some() {
+      bail!("Multiple projects with name {}", name);
+    }
+    Ok(id)
+  }
+
   pub fn annotate(&self) -> Result<Vec<AnnotatedMark>> {
     self.file.projects.iter().map(|p| p.annotate(&self.state)).collect()
   }

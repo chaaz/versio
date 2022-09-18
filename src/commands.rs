@@ -60,7 +60,7 @@ pub fn check(pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
 }
 
 pub fn get(
-  pref_vcs: Option<VcsRange>, wide: bool, versonly: bool, prev: bool, id: Option<&str>, name: Option<&str>,
+  pref_vcs: Option<VcsRange>, wide: bool, versonly: bool, prev: bool, id: Option<&str>, name: &NameMatch,
   ignore_current: bool
 ) -> Result<()> {
   let mono = with_opts(pref_vcs, VcsLevel::None, VcsLevel::Local, VcsLevel::None, VcsLevel::Smart, ignore_current)?;
@@ -73,7 +73,7 @@ pub fn get(
 }
 
 fn get_using_cfg<R: StateRead>(
-  cfg: &Config<R>, wide: bool, versonly: bool, id: Option<&str>, name: Option<&str>
+  cfg: &Config<R>, wide: bool, versonly: bool, id: Option<&str>, name: &NameMatch
 ) -> Result<()> {
   let output = Output::new();
   let mut output = output.projects(wide, versonly);
@@ -84,8 +84,11 @@ fn get_using_cfg<R: StateRead>(
   if let Some(id) = id {
     let id = id.parse()?;
     output.write_project(ProjLine::from(cfg.get_project(&id).ok_or_else(&ensure)?, reader)?)?;
-  } else if let Some(name) = name {
+  } else if let NameMatch::Partial(name) = name {
     let id = cfg.find_unique(name)?;
+    output.write_project(ProjLine::from(cfg.get_project(id).ok_or_else(&ensure)?, reader)?)?;
+  } else if let NameMatch::Exact(name) = name {
+    let id = cfg.find_exact(name)?;
     output.write_project(ProjLine::from(cfg.get_project(id).ok_or_else(&ensure)?, reader)?)?;
   } else {
     if cfg.projects().len() != 1 {
@@ -116,13 +119,15 @@ fn show_using_cfg<R: StateRead>(cfg: &Config<R>, wide: bool) -> Result<()> {
   output.commit()
 }
 
-pub fn set(pref_vcs: Option<VcsRange>, id: Option<&str>, name: Option<&str>, value: &str) -> Result<()> {
+pub fn set(pref_vcs: Option<VcsRange>, id: Option<&str>, name: &NameMatch, value: &str) -> Result<()> {
   let mut mono = build(pref_vcs, VcsLevel::None, VcsLevel::None, VcsLevel::None, VcsLevel::Smart)?;
 
   if let Some(id) = id {
     mono.set_by_id(&id.parse()?, value)?;
-  } else if let Some(name) = name {
+  } else if let NameMatch::Partial(name) = name {
     mono.set_by_name(name, value)?;
+  } else if let NameMatch::Exact(name) = name {
+    mono.set_by_exact_name(name, value)?;
   } else {
     mono.set_by_only(value)?;
   }
@@ -182,8 +187,8 @@ pub async fn template(early_info: &EarlyInfo, template: &str) -> Result<()> {
 }
 
 pub fn info(
-  pref_vcs: Option<VcsRange>, ids: Vec<ProjectId>, names: Vec<&str>, labels: Vec<&str>, show: InfoShow,
-  ignore_current: bool
+  pref_vcs: Option<VcsRange>, ids: Vec<ProjectId>, names: Vec<&str>, exacts: Vec<&str>, labels: Vec<&str>,
+  show: InfoShow, ignore_current: bool
 ) -> Result<()> {
   let mono = with_opts(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::None, VcsLevel::Smart, ignore_current)?;
   let output = Output::new();
@@ -202,7 +207,8 @@ pub fn info(
         .iter()
         .filter(|p| {
           ids.contains(p.id())
-            || names.contains(&p.name())
+            || names.iter().any(|n| p.name().contains(n))
+            || exacts.contains(&p.name())
             || p.labels().iter().any(|l| labels.iter().any(|ll| ll == l))
         })
         .map(|p| ProjLine::from(p, reader))
@@ -452,4 +458,22 @@ pub fn failed_hashes(plan: &Plan) -> String {
   }
 
   commits
+}
+
+pub enum NameMatch {
+  Partial(String),
+  Exact(String),
+  None
+}
+
+impl NameMatch {
+  pub fn from(part: Option<&str>, exact: Option<&str>) -> NameMatch {
+    if let Some(n) = part {
+      NameMatch::Partial(n.to_string())
+    } else if let Some(n) = exact {
+      NameMatch::Exact(n.to_string())
+    } else {
+      NameMatch::None
+    }
+  }
 }

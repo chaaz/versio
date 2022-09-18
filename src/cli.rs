@@ -123,6 +123,15 @@ pub async fn execute(info: &EarlyInfo) -> Result<()> {
             .help("The name to get")
         )
         .arg(
+          Arg::with_name("exact")
+            .short("e")
+            .long("exact")
+            .takes_value(true)
+            .value_name("name")
+            .display_order(1)
+            .help("The exact name to get")
+        )
+        .arg(
           Arg::with_name("id")
             .short("i")
             .long("id")
@@ -131,7 +140,7 @@ pub async fn execute(info: &EarlyInfo) -> Result<()> {
             .display_order(1)
             .help("The id to get")
         )
-        .group(ArgGroup::with_name("ident").args(&["id", "name"]).required(id_required))
+        .group(ArgGroup::with_name("ident").args(&["id", "name", "exact"]).required(id_required))
         .display_order(1)
     )
     .subcommand(
@@ -148,6 +157,15 @@ pub async fn execute(info: &EarlyInfo) -> Result<()> {
             .help("The name to set")
         )
         .arg(
+          Arg::with_name("exact")
+            .short("e")
+            .long("exact")
+            .takes_value(true)
+            .value_name("name")
+            .display_order(1)
+            .help("The exact name to set")
+        )
+        .arg(
           Arg::with_name("id")
             .short("i")
             .long("id")
@@ -156,7 +174,7 @@ pub async fn execute(info: &EarlyInfo) -> Result<()> {
             .display_order(1)
             .help("The id to set")
         )
-        .group(ArgGroup::with_name("ident").args(&["id", "name"]).required(id_required))
+        .group(ArgGroup::with_name("ident").args(&["id", "name", "exact"]).required(id_required))
         .arg(
           Arg::with_name("value")
             .short("v")
@@ -320,6 +338,18 @@ pub async fn execute(info: &EarlyInfo) -> Result<()> {
             .help("Info on project name")
         )
         .arg(
+          Arg::with_name("exact")
+            .short("e")
+            .long("exact")
+            .takes_value(true)
+            .value_name("name")
+            .multiple(true)
+            .number_of_values(1)
+            .min_values(1)
+            .display_order(1)
+            .help("Info on an exact name")
+        )
+        .arg(
           Arg::with_name("label")
             .short("l")
             .long("label")
@@ -425,17 +455,23 @@ async fn parse_matches(m: ArgMatches<'_>, early_info: &EarlyInfo) -> Result<()> 
 
   match m.subcommand() {
     ("check", _) => check(pref_vcs, ignore_current)?,
-    ("get", Some(m)) => get(
-      pref_vcs,
-      m.is_present("wide"),
-      m.is_present("versiononly"),
-      m.is_present("prev"),
-      m.value_of("id"),
-      m.value_of("name"),
-      ignore_current
-    )?,
+    ("get", Some(m)) => {
+      let name_match = NameMatch::from(m.value_of("name"), m.value_of("exact"));
+      get(
+        pref_vcs,
+        m.is_present("wide"),
+        m.is_present("versiononly"),
+        m.is_present("prev"),
+        m.value_of("id"),
+        &name_match,
+        ignore_current
+      )?
+    }
     ("show", Some(m)) => show(pref_vcs, m.is_present("wide"), m.is_present("prev"), ignore_current)?,
-    ("set", Some(m)) => set(pref_vcs, m.value_of("id"), m.value_of("name"), m.value_of("value").unwrap())?,
+    ("set", Some(m)) => {
+      let name_match = NameMatch::from(m.value_of("name"), m.value_of("exact"));
+      set(pref_vcs, m.value_of("id"), &name_match, m.value_of("value").unwrap())?
+    }
     ("diff", Some(_)) => diff(pref_vcs, ignore_current)?,
     ("files", Some(_)) => files(pref_vcs, ignore_current).await?,
     ("changes", Some(_)) => changes(pref_vcs, ignore_current).await?,
@@ -456,6 +492,7 @@ async fn parse_matches(m: ArgMatches<'_>, early_info: &EarlyInfo) -> Result<()> 
     ("init", Some(m)) => init(m.value_of("maxdepth").map(|d| d.parse().unwrap()).unwrap_or(5))?,
     ("info", Some(m)) => {
       let names = m.values_of("name").map(|v| v.collect::<Vec<_>>()).unwrap_or_default();
+      let exacts = m.values_of("exact").map(|v| v.collect::<Vec<_>>()).unwrap_or_default();
       let labels = m.values_of("label").map(|v| v.collect::<Vec<_>>()).unwrap_or_default();
       let ids = m
         .values_of("id")
@@ -472,7 +509,7 @@ async fn parse_matches(m: ArgMatches<'_>, early_info: &EarlyInfo) -> Result<()> 
         .show_version(m.is_present("showversion") || m.is_present("showall"))
         .show_tag_prefix(m.is_present("showtagprefix") || m.is_present("showall"));
 
-      info(pref_vcs, ids, names, labels, show, ignore_current)?
+      info(pref_vcs, ids, names, exacts, labels, show, ignore_current)?
     }
     ("template", Some(m)) => template(early_info, m.value_of("template").unwrap()).await?,
     ("", _) => empty_cmd()?,

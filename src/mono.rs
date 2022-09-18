@@ -124,6 +124,11 @@ impl Mono {
     self.set_by_id(&id, val)
   }
 
+  pub fn set_by_exact_name(&mut self, name: &str, val: &str) -> Result<()> {
+    let id = self.current.find_exact(name)?.clone();
+    self.set_by_id(&id, val)
+  }
+
   pub fn set_by_only(&mut self, val: &str) -> Result<()> {
     if self.current.projects().len() != 1 {
       bail!("No solo project.");
