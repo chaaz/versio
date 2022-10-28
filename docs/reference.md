@@ -125,6 +125,8 @@ along with their options and flags. You can always use `versio help` or
   - `--version-only` (`-v`): Output only the version number(s)
   - `--name` (`-n <name>`): Show only the project(s) whose name at least
     partially matches. Mutually exclusive with `id`.
+  - `--exact` (`-e <name>`): Like `name`, but matches exactly. Mututally
+    exclusive with `id` and `name`.
   - `--prev` (`-p`): Show the previous versions instead, created by the
     last run of `versio run`. This will differ from the current version
     if you have added/removed projects, or manually made version number
@@ -137,6 +139,8 @@ along with their options and flags. You can always use `versio help` or
   - `--id` (`-i <ID>`): Change the project that matches the given ID.
   - `--name` (`-n <name>`): Change the project that matches the given
     name.
+  - `--exact` (`-e <name>`): Like `name`, but matches exactly. Mututally
+    exclusive with `id` and `name`.
   - `--value` (`-v <value>`): The new version value
 
   If you only have a single project configured, you don't need to
@@ -157,6 +161,7 @@ along with their options and flags. You can always use `versio help` or
     can provide this option more than once).
   - `--name` (`-n <name>`): include a named project in the document (you
     can provide this option more than once).
+  - `--exact` (`-e <name>`): Like `name`, but matches exactly.
   - `--label` (`-l <label>`): include all projects with a label (you can
     provide this option more than once).
   - `--all` (`-a`): include all projects.
