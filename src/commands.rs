@@ -183,8 +183,7 @@ pub async fn template(early_info: &EarlyInfo, template: &str) -> Result<()> {
 }
 
 pub fn info(
-  pref_vcs: Option<VcsRange>, ids: &[u32], names: &[String], labels: &[String], show: InfoShow,
-  ignore_current: bool
+  pref_vcs: Option<VcsRange>, ids: &[u32], names: &[String], labels: &[String], show: InfoShow, ignore_current: bool
 ) -> Result<()> {
   let ids = ids.iter().map(|i| ProjectId::from_id(*i)).collect::<Vec<_>>();
   let mono = with_opts(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::None, VcsLevel::Smart, ignore_current)?;

@@ -1,11 +1,11 @@
 //! The command-line options for the executable.
 
+use clap::error::ErrorKind;
+use clap::{ArgGroup, CommandFactory, Parser, Subcommand, ValueEnum};
 use versio::commands::*;
 use versio::errors::Result;
 use versio::init::init;
 use versio::vcs::{VcsLevel, VcsRange};
-use clap::{CommandFactory, Parser, Subcommand, ValueEnum, ArgGroup};
-use clap::error::ErrorKind;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -109,7 +109,7 @@ enum Commands {
 
     /// The ID to get.
     #[arg(short, long)]
-    id: Option<u32>,
+    id: Option<u32>
   },
 
   /// Set a version.
@@ -171,7 +171,7 @@ enum Commands {
     changelog_only: bool,
 
     #[arg(short, long)]
-    lock_tags: bool,
+    lock_tags: bool
   },
 
   /// Print true changes
@@ -228,7 +228,7 @@ enum Commands {
 
     /// Show the project(s) tag prefix
     #[arg(short = 'T', long)]
-    show_tag_prefix: bool,
+    show_tag_prefix: bool
   },
 
   /// Output a changelog template
@@ -267,7 +267,9 @@ pub async fn execute(early_info: &EarlyInfo) -> Result<()> {
 
   match &cli.command {
     Commands::Check {} => check(pref_vcs, no_current)?,
-    Commands::Get { prev, version_only, wide, name, id } => get(pref_vcs, *wide, *version_only, *prev, id.as_ref(), name.as_deref(), no_current)?,
+    Commands::Get { prev, version_only, wide, name, id } => {
+      get(pref_vcs, *wide, *version_only, *prev, id.as_ref(), name.as_deref(), no_current)?
+    }
     Commands::Show { prev, wide } => show(pref_vcs, *wide, *prev, no_current)?,
     Commands::Set { name, id, value } => set(pref_vcs, id.as_ref(), name.as_deref(), value)?,
     Commands::Diff {} => diff(pref_vcs, no_current)?,
@@ -288,7 +290,19 @@ pub async fn execute(early_info: &EarlyInfo) -> Result<()> {
       release(pref_vcs, *show_all, &dry, *lock_tags, pause.is_some()).await?
     }
     Commands::Init { max_depth } => init(*max_depth)?,
-    Commands::Info { id, name, label, all, show_all, show_root, show_name, show_id, show_full_version, show_version, show_tag_prefix } => {
+    Commands::Info {
+      id,
+      name,
+      label,
+      all,
+      show_all,
+      show_root,
+      show_name,
+      show_id,
+      show_full_version,
+      show_version,
+      show_tag_prefix
+    } => {
       let show = InfoShow::new()
         .pick_all(*all)
         .show_name(*show_name || *show_all)
@@ -300,7 +314,7 @@ pub async fn execute(early_info: &EarlyInfo) -> Result<()> {
 
       info(pref_vcs, id, name, label, show, no_current)?
     }
-    Commands::Template { template: t } => template(early_info, t).await?,
+    Commands::Template { template: t } => template(early_info, t).await?
   }
 
   Ok(())
@@ -309,80 +323,50 @@ pub async fn execute(early_info: &EarlyInfo) -> Result<()> {
 fn verify_cli(cli: &Cli, id_required: bool) -> Result<()> {
   if cli.vcs_level.is_some() && (cli.vcs_level_min.is_some() || cli.vcs_level_max.is_some()) {
     let mut cmd = Cli::command();
-    cmd.error(
-      ErrorKind::ValueValidation,
-      "Cannot use vcs-level-min or -max when vcs-level is set.",
-    )
-    .exit();
+    cmd.error(ErrorKind::ValueValidation, "Cannot use vcs-level-min or -max when vcs-level is set.").exit();
   }
 
   if cli.vcs_level_max.is_some() != cli.vcs_level_min.is_some() {
     let mut cmd = Cli::command();
-    cmd.error(
-      ErrorKind::ValueValidation,
-      "vcs-level-min and vcs-level-max must both be set, or neither.",
-    )
-    .exit();
+    cmd.error(ErrorKind::ValueValidation, "vcs-level-min and vcs-level-max must both be set, or neither.").exit();
   }
 
   if let Commands::Get { prev, name, id, .. } = &cli.command {
     let is_idented = name.is_some() || id.is_some();
     if *prev && !is_idented {
       let mut cmd = Cli::command();
-      cmd.error(
-        ErrorKind::ValueValidation,
-        "Unable to use `prev` without a name or ID.",
-      )
-      .exit();
+      cmd.error(ErrorKind::ValueValidation, "Unable to use `prev` without a name or ID.").exit();
     }
 
     if !is_idented && id_required {
       let mut cmd = Cli::command();
-      cmd.error(
-        ErrorKind::ValueValidation,
-        "Name or ID required for multi-project config.",
-      )
-      .exit();
+      cmd.error(ErrorKind::ValueValidation, "Name or ID required for multi-project config.").exit();
     }
   }
 
   if let Commands::Plan { id, template } = &cli.command {
     if template.is_some() && id.is_none() && id_required {
       let mut cmd = Cli::command();
-      cmd.error(
-        ErrorKind::ValueValidation,
-        "Choose an ID for template plan.",
-      )
-      .exit();
+      cmd.error(ErrorKind::ValueValidation, "Choose an ID for template plan.").exit();
     }
   }
-  
+
   if let Commands::Release { dry_run, changelog_only, lock_tags, pause, resume, abort, .. } = &cli.command {
     if *dry_run && (pause.is_some() || *resume || *abort || *changelog_only) {
       let mut cmd = Cli::command();
-      cmd.error(
-        ErrorKind::ValueValidation,
-        "dry-run can't be used with pause, resume, abort, or changelog-only",
-      )
-      .exit();
+      cmd
+        .error(ErrorKind::ValueValidation, "dry-run can't be used with pause, resume, abort, or changelog-only")
+        .exit();
     }
 
     if *changelog_only && (pause.is_some() || *resume || *abort) {
       let mut cmd = Cli::command();
-      cmd.error(
-        ErrorKind::ValueValidation,
-        "changelog-only can't be used with pause, resume, or abort",
-      )
-      .exit();
+      cmd.error(ErrorKind::ValueValidation, "changelog-only can't be used with pause, resume, or abort").exit();
     }
 
     if *lock_tags && (pause.is_some() || *resume || *abort) {
       let mut cmd = Cli::command();
-      cmd.error(
-        ErrorKind::ValueValidation,
-        "lock-tags can't be used with pause, resume, or abort",
-      )
-      .exit();
+      cmd.error(ErrorKind::ValueValidation, "lock-tags can't be used with pause, resume, or abort").exit();
     }
   }
 
