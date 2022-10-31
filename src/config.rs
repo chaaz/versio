@@ -362,7 +362,9 @@ impl Project {
     self.changelog.as_ref().map(|changelog| {
       if let Some(root) = self.root() {
         (
-          Cow::Owned(PathBuf::from_slash(root).join(PathBuf::from_slash(changelog.file())).to_slash_lossy()),
+          Cow::Owned(
+            PathBuf::from_slash(root).join(PathBuf::from_slash(changelog.file())).to_slash_lossy().into_owned()
+          ),
           changelog.template()
         )
       } else {
@@ -511,7 +513,7 @@ impl Project {
       if root == "." {
         pat.to_string()
       } else {
-        PathBuf::from_slash(root).join(PathBuf::from_slash(pat)).to_slash_lossy()
+        PathBuf::from_slash(root).join(PathBuf::from_slash(pat)).to_slash_lossy().into_owned()
       }
     } else {
       pat.to_string()
@@ -765,7 +767,7 @@ fn expand_name(name: &str, sub: &SubExtent) -> String {
 fn expand_root(root: Option<&String>, sub: &SubExtent) -> Option<String> {
   match root {
     Some(root) => match sub.dir() {
-      Some(subdir) => Some(PathBuf::from_slash(root).join(subdir).to_slash_lossy()),
+      Some(subdir) => Some(PathBuf::from_slash(root).join(subdir).to_slash_lossy().into_owned()),
       None => Some(root.clone())
     },
     None => sub.dir().clone()

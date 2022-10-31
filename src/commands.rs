@@ -60,7 +60,7 @@ pub fn check(pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result<()> {
 }
 
 pub fn get(
-  pref_vcs: Option<VcsRange>, wide: bool, versonly: bool, prev: bool, id: Option<&str>, name: Option<&str>,
+  pref_vcs: Option<VcsRange>, wide: bool, versonly: bool, prev: bool, id: Option<&u32>, name: Option<&str>,
   ignore_current: bool
 ) -> Result<()> {
   let mono = with_opts(pref_vcs, VcsLevel::None, VcsLevel::Local, VcsLevel::None, VcsLevel::Smart, ignore_current)?;
@@ -73,7 +73,7 @@ pub fn get(
 }
 
 fn get_using_cfg<R: StateRead>(
-  cfg: &Config<R>, wide: bool, versonly: bool, id: Option<&str>, name: Option<&str>
+  cfg: &Config<R>, wide: bool, versonly: bool, id: Option<&u32>, name: Option<&str>
 ) -> Result<()> {
   let output = Output::new();
   let mut output = output.projects(wide, versonly);
@@ -82,7 +82,7 @@ fn get_using_cfg<R: StateRead>(
 
   let reader = cfg.state_read();
   if let Some(id) = id {
-    let id = id.parse()?;
+    let id = ProjectId::from_id(*id);
     output.write_project(ProjLine::from(cfg.get_project(&id).ok_or_else(&ensure)?, reader)?)?;
   } else if let Some(name) = name {
     let id = cfg.find_unique(name)?;
@@ -116,11 +116,12 @@ fn show_using_cfg<R: StateRead>(cfg: &Config<R>, wide: bool) -> Result<()> {
   output.commit()
 }
 
-pub fn set(pref_vcs: Option<VcsRange>, id: Option<&str>, name: Option<&str>, value: &str) -> Result<()> {
+pub fn set(pref_vcs: Option<VcsRange>, id: Option<&u32>, name: Option<&str>, value: &str) -> Result<()> {
   let mut mono = build(pref_vcs, VcsLevel::None, VcsLevel::None, VcsLevel::None, VcsLevel::Smart)?;
 
   if let Some(id) = id {
-    mono.set_by_id(&id.parse()?, value)?;
+    let id = ProjectId::from_id(*id);
+    mono.set_by_id(&id, value)?;
   } else if let Some(name) = name {
     mono.set_by_name(name, value)?;
   } else {
@@ -161,13 +162,13 @@ pub async fn changes(pref_vcs: Option<VcsRange>, ignore_current: bool) -> Result
 }
 
 pub async fn plan(
-  early_info: &EarlyInfo, pref_vcs: Option<VcsRange>, id: Option<&str>, template: Option<&str>, ignore_current: bool
+  early_info: &EarlyInfo, pref_vcs: Option<VcsRange>, id: Option<&u32>, template: Option<&str>, ignore_current: bool
 ) -> Result<()> {
   let mono = with_opts(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart, ignore_current)?;
   let output = Output::new();
   let mut output = output.plan();
   let plan = mono.build_plan().await?;
-  let id = id.map(|i| i.parse()).transpose()?;
+  let id = id.map(|i| ProjectId::from_id(*i));
   let orig_dir = early_info.orig_dir();
 
   output.write_plan(plan, id, template, orig_dir)?;
@@ -182,9 +183,10 @@ pub async fn template(early_info: &EarlyInfo, template: &str) -> Result<()> {
 }
 
 pub fn info(
-  pref_vcs: Option<VcsRange>, ids: Vec<ProjectId>, names: Vec<&str>, labels: Vec<&str>, show: InfoShow,
+  pref_vcs: Option<VcsRange>, ids: &[u32], names: &[String], labels: &[String], show: InfoShow,
   ignore_current: bool
 ) -> Result<()> {
+  let ids = ids.iter().map(|i| ProjectId::from_id(*i)).collect::<Vec<_>>();
   let mono = with_opts(pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::None, VcsLevel::Smart, ignore_current)?;
   let output = Output::new();
   let all = show.all();
@@ -202,7 +204,7 @@ pub fn info(
         .iter()
         .filter(|p| {
           ids.contains(p.id())
-            || names.contains(&p.name())
+            || names.iter().any(|n| n == p.name())
             || p.labels().iter().any(|l| labels.iter().any(|ll| ll == l))
         })
         .map(|p| ProjLine::from(p, reader))
@@ -308,12 +310,12 @@ pub async fn release(
     let name = proj.name().to_string();
     let curt_config = mono.config();
     let prev_config = curt_config.slice_to_prev(mono.repo())?;
+
     let curt_vers = curt_config
       .get_value(id)
       .chain_err(|| format!("Unable to find project {} value.", id))?
       .unwrap_or_else(|| panic!("No such project {}.", id));
     let prev_vers = prev_config.get_value(id).chain_err(|| format!("Unable to find prev {} value.", id))?;
-
     let new_vers = if size == &Size::Empty {
       output.write_no_change(all, false, name.clone(), prev_vers.clone(), curt_vers.clone());
       curt_vers
@@ -322,6 +324,7 @@ pub async fn release(
         bail!("Couldn't parse conventional commit(s): {}", failed_hashes(&plan));
       }
       let target = size.apply(&prev_vers)?;
+
       if Size::less_than(&curt_vers, &target)? {
         proj.verify_restrictions(&target)?;
         mono.set_by_id(id, &target)?;

@@ -1067,7 +1067,7 @@ fn files_from_commit<'a>(repo: &'a Repository, commit: &Commit<'a>) -> Result<im
     let ctree = commit.tree()?;
     let diff = repo.diff_tree_to_tree(Some(&ptree), Some(&ctree), Some(&mut DiffOptions::new()))?;
     let iter = DeltaIter::new(diff);
-    Ok(E2::A(iter.map(move |path| path.to_slash_lossy())))
+    Ok(E2::A(iter.map(move |path| path.to_slash_lossy().into_owned())))
   } else {
     Ok(E2::B(empty()))
   }
