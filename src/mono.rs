@@ -32,7 +32,7 @@ impl Mono {
   pub fn here(vcs: VcsState) -> Result<Mono> { Mono::open(".", vcs) }
 
   pub fn open<P: AsRef<Path>>(dir: P, vcs: VcsState) -> Result<Mono> {
-    let repo = Repo::open(dir.as_ref(), vcs)?;
+    let mut repo = Repo::open(dir.as_ref(), vcs)?;
     let root = repo.working_dir()?;
 
     // A little dance to construct a state and config.
@@ -46,6 +46,10 @@ impl Mono {
     let next = StateWrite::new();
 
     let user_prefs = read_env_prefs()?;
+
+    let commit_customization = current.file().commit_customization();
+    repo.customize_commit(Some(commit_customization.message().to_string()), Some(commit_customization.signature()));
+    trace!("Commit customized: {}", commit_customization.message().clone());
 
     Ok(Mono { current, next, last_commits, repo, user_prefs })
   }
@@ -306,8 +310,10 @@ impl PlanInfo {
 }
 
 pub struct Plan {
-  incrs: HashMap<ProjectId, (Size, Changelog)>, // proj ID, incr size, changelog
-  ineffective: Vec<LoggedPr>,                   // PRs that didn't apply to any project
+  incrs: HashMap<ProjectId, (Size, Changelog)>,
+  // proj ID, incr size, changelog
+  ineffective: Vec<LoggedPr>,
+  // PRs that didn't apply to any project
   chain_writes: Vec<(ProjectId, ProjectId)>,
   info: PlanInfo
 }
@@ -400,8 +406,10 @@ struct PlanBuilder<'s> {
   on_commit: Option<CommitInfoBuf>,
   prev: Slicer<'s>,
   current: &'s ConfigFile,
-  incrs: HashMap<ProjectId, (Size, Changelog)>, // proj ID, incr size, changelog
-  ineffective: Vec<LoggedPr>,                   // PRs that didn't apply to any project
+  incrs: HashMap<ProjectId, (Size, Changelog)>,
+  // proj ID, incr size, changelog
+  ineffective: Vec<LoggedPr>,
+  // PRs that didn't apply to any project
   github_info: Option<GithubInfo>,
   chain_writes: Vec<(ProjectId, ProjectId)>,
   info: PlanInfo

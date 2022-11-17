@@ -380,6 +380,14 @@ relative to the base of the repo; other paths are relative to that root
     commits/push/tagging is performed; it's useful to make additional
     file changes that need to be committed with the release.
 
+- `commit`
+
+  This customizes the commit versio makes. You can customize following properties (all of them are optional):
+  - `message`
+  - `author`
+  - `email`
+
+
 - `sizes`
 
   This is a mapping of what [conventional

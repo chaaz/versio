@@ -1,9 +1,15 @@
 //! Interactions with git.
 
-use crate::config::CONFIG_FILENAME;
-use crate::either::IterEither2 as E2;
-use crate::errors::{Result, ResultExt};
-use crate::vcs::{VcsLevel, VcsState};
+use std::cell::RefCell;
+use std::cmp::{min, Ord, Ordering, PartialOrd};
+use std::collections::HashMap;
+use std::env::var;
+use std::ffi::OsStr;
+use std::fmt;
+use std::io::{stdout, Write};
+use std::iter::empty;
+use std::path::{Path, PathBuf};
+
 use chrono::offset::Utc;
 use chrono::{DateTime, FixedOffset, TimeZone};
 use error_chain::bail;
@@ -17,19 +23,17 @@ use log::{error, info, trace, warn};
 use path_slash::PathBufExt as _;
 use regex::Regex;
 use serde::Deserialize;
-use std::cell::RefCell;
-use std::cmp::{min, Ord, Ordering, PartialOrd};
-use std::collections::HashMap;
-use std::env::var;
-use std::ffi::OsStr;
-use std::fmt;
-use std::io::{stdout, Write};
-use std::iter::empty;
-use std::path::{Path, PathBuf};
+
+use crate::config::CONFIG_FILENAME;
+use crate::either::IterEither2 as E2;
+use crate::errors::{Result, ResultExt};
+use crate::vcs::{VcsLevel, VcsState};
 
 pub struct Repo {
   vcs: GitVcsLevel,
-  ignore_current: bool
+  ignore_current: bool,
+  custom_commit_message: Option<String>,
+  custom_commit_signature: Option<Signature<'static>>
 }
 
 impl Repo {
@@ -102,7 +106,12 @@ impl Repo {
     let ignore_current = vcs.ignore_current();
     if vcs.level().is_none() {
       let root = find_root_blind(path)?;
-      return Ok(Repo { ignore_current, vcs: GitVcsLevel::None { root } });
+      return Ok(Repo {
+        ignore_current,
+        custom_commit_message: None,
+        vcs: GitVcsLevel::None { root },
+        custom_commit_signature: None
+      });
     }
 
     let flags = RepositoryOpenFlags::empty();
@@ -110,14 +119,29 @@ impl Repo {
     let branch_name = find_branch_name(&repo)?;
 
     if vcs.level().is_local() {
-      return Ok(Repo { ignore_current, vcs: GitVcsLevel::Local { repo, branch_name } });
+      return Ok(Repo {
+        ignore_current,
+        custom_commit_message: None,
+        vcs: GitVcsLevel::Local { repo, branch_name },
+        custom_commit_signature: None
+      });
     }
 
     let remote_name = find_remote_name(&repo, &branch_name)?;
     let fetches = RefCell::new(HashMap::new());
     let root = repo.workdir().ok_or_else(|| bad!("Repo has no working dir."))?.to_path_buf();
 
-    Ok(Repo { ignore_current, vcs: GitVcsLevel::from(vcs.level(), root, repo, branch_name, remote_name, fetches) })
+    Ok(Repo {
+      ignore_current,
+      custom_commit_message: None,
+      vcs: GitVcsLevel::from(vcs.level(), root, repo, branch_name, remote_name, fetches),
+      custom_commit_signature: None
+    })
+  }
+
+  pub fn customize_commit(&mut self, message: Option<String>, signature: Option<Signature<'static>>) {
+    self.custom_commit_signature = signature;
+    self.custom_commit_message = message;
   }
 
   pub fn working_dir(&self) -> Result<&Path> {
@@ -302,9 +326,10 @@ impl Repo {
     let repo = self.repo()?;
     let tree = repo.find_tree(tree_oid)?;
     let parent_commit = self.find_last_commit()?;
-    let sig = Signature::now("Versio", "github.com/chaaz/versio")?;
     let head = Some("HEAD");
-    let msg = "build(deploy): Versio update versions";
+    let sig = self.custom_commit_signature.clone().unwrap_or(Signature::now("Versio", "github.com/chaaz/versio")?);
+    let msg = self.custom_commit_message.clone().unwrap_or("build(deploy): Versio update versions".to_string());
+    trace!("Committing");
 
     let commit_oid = if repo.config()?.get_bool("commit.gpgSign").unwrap_or(false) {
       let mut ctx = Context::from_protocol(Protocol::OpenPgp)?;
@@ -318,7 +343,7 @@ impl Repo {
         ctx.add_signer(&key)?;
       }
 
-      let buf = repo.commit_create_buffer(&sig, &sig, msg, &tree, &[&parent_commit])?;
+      let buf = repo.commit_create_buffer(&sig, &sig, &msg, &tree, &[&parent_commit])?;
 
       let mut outbuf = Vec::new();
       ctx.set_armor(true);
@@ -329,7 +354,7 @@ impl Repo {
 
       repo.commit_signed(contents, out, Some("gpgsig"))?
     } else {
-      repo.commit(head, &sig, &sig, msg, &tree, &[&parent_commit])?
+      repo.commit(head, &sig, &sig, &msg, &tree, &[&parent_commit])?
     };
 
     repo.reset(&repo.find_object(commit_oid, Some(ObjectType::Commit))?, ResetType::Mixed, None)?;

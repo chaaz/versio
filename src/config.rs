@@ -27,6 +27,7 @@ use std::fmt;
 use std::iter::once;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use git2::Signature;
 
 pub const CONFIG_FILENAME: &str = ".versio.yaml";
 
@@ -206,6 +207,8 @@ pub struct ConfigFile {
   options: Options,
   #[serde(default)]
   projects: Vec<Project>,
+  #[serde(default)]
+  commit: CommitConf,
   #[serde(deserialize_with = "deser_sizes", default)]
   sizes: HashMap<String, Size>
 }
@@ -216,7 +219,7 @@ impl Default for ConfigFile {
     insert_angular(&mut sizes);
     sizes.insert("*".into(), Size::Fail);
 
-    ConfigFile { options: Default::default(), projects: Default::default(), sizes }
+    ConfigFile { options: Default::default(), projects: Default::default(), commit: Default::default(), sizes }
   }
 }
 
@@ -255,6 +258,8 @@ impl ConfigFile {
   pub fn hooks(&self) -> HashMap<ProjectId, (Option<&String>, &HookSet)> {
     self.projects.iter().map(|p| (p.id().clone(), (p.root(), p.hooks()))).collect()
   }
+
+  pub fn commit_customization(&self) -> &CommitConf { &self.commit }
 
   /// Check that IDs are unique, etc.
   fn validate(&self) -> Result<()> {
@@ -1035,6 +1040,36 @@ impl FileLocation {
     match root {
       Some(root) => PathBuf::from_slash(root).join(PathBuf::from_slash(&self.file)),
       None => PathBuf::from_slash(&self.file)
+    }
+  }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct CommitConf {
+  #[serde(default)]
+  message: Option<String>,
+  #[serde(default)]
+  author: Option<String>,
+  #[serde(default)]
+  email: Option<String>
+}
+
+impl CommitConf {
+  pub fn message(&self) -> &str { self.message.as_deref().unwrap_or("build(deploy): Versio update versions") }
+  pub fn signature(&self) -> Signature<'static> {
+    let author = self.author.clone().unwrap_or("Versio".to_string());
+    let email = self.email.clone().unwrap_or("github.com/chaaz/versio".to_string());
+    let sig = Signature::now(&author, &email).unwrap();
+    sig.to_owned()
+  }
+}
+
+impl Default for CommitConf {
+  fn default() -> Self {
+    Self {
+      email: Some("github.com/chaaz/versio".to_string()),
+      author: Some("Versio".to_string()),
+      message: Some("build(deploy): Versio update versions".to_string())
     }
   }
 }
