@@ -1,6 +1,6 @@
 //! Interactions with git.
 
-use crate::config::CONFIG_FILENAME;
+use crate::config::{CommitConfig, CONFIG_FILENAME};
 use crate::either::IterEither2 as E2;
 use crate::errors::{Result, ResultExt};
 use crate::vcs::{VcsLevel, VcsState};
@@ -29,7 +29,8 @@ use std::path::{Path, PathBuf};
 
 pub struct Repo {
   vcs: GitVcsLevel,
-  ignore_current: bool
+  ignore_current: bool,
+  commit_config: CommitConfig
 }
 
 impl Repo {
@@ -47,6 +48,8 @@ impl Repo {
   // Methods that obviously only work at certain levels will return an `Err` if executed outside those levels.
   // For example, `find_github_info` returns the GitHub data that enables smart remote scanning, so it only
   // returns successfully at the Smart level.
+
+  pub fn commit_config(&self) -> &CommitConfig { &self.commit_config }
 
   /// Return the vcs level that this repository can support.
   pub fn detect<P: AsRef<Path>>(path: P) -> Result<VcsLevel> {
@@ -98,11 +101,11 @@ impl Repo {
     Ok(repo.workdir().ok_or_else(|| bad!("Repo has no working dir"))?.to_path_buf())
   }
 
-  pub fn open<P: AsRef<Path>>(path: P, vcs: VcsState) -> Result<Repo> {
+  pub fn open<P: AsRef<Path>>(path: P, vcs: VcsState, commit_config: CommitConfig) -> Result<Repo> {
     let ignore_current = vcs.ignore_current();
     if vcs.level().is_none() {
       let root = find_root_blind(path)?;
-      return Ok(Repo { ignore_current, vcs: GitVcsLevel::None { root } });
+      return Ok(Repo { ignore_current, vcs: GitVcsLevel::None { root }, commit_config });
     }
 
     let flags = RepositoryOpenFlags::empty();
@@ -110,14 +113,18 @@ impl Repo {
     let branch_name = find_branch_name(&repo)?;
 
     if vcs.level().is_local() {
-      return Ok(Repo { ignore_current, vcs: GitVcsLevel::Local { repo, branch_name } });
+      return Ok(Repo { ignore_current, vcs: GitVcsLevel::Local { repo, branch_name }, commit_config });
     }
 
     let remote_name = find_remote_name(&repo, &branch_name)?;
     let fetches = RefCell::new(HashMap::new());
     let root = repo.workdir().ok_or_else(|| bad!("Repo has no working dir."))?.to_path_buf();
 
-    Ok(Repo { ignore_current, vcs: GitVcsLevel::from(vcs.level(), root, repo, branch_name, remote_name, fetches) })
+    Ok(Repo {
+      ignore_current,
+      vcs: GitVcsLevel::from(vcs.level(), root, repo, branch_name, remote_name, fetches),
+      commit_config
+    })
   }
 
   pub fn working_dir(&self) -> Result<&Path> {
@@ -302,9 +309,11 @@ impl Repo {
     let repo = self.repo()?;
     let tree = repo.find_tree(tree_oid)?;
     let parent_commit = self.find_last_commit()?;
-    let sig = Signature::now("Versio", "github.com/chaaz/versio")?;
     let head = Some("HEAD");
-    let msg = "build(deploy): Versio update versions";
+    trace!("Committing");
+
+    let sig = Signature::now(self.commit_config.author(), self.commit_config.email())?;
+    let msg = self.commit_config.message();
 
     let commit_oid = if repo.config()?.get_bool("commit.gpgSign").unwrap_or(false) {
       let mut ctx = Context::from_protocol(Protocol::OpenPgp)?;
@@ -366,7 +375,7 @@ impl Repo {
 
     let repo = self.repo()?;
     let obj = repo.revparse_single(spec)?;
-    let tagger = Signature::now("Versio", "github.com/chaaz/versio")?;
+    let tagger = Signature::now(self.commit_config.author(), self.commit_config.email())?;
 
     let config = repo.config()?;
     let fsa = config.get_bool("tag.forceSignAnnotated").unwrap_or(false);

@@ -206,6 +206,8 @@ pub struct ConfigFile {
   options: Options,
   #[serde(default)]
   projects: Vec<Project>,
+  #[serde(default)]
+  commit: CommitConfig,
   #[serde(deserialize_with = "deser_sizes", default)]
   sizes: HashMap<String, Size>
 }
@@ -216,7 +218,7 @@ impl Default for ConfigFile {
     insert_angular(&mut sizes);
     sizes.insert("*".into(), Size::Fail);
 
-    ConfigFile { options: Default::default(), projects: Default::default(), sizes }
+    ConfigFile { options: Default::default(), projects: Default::default(), commit: Default::default(), sizes }
   }
 }
 
@@ -255,6 +257,8 @@ impl ConfigFile {
   pub fn hooks(&self) -> HashMap<ProjectId, (Option<&String>, &HookSet)> {
     self.projects.iter().map(|p| (p.id().clone(), (p.root(), p.hooks()))).collect()
   }
+
+  pub fn commit_config(&self) -> &CommitConfig { &self.commit }
 
   /// Check that IDs are unique, etc.
   fn validate(&self) -> Result<()> {
@@ -1035,6 +1039,36 @@ impl FileLocation {
     match root {
       Some(root) => PathBuf::from_slash(root).join(PathBuf::from_slash(&self.file)),
       None => PathBuf::from_slash(&self.file)
+    }
+  }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CommitConfig {
+  #[serde(default = "CommitConfig::default_message")]
+  message: String,
+  #[serde(default = "CommitConfig::default_author")]
+  author: String,
+  #[serde(default = "CommitConfig::default_email")]
+  email: String
+}
+
+impl CommitConfig {
+  pub fn message(&self) -> &str { &self.message }
+  pub fn author(&self) -> &str { &self.author }
+  pub fn email(&self) -> &str { &self.email }
+
+  pub fn default_message() -> String { "build(deploy): Versio update versions".into() }
+  pub fn default_author() -> String { "Versio".into() }
+  pub fn default_email() -> String { "github.com/chaaz/versio".into() }
+}
+
+impl Default for CommitConfig {
+  fn default() -> Self {
+    Self {
+      message: CommitConfig::default_message(),
+      author: CommitConfig::default_author(),
+      email: CommitConfig::default_email()
     }
   }
 }

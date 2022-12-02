@@ -48,14 +48,14 @@ available
 
 You'll need authorization to push to and pull from the remote if you
 expect Versio to keep your remote in sync. Make sure that commands like
-e.g. `git fetch` work from the command-line if versio is having trouble.
+e.g. `git fetch` work from the command-line if Versio is having trouble.
 
 If you don't have an agent set up, or if your agent is unable to
 negotiate credentials, you can set the environment variables
 `GITHUB_USER` and `GITHUB_TOKEN` to use more traditional user/password
 authorization. `GITHUB_TOKEN` can be the github password for this user,
 or (suggested) an access token generated for this user and appropriately
-scoped for versio operations.
+scoped for Versio operations.
 
 ### GitHub API
 [GitHub API]: #github-api
@@ -315,7 +315,7 @@ relative to the base of the repo; other paths are relative to that root
 
   These are general project options. Currently the only option is
   `prev_tag`, which specifies the tag used to locate the latest run of
-  `versio release`. It has a default value of "versio-prev".
+  `versio release`. It has a default value of `"versio-prev"`.
 
 - `projects`
 
@@ -334,9 +334,9 @@ relative to the base of the repo; other paths are relative to that root
     major subdirectories (`v2`, etc) are searched for in root.
   - `includes`, `excludes`: (optional, default includes: `["**/*"]`,
     excludes: `[]`) A list of file glob patterns which specify which
-    files are included in/excluded from the project. "*" matches a
-    single file, and "**" matches zero or more nested directories. Only
-    files covered by `includes` and not by `excludes` are included.
+    files are included in/excluded from the project. `"*"` matches a
+    single file, and `"**"` matches zero or more nested directories.
+    Only files covered by `includes` and not by `excludes` are included.
     These patterns are used to determine which commits are applicable to
     a project.
   - `depends`: (optional, default `{}`) A list of projects on which the
@@ -380,6 +380,20 @@ relative to the base of the repo; other paths are relative to that root
     commits/push/tagging is performed; it's useful to make additional
     file changes that need to be committed with the release.
 
+- `commit`
+
+  Identifying information included with all commits and annotated tags
+  that Versio makes. If not present, Versio will use default values
+  instead.
+
+  - `message`: (optional) The text message included with the commit. If
+    not specified, this will be `"build(deploy): Versio update
+    versions"`.
+  - `author`: (optional) The listed author of the commit. If not
+    specified, this will be the name of this application, `"Versio"`.
+  - `email`: (optional) The email of the commitor. If not specified,
+    this will be Versio's github location: `"github.com/chaaz/versio"`.
+
 - `sizes`
 
   This is a mapping of what [conventional
@@ -415,7 +429,7 @@ relative to the base of the repo; other paths are relative to that root
   commits (commits for which a type can't be parsed). "\*" is a special
   type which matches all commit types that are not matched elsewhere
   (including non-conventional commits if "-" is not listed). If you
-  don't provide a "\*" type in your sizes config, versio will exit in
+  don't provide a "\*" type in your sizes config, Versio will exit in
   error as soon as an unmatched commit message is encountered.
 
   The "none" size indicates that a matched commit shouldn't trigger a

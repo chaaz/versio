@@ -32,19 +32,20 @@ impl Mono {
   pub fn here(vcs: VcsState) -> Result<Mono> { Mono::open(".", vcs) }
 
   pub fn open<P: AsRef<Path>>(dir: P, vcs: VcsState) -> Result<Mono> {
-    let repo = Repo::open(dir.as_ref(), vcs)?;
-    let root = repo.working_dir()?;
+    let root = Repo::find_working_dir(dir.as_ref(), *vcs.level(), false)?;
 
     // A little dance to construct a state and config.
-    let file = ConfigFile::from_dir(root)?;
+    let file = ConfigFile::from_dir(&root)?;
+    trace!("Using commit message: {}", file.commit_config().message());
+
+    let repo = Repo::open(dir.as_ref(), vcs, file.commit_config().clone())?;
     let projects = file.projects().iter();
     let old_tags = find_old_tags(projects, file.prev_tag(), &repo)?;
-    let state = CurrentState::new(root.to_path_buf(), old_tags);
+    let state = CurrentState::new(root, old_tags);
     let current = Config::new(state, file);
 
     let last_commits = find_last_commits(&current, &repo)?;
     let next = StateWrite::new();
-
     let user_prefs = read_env_prefs()?;
 
     Ok(Mono { current, next, last_commits, repo, user_prefs })
@@ -400,8 +401,10 @@ struct PlanBuilder<'s> {
   on_commit: Option<CommitInfoBuf>,
   prev: Slicer<'s>,
   current: &'s ConfigFile,
-  incrs: HashMap<ProjectId, (Size, Changelog)>, // proj ID, incr size, changelog
-  ineffective: Vec<LoggedPr>,                   // PRs that didn't apply to any project
+  incrs: HashMap<ProjectId, (Size, Changelog)>,
+  // proj ID, incr size, changelog
+  ineffective: Vec<LoggedPr>,
+  // PRs that didn't apply to any project
   github_info: Option<GithubInfo>,
   chain_writes: Vec<(ProjectId, ProjectId)>,
   info: PlanInfo
@@ -635,6 +638,7 @@ impl<'s, C: StateRead> LastCommitBuilder<'s, C> {
   pub fn build(self) -> Result<HashMap<ProjectId, String>> { Ok(self.last_commits) }
 }
 
+#[allow(clippy::large_enum_variant)]
 enum Slicer<'r> {
   Orig(&'r Repo),
   Slice(FsConfig<PrevFiles<'r>>)

@@ -383,7 +383,6 @@ pub async fn release(
 
 pub fn resume(user_pref_vcs: Option<VcsRange>) -> Result<()> {
   let vcs = combine_vcs(user_pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
-  let repo = Repo::open(".", VcsState::new(vcs.max(), false))?;
   let output = Output::new();
   let mut output = output.resume();
 
@@ -396,6 +395,7 @@ pub fn resume(user_pref_vcs: Option<VcsRange>) -> Result<()> {
     remove_file(".versio-paused")?;
     commit
   };
+  let repo = Repo::open(".", VcsState::new(vcs.max(), false), commit.commit_config().clone())?;
   commit.resume(&repo)?;
 
   output.write_done()?;

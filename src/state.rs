@@ -1,6 +1,6 @@
 //! The mechanisms used to read and write state, both current and historical.
 
-use crate::config::{HookSet, ProjectId};
+use crate::config::{CommitConfig, HookSet, ProjectId};
 use crate::errors::{Result, ResultExt as _};
 use crate::git::{FromTagBuf, Repo, Slice};
 use crate::mark::{NamedData, Picker};
@@ -207,7 +207,15 @@ impl StateWrite {
     let prev_tag = data.prev_tag.to_string();
     let last_commits = data.last_commits.clone();
     let old_tags = data.old_tags.clone();
-    let mut commit_state = CommitState::new(me, did_write, prev_tag, last_commits, old_tags, data.advance_prev);
+    let mut commit_state = CommitState::new(
+      me,
+      did_write,
+      prev_tag,
+      last_commits,
+      old_tags,
+      data.advance_prev,
+      repo.commit_config().clone()
+    );
 
     if data.pause {
       let file = OpenOptions::new().create(true).write(true).truncate(true).open(".versio-paused")?;
@@ -252,16 +260,19 @@ pub struct CommitState {
   prev_tag: String,
   last_commits: HashMap<ProjectId, String>,
   old_tags: HashMap<ProjectId, String>,
-  advance_prev: bool
+  advance_prev: bool,
+  commit_config: CommitConfig
 }
 
 impl CommitState {
   pub fn new(
     write: StateWrite, did_write: bool, prev_tag: String, last_commits: HashMap<ProjectId, String>,
-    old_tags: HashMap<ProjectId, String>, advance_prev: bool
+    old_tags: HashMap<ProjectId, String>, advance_prev: bool, commit_config: CommitConfig
   ) -> CommitState {
-    CommitState { write, did_write, prev_tag, last_commits, old_tags, advance_prev }
+    CommitState { write, did_write, prev_tag, last_commits, old_tags, advance_prev, commit_config }
   }
+
+  pub fn commit_config(&self) -> &CommitConfig { &self.commit_config }
 
   pub fn resume(&mut self, repo: &Repo) -> Result<()> {
     if self.did_write {
