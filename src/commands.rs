@@ -378,6 +378,14 @@ pub async fn release(
   }
 
   output.commit();
+
+  for (project_id, (size, _)) in plan.incrs() {
+    if size != &Size::Fail && size > &Size::None {
+      let proj = mono.get_project(project_id)?;
+      let hook = proj.hooks();
+      hook.execute_on_finish(&proj.root())?;
+    }
+  }
   Ok(())
 }
 

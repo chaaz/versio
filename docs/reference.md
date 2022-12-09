@@ -375,10 +375,12 @@ relative to the base of the repo; other paths are relative to that root
     arbitrary labels to you projects, which is useful when using the
     `info` command.
   - `hooks`: (optional) A set of hooks that run at certain points of the
-    release process. Currently, only the `post_write` hook is supported:
-    this hook runs after local file changes are made, but before any VCS
+    release process. Currently, there are only two hooks: 
+    - `post_write` this hook runs after local file changes are made, but before any VCS
     commits/push/tagging is performed; it's useful to make additional
     file changes that need to be committed with the release.
+    - `on_finish` this hooks runs after everything has been pushed to remote repo and right before 
+    the program exits. This could be used to trigger pipelines for specific project.
 
 - `commit`
 

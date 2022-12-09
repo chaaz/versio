@@ -717,6 +717,8 @@ impl HookSet {
   }
 
   pub fn execute_post_write(&self, root: &Option<&String>) -> Result<()> { self.execute("post_write", root) }
+
+  pub fn execute_on_finish(&self, root: &Option<&String>) -> Result<()> { self.execute("on_finish", root) }
 }
 
 impl<'de> Deserialize<'de> for HookSet {
@@ -1218,7 +1220,9 @@ impl Ord for Size {
 }
 
 fn default_includes() -> Vec<String> { vec!["**/*".into()] }
+
 fn default_prev_tag() -> String { "versio-prev".into() }
+
 fn default_branch() -> Option<String> { None }
 
 fn deser_labels<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<Vec<String>, D::Error> {
@@ -1314,8 +1318,9 @@ fn match_opts() -> MatchOptions { MatchOptions { require_literal_separator: true
 
 #[cfg(test)]
 mod test {
-  use super::{ConfigFile, FileLocation, HashMap, Location, Picker, Project, ProjectId, ScanningPicker, Size};
   use crate::scan::parts::Part;
+
+  use super::{ConfigFile, FileLocation, HashMap, Location, Picker, Project, ProjectId, ScanningPicker, Size};
 
   #[test]
   fn test_both_file_and_tags() {
