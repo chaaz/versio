@@ -1,0 +1,262 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://github.com/chaaz/versio/blob/main/version-config.schema.json",
+    "title": "Versio config file",
+    "type": "object",
+    "properties": {
+        "options": {
+            "type": "object",
+            "description": "General project options",
+            "properties": {
+                "prev_tag": {
+                    "default": "versio-prev",
+                    "description": "Specifies the name of the tag versio uses.",
+                    "type": "string"
+                }
+            }
+        },
+        "projects": {
+            "type": "array",
+            "description": "Specifies list of projects",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "description": "Name of the project",
+                        "type": "string"
+                    },
+                    "id": {
+                        "description": "Numeric ID of the project. Once you set this, don't change it",
+                        "type": "number"
+                    },
+                    "root": {
+                        "description": "The location, relative to the base of the repo",
+                        "type": "string"
+                    },
+                    "includes": {
+                        "description": "Specifies which files to include in glob pattern",
+                        "default": "[\"**/**\"]",
+                        "type": "string"
+                    },
+                    "excludes": {
+                        "description": "Specifies which files to exclude in glob pattern",
+                        "default": "[\"**/**\"]",
+                        "type": "string"
+                    },
+                    "depends": {
+                        "description": "List of projects that depend on this project. Anytime this project is changed, this config sets where to propagate this changes",
+                        "type": "object",
+                        "properties": {
+                            "/": {}
+                        },
+                        "patternProperties": {
+                            "^[0-9]+$": {
+                                "type": "object",
+                                "required": [
+                                    "size",
+                                    "files"
+                                ],
+                                "properties": {
+                                    "size": {
+                                        "type": "string",
+                                        "description": "How big the increment should be in the target project",
+                                        "enum": [
+                                            "none",
+                                            "minor",
+                                            "major",
+                                            "match",
+                                            "patch"
+                                        ]
+                                    },
+                                    "formatting": {
+                                        "type": "string",
+                                        "description": "Liquid template that edits how to write version to the target project. This template has context 'v' which holds version of the parent project"
+                                    },
+                                    "files": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "file": {
+                                                    "description": "Relative path (from project root) to manifest file",
+                                                    "type": "string"
+                                                },
+                                                "toml": {
+                                                    "description": "Path in to find the version in toml file (package.version)",
+                                                    "type": "string"
+                                                },
+                                                "json": {
+                                                    "description": "Path in to find the version in json file (package.version)",
+                                                    "type": "string"
+                                                },
+                                                "xml": {
+                                                    "description": "Path in to find the version in xml file (package.version)",
+                                                    "type": "string"
+                                                },
+                                                "yaml": {
+                                                    "description": "Path in to find the version in yaml file (package.version)",
+                                                    "type": "string"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "changelog": {
+                        "description": "Configuration for automatically generating changelog",
+                        "oneOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "file": {
+                                        "description": "Path to the project changelog file",
+                                        "type": "string"
+                                    },
+                                    "template": {
+                                        "description": "Path to the changelog liquid template",
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    "version": {
+                        "description": "Property used to both look up a project's old version and to decide where to write the new version",
+                        "type": "object",
+                        "properties": {
+                            "file": {
+                                "description": "Relative path (from project root) to manifest file",
+                                "type": "string"
+                            },
+                            "toml": {
+                                "description": "Path in to find the version in toml file (package.version)",
+                                "type": "string"
+                            },
+                            "json": {
+                                "description": "Path in to find the version in json file (package.version)",
+                                "type": "string"
+                            },
+                            "xml": {
+                                "description": "Path in to find the version in xml file (package.version)",
+                                "type": "string"
+                            },
+                            "yaml": {
+                                "description": "Path in to find the version in yaml file (package.version)",
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "file"
+                        ]
+                    },
+                    "tag_prefix": {
+                        "description": "The prefix to use when reading/writing tags for this project. Not providing this will result in no tags being written. Using the empty string \"\" will use tags with no prefix. Each project's tag prefix, if any, must be unique.",
+                        "type": "string"
+                    },
+                    "tag_prefix_separator": {
+                        "description": "The separator used between the tag prefix and the version number when generating the full tag for this project. In the above example, the first project's version tags would look like `proj1/v1.2.3`",
+                        "type": "string"
+                    },
+                    "subs": {
+                        "type": "object",
+                        "properties": {
+                            "dirs": {
+                                "type": "string"
+                            },
+                            "tops": {
+                                "type": "array"
+                            }
+                        }
+                    },
+                    "labels": {
+                        "description": "A string or sequence of strings, you can arbitrary labels to you projects, which is useful when using the `info` command.",
+                        "type": "string"
+                    },
+                    "hooks": {
+                        "description": "Set of hooks that run at certain points of the release process",
+                        "type": "object",
+                        "properties": {
+                            "post_write": {
+                                "type": "string",
+                                "description": "Command that runs after local file changes are made, but before any VCS commits/push/tagging is performed"
+                            },
+                            "on_finish": {
+                                "type": "string",
+                                "description": "Command that runs right before the program exits"
+                            }
+                        }
+                    }
+                },
+                "required": [
+                    "id",
+                    "name",
+                    "version"
+                ]
+            }
+        },
+        "commit": {
+            "type": "object",
+            "description": "Identifying information included with all commits and annotated tags that Versio makes. If not present, Versio will use default values instead.",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "The text message included with the commit.",
+                    "default": "'build(deploy): Versio update versions'"
+                },
+                "author": {
+                    "type": "string",
+                    "default": "'Versio'",
+                    "description": "The listed author of the commit"
+                },
+                "email": {
+                    "type": "string",
+                    "default": "'github.com/chaaz/versio'",
+                    "description": "The email of the commitor"
+                }
+            }
+        },
+        "sizes": {
+            "description": "The mapping of what conventional commit type applies to what size of increment",
+            "type": "object",
+            "properties": {
+                "use_angular": {
+                    "type": "boolean",
+                    "description": "If this is set to true, conventions from angular will apply (https://github.com/angular/angular/blob/master/CONTRIBUTING.md#type)"
+                },
+                "major": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "minor": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "patch": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "fail": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        }
+    },
+    "required": [
+        "projects"
+    ]
+}
