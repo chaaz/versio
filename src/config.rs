@@ -160,6 +160,15 @@ impl<S: StateRead> Config<S> {
     Ok(id)
   }
 
+  pub fn find_exact(&self, name: &str) -> Result<&ProjectId> {
+    let mut iter = self.file.projects.iter().filter(|p| p.name == name).map(|p| p.id());
+    let id = iter.next().ok_or_else(|| bad!("No project named {name}"))?;
+    if iter.next().is_some() {
+      bail!("Multiple projects with name {name}");
+    }
+    Ok(id)
+  }
+
   pub fn annotate(&self) -> Result<Vec<AnnotatedMark>> {
     self.file.projects.iter().map(|p| p.annotate(&self.state)).collect()
   }
@@ -742,7 +751,7 @@ impl Hook {
     if let Some(root) = root {
       command.current_dir(root);
     }
-    let status = command.args(&["-e", "-c", &self.cmd]).status()?;
+    let status = command.args(["-e", "-c", &self.cmd]).status()?;
     if !status.success() {
       bail!("Unable to run hook {}.", self.cmd);
     } else {

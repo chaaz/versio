@@ -96,11 +96,11 @@ pub fn construct_changelog_html(
     "project": {
       "id": proj.id.to_string(),
       "name": proj.name,
-      "tag_prefix": proj.tag_prefix.unwrap_or_else(|| "".to_string()),
+      "tag_prefix": proj.tag_prefix.unwrap_or_default(),
       "tag_prefix_separator": proj.tag_prefix_separator,
       "version": proj.version,
-      "full_version": proj.full_version.unwrap_or_else(|| "".to_string()),
-      "root": proj.root.unwrap_or_else(|| "".to_string()),
+      "full_version": proj.full_version.unwrap_or_default(),
+      "root": proj.root.unwrap_or_default(),
     },
     "release": {
       "date": nowymd,
