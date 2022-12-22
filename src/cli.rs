@@ -89,7 +89,7 @@ enum Commands {
   },
 
   /// Get one or more versions
-  #[command(group(ArgGroup::new("ident").args(["name", "id"]),))]
+  #[command(group(ArgGroup::new("ident").args(["name", "id", "exact"]),))]
   Get {
     /// Whether to show prev versions
     #[arg(short, long)]
@@ -107,13 +107,17 @@ enum Commands {
     #[arg(short, long)]
     name: Option<String>,
 
+    /// The exact name to get.
+    #[arg(short, long)]
+    exact: Option<String>,
+
     /// The ID to get.
     #[arg(short, long)]
     id: Option<u32>
   },
 
   /// Set a version.
-  #[command(group(ArgGroup::new("ident").args(["name", "id"]),))]
+  #[command(group(ArgGroup::new("ident").args(["name", "id", "exact"]),))]
   Set {
     /// The name to set.
     #[arg(short, long)]
@@ -122,6 +126,10 @@ enum Commands {
     /// The ID to set.
     #[arg(short, long)]
     id: Option<u32>,
+
+    /// The exact name to set.
+    #[arg(short, long)]
+    exact: Option<String>,
 
     /// The new value
     #[arg(short, long)]
@@ -193,6 +201,10 @@ enum Commands {
     /// Info on a project name
     #[arg(short, long)]
     name: Vec<String>,
+
+    /// Info on an exact project name
+    #[arg(short, long)]
+    exact: Vec<String>,
 
     /// Info on a labeled project
     #[arg(short, long)]
@@ -267,11 +279,15 @@ pub async fn execute(early_info: &EarlyInfo) -> Result<()> {
 
   match &cli.command {
     Commands::Check {} => check(pref_vcs, no_current)?,
-    Commands::Get { prev, version_only, wide, name, id } => {
-      get(pref_vcs, *wide, *version_only, *prev, id.as_ref(), name.as_deref(), no_current)?
+    Commands::Get { prev, version_only, wide, name, exact, id } => {
+      let name_match = NameMatch::from(name, exact);
+      get(pref_vcs, *wide, *version_only, *prev, id.as_ref(), &name_match, no_current)?
     }
     Commands::Show { prev, wide } => show(pref_vcs, *wide, *prev, no_current)?,
-    Commands::Set { name, id, value } => set(pref_vcs, id.as_ref(), name.as_deref(), value)?,
+    Commands::Set { name, exact, id, value } => {
+      let name_match = NameMatch::from(name, exact);
+      set(pref_vcs, id.as_ref(), &name_match, value)?
+    }
     Commands::Diff {} => diff(pref_vcs, no_current)?,
     Commands::Files {} => files(pref_vcs, no_current).await?,
     Commands::Changes {} => changes(pref_vcs, no_current).await?,
@@ -293,6 +309,7 @@ pub async fn execute(early_info: &EarlyInfo) -> Result<()> {
     Commands::Info {
       id,
       name,
+      exact,
       label,
       all,
       show_all,
@@ -312,7 +329,7 @@ pub async fn execute(early_info: &EarlyInfo) -> Result<()> {
         .show_version(*show_version || *show_all)
         .show_tag_prefix(*show_tag_prefix || *show_all);
 
-      info(pref_vcs, id, name, label, show, no_current)?
+      info(pref_vcs, id, name, exact, label, show, no_current)?
     }
     Commands::Template { template: t } => template(early_info, t).await?
   }
@@ -331,13 +348,21 @@ fn verify_cli(cli: &Cli, id_required: bool) -> Result<()> {
     cmd.error(ErrorKind::ValueValidation, "vcs-level-min and vcs-level-max must both be set, or neither.").exit();
   }
 
-  if let Commands::Get { prev, name, id, .. } = &cli.command {
-    let is_idented = name.is_some() || id.is_some();
+  if let Commands::Get { prev, name, id, exact, .. } = &cli.command {
+    let is_idented = name.is_some() || id.is_some() || exact.is_some();
     if *prev && !is_idented {
       let mut cmd = Cli::command();
       cmd.error(ErrorKind::ValueValidation, "Unable to use `prev` without a name or ID.").exit();
     }
 
+    if !is_idented && id_required {
+      let mut cmd = Cli::command();
+      cmd.error(ErrorKind::ValueValidation, "Name or ID required for multi-project config.").exit();
+    }
+  }
+
+  if let Commands::Set { name, id, exact, .. } = &cli.command {
+    let is_idented = name.is_some() || id.is_some() || exact.is_some();
     if !is_idented && id_required {
       let mut cmd = Cli::command();
       cmd.error(ErrorKind::ValueValidation, "Name or ID required for multi-project config.").exit();

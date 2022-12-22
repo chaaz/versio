@@ -342,7 +342,7 @@ impl FileWrite {
   pub fn write(&self) -> Result<()> {
     match self {
       FileWrite::Write { path, val, .. } => {
-        Ok(std::fs::write(path, &val).chain_err(|| format!("Can't write to {}", path.to_string_lossy()))?)
+        Ok(std::fs::write(path, val).chain_err(|| format!("Can't write to {}", path.to_string_lossy()))?)
       }
       // FileWrite::Append { path, val } => {
       //   let mut file = OpenOptions::new().append(true).open(path)?;
