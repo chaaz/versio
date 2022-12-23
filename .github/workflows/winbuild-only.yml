@@ -36,8 +36,12 @@ jobs:
       - name: Find paths
         id: cargo-find-paths
         run: "echo ::set-output name=cargo-lock-glob::\".\"/**/Cargo.lock"
-      - name: Add mingw32 to PATH
-        run: "echo \"C:\\msys64\\mingw32\\bin\" >> $env:GITHUB_PATH\n"
+      # - name: Add mingw32 to PATH
+      #   run: "echo \"C:\\msys64\\mingw32\\bin\" >> $env:GITHUB_PATH\n"
+      - name: Set up MinGW
+        uses: egor-tensin/setup-mingw@v2
+        with:
+          platform: x86
       - name: Build Windows binary
         run: cargo build --release --target i686-pc-windows-gnu
         working-directory: "."
