@@ -58,6 +58,10 @@ value:
     # to use the 32-bit-msvc toolchain to cross-compile to the
     # 32-bit-gnu target, and explicitly add the 32-bit compiler on PATH
     # a la https://github.com/actions/virtual-environments/issues/2549.
+    #
+    # 2022-12-23: The PATH hack no longer seems to work (perhaps mingw32
+    # is no longer supported in msys2?), so we are trying
+    # egor-tensin/setup-mingw@v2 to access mingw32.
     if: matrix.os == 'windows-latest'
     uses: actions-rs/toolchain@v1
     with:

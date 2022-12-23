@@ -62,11 +62,12 @@ value:
         GPGME_INCLUDE: /usr/local/opt/libassuan/include:/usr/local/opt/gpgme/include
         GPGME_LIB_DIR: /usr/local/opt/libassuan/lib:/usr/local/opt/gpgme/lib
         GPGME_LIBS: static=gpgme:static=assuan
-    - name: Add mingw32 to PATH
+    - name: Set up MinGW
       # See comments in `../snippets/get-cargo-os.yml`
       if: matrix.os == 'windows-latest'
-      run: |
-        echo "C:\msys64\mingw32\bin" >> $env:GITHUB_PATH
+      uses: egor-tensin/setup-mingw@v2
+      with:
+        platform: x86
     - name: Build Windows binary
       # We're not going to try to statically link for Windows; see
       # comments in `../snippets/get-cargo-os.yml`. Because we aren't
