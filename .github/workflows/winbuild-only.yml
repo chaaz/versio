@@ -1,0 +1,45 @@
+---
+# DO NOT EDIT
+# Created from template "release.yml".
+name: winbuild
+"on":
+  - workflow_dispatch
+env:
+  RUSTFLAGS: "-D warnings"
+  GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+  GITHUB_USER: "${{ github.actor }}"
+jobs:
+  winbuild:
+    runs-on: "windows-latest"
+    steps:
+      - name: Checkout release
+        uses: actions/checkout@v2
+        with:
+          ref: main
+      - name: Install Windows dependencies
+        run: "$env:PATH = \"C:\\Windows\\system32;C:\\Windows;C:\\Windows\\System32\\Wbem;C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\;C:\\ProgramData\\chocolatey\\bin\"\n[Environment]::SetEnvironmentVariable(\"Path\", $env:PATH, \"Machine\")\nchoco install -y gnupg\necho \"C:\\Program Files (x86)\\GnuPG\\bin\" >> $env:GITHUB_PATH\n"
+      - name: Get Windows cargo stable
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable-i686-pc-windows-msvc
+          target: i686-pc-windows-gnu
+          components: clippy
+          default: true
+      - name: Get Windows cargo nightly
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly-i686-pc-windows-msvc
+          target: i686-pc-windows-gnu
+          components: rustfmt
+      - name: Update Windows target configuration
+        run: rustup set default-host i686-pc-windows-gnu
+      - name: Find paths
+        id: cargo-find-paths
+        run: "echo ::set-output name=cargo-lock-glob::\".\"/**/Cargo.lock"
+      - name: Add mingw32 to PATH
+        run: "echo \"C:\\msys64\\mingw32\\bin\" >> $env:GITHUB_PATH\n"
+      - name: Build Windows binary
+        run: cargo build --release --target i686-pc-windows-gnu
+        working-directory: "."
+        env:
+          RUSTFLAGS: "-D warnings"
