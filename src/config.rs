@@ -17,6 +17,10 @@ use liquid::ParserBuilder;
 use log::trace;
 use path_slash::PathBufExt as _;
 use regex::{escape, Regex};
+use schemars::gen::SchemaGenerator;
+use schemars::schema::{ArrayValidation, InstanceType, NumberValidation, ObjectValidation, Schema, SchemaObject,
+                       SingleOrVec, StringValidation};
+use schemars::JsonSchema;
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, SeqAccess, Unexpected, Visitor};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
@@ -117,6 +121,33 @@ impl<'de> Deserialize<'de> for ProjectId {
   }
 }
 
+impl JsonSchema for ProjectId {
+  fn schema_name() -> String { "ProjectId".into() }
+
+  fn json_schema(_gen: &mut SchemaGenerator) -> Schema {
+    Schema::Object(SchemaObject {
+      metadata: None,
+      instance_type: Some(SingleOrVec::Vec(vec![InstanceType::Number, InstanceType::String])),
+      format: None,
+      enum_values: None,
+      const_value: None,
+      subschemas: None,
+      number: Some(Box::new(NumberValidation {
+        multiple_of: None,
+        maximum: None,
+        exclusive_maximum: None,
+        minimum: None,
+        exclusive_minimum: None
+      })),
+      string: Some(Box::new(StringValidation { max_length: None, min_length: None, pattern: None })),
+      array: None,
+      object: None,
+      reference: None,
+      extensions: schemars::Map::new()
+    })
+  }
+}
+
 pub struct Config<S: StateRead> {
   state: S,
   file: ConfigFile
@@ -209,15 +240,19 @@ impl<F: FilesRead> FsConfig<F> {
   pub fn file(&self) -> &ConfigFile { &self.file }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, JsonSchema, Debug)]
 pub struct ConfigFile {
   #[serde(default)]
   options: Options,
+
   #[serde(default)]
   projects: Vec<Project>,
+
   #[serde(default)]
   commit: CommitConfig,
+
   #[serde(deserialize_with = "deser_sizes", default)]
+  #[schemars(schema_with = "schema_sizes", default)]
   sizes: HashMap<String, Size>
 }
 
@@ -301,7 +336,7 @@ impl ConfigFile {
   }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, JsonSchema, Debug)]
 struct Options {
   #[serde(default = "default_prev_tag")]
   prev_tag: String,
@@ -324,7 +359,7 @@ fn legal_tag(prefix: &str) -> bool {
       && (prefix.chars().all(|c| c.is_ascii() && (c == '/' || c == '_' || c == '-' || c.is_alphanumeric()))))
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, JsonSchema, Debug)]
 pub struct Project {
   name: String,
   id: ProjectId,
@@ -340,6 +375,7 @@ pub struct Project {
   #[serde(default)]
   also: Vec<Location>,
   #[serde(default, deserialize_with = "deser_labels")]
+  #[schemars(schema_with = "schema_labels")]
   labels: Vec<String>,
   tag_prefix: Option<String>,
   tag_prefix_separator: Option<String>,
@@ -642,7 +678,45 @@ impl<'de> Deserialize<'de> for ChangelogConfig {
   }
 }
 
-#[derive(Deserialize, Debug, Clone)]
+impl JsonSchema for ChangelogConfig {
+  fn schema_name() -> String { "ChangelogConfig".into() }
+
+  fn json_schema(gen: &mut SchemaGenerator) -> Schema {
+    let mut required = schemars::Set::new();
+    required.insert("file".into());
+
+    let mut properties = schemars::Map::new();
+    let file_schema: SchemaObject = <String>::json_schema(gen).into();
+    let template_schema: SchemaObject = <String>::json_schema(gen).into();
+    properties.insert("file".into(), file_schema.into());
+    properties.insert("template".into(), template_schema.into());
+
+    Schema::Object(SchemaObject {
+      metadata: None,
+      instance_type: Some(SingleOrVec::Vec(vec![InstanceType::String, InstanceType::Object])),
+      format: None,
+      enum_values: None,
+      const_value: None,
+      subschemas: None,
+      number: None,
+      string: Some(Box::new(StringValidation { max_length: None, min_length: None, pattern: None })),
+      array: None,
+      object: Some(Box::new(ObjectValidation {
+        max_properties: Some(2),
+        min_properties: Some(1),
+        required,
+        properties,
+        pattern_properties: schemars::Map::new(),
+        additional_properties: None,
+        property_names: None
+      })),
+      reference: None,
+      extensions: schemars::Map::new()
+    })
+  }
+}
+
+#[derive(Deserialize, JsonSchema, Debug, Clone)]
 pub struct Depends {
   #[serde(default)]
   files: Vec<Location>,
@@ -698,6 +772,15 @@ impl<'de> Deserialize<'de> for RelativeSize {
   }
 }
 
+impl JsonSchema for RelativeSize {
+  fn schema_name() -> String { "RelativeSize".into() }
+
+  fn json_schema(gen: &mut SchemaGenerator) -> Schema {
+    let string_schema: SchemaObject = <String>::json_schema(gen).into();
+    string_schema.into()
+  }
+}
+
 impl RelativeSize {
   pub fn convert(&self, size: Size) -> Size {
     if size == Size::Empty {
@@ -738,6 +821,15 @@ impl Serialize for HookSet {
   fn serialize<S: Serializer>(&self, srlr: S) -> std::result::Result<S::Ok, S::Error> { self.hooks.serialize(srlr) }
 }
 
+impl JsonSchema for HookSet {
+  fn schema_name() -> String { "HookSet".into() }
+
+  fn json_schema(gen: &mut SchemaGenerator) -> Schema {
+    let map_schema: SchemaObject = <HashMap<String, Hook>>::json_schema(gen).into();
+    map_schema.into()
+  }
+}
+
 #[derive(Clone, Debug)]
 pub struct Hook {
   cmd: String
@@ -768,6 +860,15 @@ impl<'de> Deserialize<'de> for Hook {
 
 impl Serialize for Hook {
   fn serialize<S: Serializer>(&self, srlr: S) -> std::result::Result<S::Ok, S::Error> { self.cmd.serialize(srlr) }
+}
+
+impl JsonSchema for Hook {
+  fn schema_name() -> String { "Hook".into() }
+
+  fn json_schema(gen: &mut SchemaGenerator) -> Schema {
+    let string_schema: SchemaObject = <String>::json_schema(gen).into();
+    string_schema.into()
+  }
 }
 
 fn expand_name(name: &str, sub: &SubExtent) -> String {
@@ -960,6 +1061,58 @@ impl<'de> Deserialize<'de> for Location {
   }
 }
 
+impl JsonSchema for Location {
+  fn schema_name() -> String { "Location".into() }
+
+  fn json_schema(gen: &mut SchemaGenerator) -> Schema {
+    struct PartSpec;
+    impl JsonSchema for PartSpec {
+      fn schema_name() -> String { "PartSpec".into() }
+      fn json_schema(gen: &mut SchemaGenerator) -> Schema {
+        let item_schema: SchemaObject = <String>::json_schema(gen).into();
+
+        Schema::Object(SchemaObject {
+          metadata: None,
+          instance_type: Some(SingleOrVec::Vec(vec![InstanceType::String, InstanceType::Array])),
+          format: None,
+          enum_values: None,
+          const_value: None,
+          subschemas: None,
+          number: None,
+          string: Some(Box::new(StringValidation { max_length: None, min_length: None, pattern: None })),
+          array: Some(Box::new(ArrayValidation {
+            items: Some(SingleOrVec::Single(Box::new(item_schema.into()))),
+            additional_items: None,
+            max_items: None,
+            min_items: None,
+            unique_items: None,
+            contains: None
+          })),
+          object: None,
+          reference: None,
+          extensions: schemars::Map::new()
+        })
+      }
+    }
+
+    #[derive(JsonSchema)]
+    #[allow(dead_code)]
+    struct InnerLoc {
+      file: Option<String>,
+      tags: Option<TagSpec>,
+      json: Option<PartSpec>,
+      yaml: Option<PartSpec>,
+      toml: Option<PartSpec>,
+      xml: Option<PartSpec>,
+      pattern: Option<String>,
+      format: Option<String>
+    }
+
+    let my_schema: SchemaObject = <InnerLoc>::json_schema(gen).into();
+    my_schema.into()
+  }
+}
+
 #[derive(Clone, Deserialize, Debug)]
 struct TagLocation {
   tags: TagSpec
@@ -973,7 +1126,7 @@ impl TagLocation {
   }
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Deserialize, JsonSchema, Debug)]
 #[serde(untagged)]
 enum TagSpec {
   DefaultTag(DefaultTagSpec),
@@ -999,12 +1152,12 @@ impl TagSpec {
   }
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Deserialize, JsonSchema, Debug)]
 struct DefaultTagSpec {
   default: String
 }
 
-#[derive(Clone, Deserialize, Debug)]
+#[derive(Clone, Deserialize, JsonSchema, Debug)]
 struct MajorTagSpec {
   majors: Vec<u32>
 }
@@ -1052,7 +1205,7 @@ impl FileLocation {
   }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, JsonSchema, Debug, Clone)]
 pub struct CommitConfig {
   #[serde(default = "CommitConfig::default_message")]
   message: String,
@@ -1082,7 +1235,7 @@ impl Default for CommitConfig {
   }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, JsonSchema, Debug)]
 struct Subs {
   #[serde(default)]
   dirs: Option<String>,
@@ -1112,7 +1265,7 @@ impl Subs {
 /// drop-in replacement. The "major" part of the version number will be incremented, and other parts reset.
 /// - **Fail**: A change occured to the project that could not be understood. No changes will be made to any
 /// version numbers; in fact, the entire process is prematurely halted.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, JsonSchema, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Size {
   Fail,
@@ -1251,6 +1404,32 @@ fn deser_labels<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<Vec<S
   desr.deserialize_any(StringsVisitor)
 }
 
+fn schema_labels(gen: &mut SchemaGenerator) -> Schema {
+  let item_schema: SchemaObject = <String>::json_schema(gen).into();
+
+  Schema::Object(SchemaObject {
+    metadata: None,
+    instance_type: Some(SingleOrVec::Vec(vec![InstanceType::String, InstanceType::Array])),
+    format: None,
+    enum_values: None,
+    const_value: None,
+    subschemas: None,
+    number: None,
+    string: Some(Box::new(StringValidation { max_length: None, min_length: None, pattern: None })),
+    array: Some(Box::new(ArrayValidation {
+      items: Some(SingleOrVec::Single(Box::new(item_schema.into()))),
+      additional_items: None,
+      max_items: None,
+      min_items: None,
+      unique_items: None,
+      contains: None
+    })),
+    object: None,
+    reference: None,
+    extensions: schemars::Map::new()
+  })
+}
+
 fn deser_sizes<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<HashMap<String, Size>, D::Error> {
   struct MapVisitor;
 
@@ -1297,6 +1476,23 @@ fn deser_sizes<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<HashMa
   }
 
   desr.deserialize_map(MapVisitor)
+}
+
+fn schema_sizes(gen: &mut SchemaGenerator) -> Schema {
+  #[derive(JsonSchema)]
+  #[allow(dead_code)]
+  struct InnerSizes {
+    use_angular: Option<bool>,
+    fail: Option<Vec<String>>,
+    major: Option<Vec<String>>,
+    minor: Option<Vec<String>>,
+    patch: Option<Vec<String>>,
+    none: Option<Vec<String>>,
+    empty: Option<Vec<String>>
+  }
+
+  let my_schema: SchemaObject = <InnerSizes>::json_schema(gen).into();
+  my_schema.into()
 }
 
 fn insert_angular(result: &mut HashMap<String, Size>) {

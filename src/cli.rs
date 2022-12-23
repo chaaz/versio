@@ -248,7 +248,10 @@ enum Commands {
     /// The changelog template to output
     #[arg(short, long)]
     template: String
-  }
+  },
+
+  /// Output a JSON schema for the config file
+  Schema {}
 }
 
 impl Commands {
@@ -331,7 +334,8 @@ pub async fn execute(early_info: &EarlyInfo) -> Result<()> {
 
       info(pref_vcs, id, name, exact, label, show, no_current)?
     }
-    Commands::Template { template: t } => template(early_info, t).await?
+    Commands::Template { template: t } => template(early_info, t).await?,
+    Commands::Schema {} => schema()?
   }
 
   Ok(())
