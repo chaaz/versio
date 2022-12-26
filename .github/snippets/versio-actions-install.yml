@@ -1,4 +1,4 @@
 key: versio-actions-install
 value:
   name: Get versio
-  uses: chaaz/versio-actions/install@v1.2
+  uses: chaaz/versio-actions/install@v1.3

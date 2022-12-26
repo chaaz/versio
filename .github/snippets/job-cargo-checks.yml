@@ -10,7 +10,7 @@ value:
       working-directory: ${{ matrix.root }}
   steps:
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
     - SNIPPET_get-cargo
     - name: Check structure
       run: cargo clippy

@@ -17,9 +17,9 @@ jobs:
       all-matrix: "${{ steps.find-all-matrix.outputs.matrix }}"
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Get versio
-        uses: chaaz/versio-actions/install@v1.2
+        uses: chaaz/versio-actions/install@v1.3
       - name: Find cargo matrix
         id: find-cargo-matrix
         run: "echo \"::set-output name=matrix::{\\\"include\\\":$(versio -l none info -l cargo -R -N)}\""
@@ -31,9 +31,9 @@ jobs:
     if: "!contains(github.event.head_commit.message, 'skip ci')"
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Get versio
-        uses: chaaz/versio-actions/install@v1.2
+        uses: chaaz/versio-actions/install@v1.3
       - name: Fetch history
         run: git fetch --unshallow
       - name: Check projects
@@ -51,7 +51,7 @@ jobs:
         working-directory: "${{ matrix.root }}"
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libgpg-error-dev libgpgme-dev
       - name: Get cargo stable
@@ -86,9 +86,9 @@ jobs:
     if: "!contains(github.event.head_commit.message, 'skip ci')"
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Get versio
-        uses: chaaz/versio-actions/install@v1.2
+        uses: chaaz/versio-actions/install@v1.3
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libgpg-error-dev libgpgme-dev
       - name: Get cargo stable
@@ -117,7 +117,7 @@ jobs:
         working-directory: "${{ matrix.root }}"
     steps:
       - name: Checkout release
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           ref: main
       - name: Install dependencies
@@ -154,11 +154,11 @@ jobs:
       upload_url: "${{ steps.publish-to-github.outputs.upload_url }}"
     steps:
       - name: Checkout release
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           ref: main
       - name: Get versio
-        uses: chaaz/versio-actions/install@v1.2
+        uses: chaaz/versio-actions/install@v1.3
       - name: Find version
         id: find-version
         run: "echo ::set-output name=version::$(versio -l none info -i 0 -F | jq -r '.[0].full_version')"
@@ -196,7 +196,7 @@ jobs:
     runs-on: "${{ matrix.os }}"
     steps:
       - name: Checkout release
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           ref: main
       - name: Install Ubuntu dependencies
