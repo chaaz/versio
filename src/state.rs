@@ -61,7 +61,7 @@ pub struct CurrentFiles {
 
 impl FilesRead for CurrentFiles {
   fn has_file(&self, path: &Path) -> Result<bool> { Ok(self.root.join(path).exists()) }
-  fn read_file(&self, path: &Path) -> Result<String> { Ok(std::fs::read_to_string(&self.root.join(path))?) }
+  fn read_file(&self, path: &Path) -> Result<String> { Ok(std::fs::read_to_string(self.root.join(path))?) }
 
   fn subdirs(&self, root: Option<&String>, regex: &str) -> Result<Vec<String>> {
     let filter = Regex::new(regex)?;

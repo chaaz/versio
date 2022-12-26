@@ -168,7 +168,7 @@ fragment commitResult on Commit {
     }
   }
 
-  Ok(changes.into_iter().map(|(_, v)| v).collect())
+  Ok(changes.into_values().collect())
 }
 
 pub struct Changes {

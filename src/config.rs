@@ -89,7 +89,7 @@ impl<'de> Deserialize<'de> for ProjectId {
       fn visit_i128<E: de::Error>(self, v: i128) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
       fn visit_u8<E: de::Error>(self, v: u8) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
       fn visit_u16<E: de::Error>(self, v: u16) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
-      fn visit_u32<E: de::Error>(self, v: u32) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
+      fn visit_u32<E: de::Error>(self, v: u32) -> DeResult<E> { Ok(ProjectId::from_id(v)) }
       fn visit_u64<E: de::Error>(self, v: u64) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
       fn visit_u128<E: de::Error>(self, v: u128) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }
       fn visit_f32<E: de::Error>(self, v: f32) -> DeResult<E> { Ok(ProjectId::from_id(v as u32)) }

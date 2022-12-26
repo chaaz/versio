@@ -143,7 +143,7 @@ fn extract_name<F: FnOnce(String) -> Result<Mark>>(file: &Path, find: F) -> Resu
 
 fn write_yaml(projs: &[ProjSummary]) -> Result<()> {
   let yaml = generate_yaml(projs);
-  Ok(std::fs::write(CONFIG_FILENAME, &yaml)?)
+  Ok(std::fs::write(CONFIG_FILENAME, yaml)?)
 }
 
 fn generate_yaml(projs: &[ProjSummary]) -> String {

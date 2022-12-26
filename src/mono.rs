@@ -166,7 +166,7 @@ impl Mono {
 
   pub async fn keyed_files(&self) -> Result<impl Iterator<Item = Result<(String, String)>> + '_> {
     let changes = self.changes().await?;
-    let prs = changes.into_groups().into_iter().map(|(_, v)| v).filter(|pr| !pr.best_guess());
+    let prs = changes.into_groups().into_values().filter(|pr| !pr.best_guess());
 
     let mut vec = Vec::new();
     for pr in prs {
