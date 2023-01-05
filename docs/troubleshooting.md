@@ -19,9 +19,9 @@ find an existing issue that matches what you're seeing, do
 comment there how it effects you--a high traffic issue will let us
 prioritize what's important to build.
 
-You might also want to look at the [dependency
-page](https://github.com/chaaz/versio/blob/main/docs/dependencies.md),
-to make sure that all of Versio's external requirements are available.
+You might also want to look at the [installation
+page](https://github.com/chaaz/versio/blob/main/docs/installing.md), to
+make sure that all of Versio's external requirements are available.
 
 Also, take a look at our [use case page](./use_cases.md): in case you're
 trying to use one of the use-cases there.

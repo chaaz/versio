@@ -8,7 +8,7 @@ See ex. [the book](https://doc.rust-lang.org/book/index.html), or
 elsewhere on the internet for help getting started with rust.
 
 Also, make sure you've read the project [README](../README.md) and
-[Dependency page](./dependencies.md) so that you have an idea of how
+[Installation page](./installing.md) so that you have an idea of how
 Versio must be installed.
 
 ## Project structure
@@ -33,7 +33,7 @@ versio
    └─ ...          . . . . . . . .  GitHub Actions
 ```
 
-<!-- 
+<!--
 TODO: Further work:
 
 └─ builds
@@ -60,13 +60,8 @@ them, you may need to install some tools:
 ```
 $ rustup toolchain install nightly
 $ rustup component add rustfmt --toolchain nightly
-$ cargo install cargo-audit 
-$ rustup component add clippy 
-$ curl -L https://github.com/chaaz/rust_coverage/raw/main/rustcov \
-       -o in/my/PATH/rustcov && chmod a+x in/my/PATH/rustcov
-$ curl -L https://github.com/chaaz/rust_coverage/raw/main/genhtml \
-       -o in/my/PATH/genhtml && chmod a+x in/my/PATH/genhtml
-$ cargo install grcov
+$ cargo install cargo-audit
+$ rustup component add clippy
 ```
 
 ### Warnings
@@ -132,27 +127,14 @@ errors.
 
 ### Testing
 
-**Always run tests and coverage!** Obviously, if your code fails any
-unit or service test, or if your unit tests don't have 100% coverage,
-then your PR will be rejected. 
+**Always run tests!** Obviously, if your code fails any unit or service
+test, then your PR will be rejected.
 
 Any new modules created should have their own set of unit tests.
 Additions to modules should also expand that module's unit tests. New
 functionality should expand the application's integration tests.
 
 Run `cargo test` to run all unit tests.
-
-You can use the [rustcov](https://github.com/chaaz/rust_coverage/)
-script to run unit tests and generate a coverage report.
-
-If you have code that can't run during a unit test, write it in a module
-named `*system*` (ex. `src/system.rs`). These sources are excluded from
-coverage calculations. If necessary, provide a `cfg(test)` version of
-the code with trivial behavior. Also, explain in comments why it
-shouldn't be unit tested, if the reason isn't obvious.
-
-To run service tests, run the `builds/test/service-tests.sh` script,
-which runs versio and tests in a docker container.
 
 ## GitHub Actions
 
@@ -174,7 +156,7 @@ GitHub Actions to use them.
 As mentioned in the Yambler README, you can copy the companion script
 `yamble-repo-pre-push.sh` to a file named `.git/hooks/pre-push` in your
 local copy of the `versio` repo. This will ensure that your workflows
-are synced before you push them up.
+are synced before you share them.
 
 ## Platform-specific help
 
@@ -185,8 +167,8 @@ are synced before you push them up.
 [linux]: #linux
 
 When building on linux, you should set the following environment
-variables before running `cargo build`. The options below are the
-standard locations for Ubuntu 18 (bionic).
+variables before running `cargo build` or `cargo install`. The options
+below are the standard locations for Ubuntu 18 (bionic).
 
 ```
 $ export RUSTFLAGS='-D warnings -C link-args=-s'
@@ -197,7 +179,7 @@ the resulting executable is a reasonable size: without that option, the
 binary easily expand to over 100M. If you forget to include this option,
 you should manually run `strip` on the resulting executable.
 
-You need to have some gpg libraries installed to build this:
+You also need to install some gpg libraries first:
 
 ```
 sudo apt update
@@ -209,33 +191,61 @@ sudo apt install libgpgme-dev
 
 [windows]: #windows
 
-We compile using the MSVC toolchain (which is the default), so you'll
-need to install either Visual Studio (Community Edition 2017 works), or
-install the MSVC runtime components. Make sure you install the C/C++
-base components during the installation dialog. If you try to install
-Rust without these, it will provide intructions.
+We compile using the MSVC ([M]icro[S]oft [V]isual studio [C]omponents)
+toolchain, which is the default. The latest version of Rust allows you
+to install Community Edition C Components as part of the Rust MSVC
+target installation; this is the easiest option if you don't already
+have Visual Studio installed. Otherwise, you'll need to install MSVC
+Visual Studio (Community Edition 2017 is tested) or its runtime
+components yourself.
 
 Because of the distribution of the GnuPG libraries for Windows, we build
 using the MSVC 32-bit toolchain to cross-compile for the GNU 32-bit
-target: see our GitHub Actions "release" workflow to see how we do that.
-It may be possible to build solely with the GNU toolchain via MSYS2
-and/or Mingw32, but this is currently untested. Additionally, statically
-linking in the GnuPG libraries is problematic, even if you can get it to
-work, and is not recommended.
+target. It may be possible to build solely with the GNU toolchain via
+MSYS2 and/or Mingw32, but this is currently untested. Additionally,
+statically linking in the GnuPG libraries is problematic, even if you
+can get it to work, and is not recommended.
 
-Additionally, you need to have the GpgME libraries installed to build;
-using Chocolatey is probably the easiest:
+In order to cross-compile to the windows-gnu target, the Gnu toolset
+must be installed: the best way for that is to install
+[MinGW](https://www.mingw-w64.org/) (Minimum Gnu for Windows).
+
+Additionally, you need to have the GpgME (GnuPG Made Easy) libraries
+installed to build. We've tested building with MinGW version 8.1.0.
+
+Using [Chocolatey](https://chocolatey.org/) to install both GpgME and
+MinGW is probably the easiest. Once you've installed Rust and
+Chocolatey, you can run the following commands. For more details,
+examine our GitHub Actions "release" workflow, which generates binaries
+for all platforms.
 
 ```
 choco install -y gnupg
+choco install mingw --version 8.1.0 --x86 -y
+choco install pkgconfiglite -y
+
+rustup toolchain add stable-i686-pc-windows-msvc
+rustup target add --toolchain stable-i686-pc-windows-msvc i686-pc-windows-gnu
+rustup default stable-i686-pc-windows-msvc
+rustup set default-host i686-pc-windows-gnu
+
+refreshenv  # or just restart the terminal window
+
+# to install:
+cargo +stable-i686-pc-windows-msvc install --target i686-pc-windows-gnu versio
+
+# or just build:
+cd VERSIO_REPO
+cargo +stable-i686-pc-windows-msvc build --target i686-pc-windows-gnu
 ```
 
 ### MacOS
 
 [macos]: #macos
 
-You need to have the GpgME libraries installed to build this; homebrew
-is probably the easiest:
+You need to install the GpgME (GnuPG Made Easy) libraries before running
+`cargo build` or `cargo install`; [homebrew](https://brew.sh/) is
+probably the easiest:
 
 ```
 brew update

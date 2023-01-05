@@ -11,52 +11,17 @@ Versio is especially intelligent when dealing with
 individual control of each project within the repo, but also managing
 dependencies and references among them.
 
-## Quick Start
+## Getting Started
 
-Versio is a binary written in the Rust programming language. If you have
-[installed Rust](https://www.rust-lang.org/tools/install), you can do
-this:
+The fastest way to install is to use one of the pre-built programs from
+our [Releases](https://github.com/chaaz/versio/releases). See the
+[Installation docs](./docs/installing.md) for more details and alternate
+methods to install Versio.
 
-```
-$ cargo install versio
-```
-
-You may first need to install some GPG libaries if this installation
-doesn't work. Here are some examples of what you might need:
-
-- Linux (using `apt`)
-
-    ```
-    sudo apt update
-    sudo apt install libgpg-error-dev
-    sudo apt install libgpgme-dev
-    ```
-
-- Windows (using Chocolatey)
-
-    ```
-    choco install -y gnupg
-    ```
-
-- MacOS (using Homebrew)
-
-    ```
-    brew update
-    brew install gpgme
-    ```
-
-Alternately, you can download one of the pre-built binaries for your
-platform from the [Releases
-page](https://github.com/chaaz/versio/releases).
-
-Versio requires GnuPG to be installed: this is commonly pre-packaged on
-many environments, but if you need to install it yourself, see the
-[Dependency page](./docs/dependencies.md) for details.
-
-See the [Quick Start](./docs/use_cases.md#quick-start) use case to get
-up and running quickly with Versio. Or, try this and see what happens:
+Once installed, try this in your project to create a new release:
 
 ```
+$ git pull
 $ versio init  # this creates .versio.yaml
 $ git add .versio.yaml .gitignore
 $ git commit -m "build: add versio management"
@@ -64,13 +29,15 @@ $ git push
 $ versio release
 ```
 
+We've listed plenty of other [use cases](./docs/use_cases.md) where you
+can use Versio in your projects.
+
 ## Who's using Versio?
 
 Versio is listed some places, and used by some projects. If you find
-Versio in the wild--or if you use it in your project--and it's not shown
-here, please submit an [issue](https://github.com/chaaz/versio/issues)
-or write a PR for this README, and we'll make sure you're added to our
-list.
+Versio in the wild--or if you use it yourself--and it's not shown here,
+please submit an [issue](https://github.com/chaaz/versio/issues). We'll
+make sure you're mentioned.
 
 We're listed here!
 
@@ -215,7 +182,7 @@ fork this repository and submit a pull request.
 native executables. Visit the Rust lang
 [homepage](https://www.rust-lang.org/en-US/index.html) to learn more
 about writing and compiling Rust programs, and see the
-[Contributing](docs/contributing.md) page for Versio specifically.
+[Contributing](./docs/contributing.md) page for Versio specifically.
 
 We also happily accept ideas, suggestions, documentation, tutorials, and
 any and all feedback. Leave a message on the support pages of this repo,
