@@ -26,7 +26,7 @@ value:
 
         On Windows, you need to install the GpgME package, which is available [here](https://gnupg.org/ftp/gcrypt/binary/gnupg-w32-2.3.1_20210420.exe) (Signature and checksum available from its [parent directory](https://gnupg.org/ftp/gcrypt/binary/)).
 
-        If you have any questions, you should view the [Dependency page](https://github.com/chaaz/versio/blob/main/docs/dependencies.md) for information about installing and testing dependencies.
+        If you have any questions, you should view the [Installation page](https://github.com/chaaz/versio/blob/main/docs/installing.md) for information about installing and testing dependencies.
 
         INSTALLATION: 
 
