@@ -1,9 +1,9 @@
 //! Management of reading and writing marks to files.
 
+use crate::bail;
 use crate::errors::Result;
 use crate::scan::parts::{deserialize_parts, Part};
 use crate::scan::{find_reg_data, scan_reg_data, JsonScanner, Scanner, TomlScanner, XmlScanner, YamlScanner};
-use error_chain::bail;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::fmt;

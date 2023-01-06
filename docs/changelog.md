@@ -25,13 +25,13 @@ projects:
   - name: "myproject"
     changelog:
       file: "dev_docs/CHANGELOG.html"
-      template: "file:internal/CHANGELOG.html.liquid"
+      template: "file:dev_docs/CHANGELOG.html.liquid"
 ```
 
 See the "Template URLs" section below to find out what templates you can
 use in this property.
 
-## Other changelog commands
+## Other Commands
 
 In addition to writing to a changelog at release, Versio has a few more
 commands to generate and examine your records and templates.
@@ -41,11 +41,11 @@ commands to generate and examine your records and templates.
 `versio plan --template=<template URL>`: While `plan` normally outputs a
 simple text description of version changes, using the `template` flag
 will produce output that is instead formatted according to a provided
-template. It is especially useful here to use `--template=builtin:json`,
-which will output a JSON document that describes all the PRs, commits,
-etc in a machine-readable format. You can later use that document in
-your own changelog process, if you want to go beyond Versio's
-capabilities.
+changelog template. It is especially useful here to use
+`--template=builtin:json`, which will output a JSON document that
+describes all the PRs, commits, etc in a machine-readable format. You
+can later use that document in your own changelog process, if you want
+to go beyond Versio's capabilities.
 
 When using this style of the `plan` command, if you have more than one
 project, you must provide a project ID (`--id=<project ID>`); Versio
@@ -54,8 +54,8 @@ single document.
 
 Using `versio plan --template=...` will generate a document without
 considering existing changelog contents. If your template uses the
-`old_content` property, then it will always be resolved to an empty
-string when using this command.
+`old_content` property (see below), then it will always be resolved to
+an empty string when using this command.
 
 ### Changelog previews
 
@@ -73,10 +73,9 @@ tag any releases. Furthermore, the new changelogs count as local
 modifications, so later Versio commands in that workspace may fail. If
 you intend to perform further release actions in the same workspace,
 first finish using the preview changelogs (or copy them somewhere they
-can be used), then revert them with `git checkout` or (for more modern
-versions of Git) `git restore`. You should probably not commit the
-previews, since that could risk double-writing release information to
-the changelogs.
+can be used), then revert them with `git restore` or (for older versions
+of Git) `git checkout`. You should probably not commit the previews,
+since that could risk double-writing release information.
 
 Be aware that previews may not exactly match the later release
 changelog: the release process may find different commits, PRs, access
@@ -84,7 +83,7 @@ permissions to Git or GitHub, or other environmental differences that
 may create a differing release plan. There may be commit or PR ordering
 differences, depending on recorded commit times. Also, if the changelog
 template uses the release date, clock time, or another non-fixed value,
-those might change during the release.
+those might be different during the actual release.
 
 ### Show template
 
@@ -120,8 +119,8 @@ protocols:
   `http://ci.myco.com/releases/templates/CHANGELOG.html.liquid-tmpl`.
 
   Remote templates is a powerful feature, allowing you or your
-  organization to manage a consistent document style. However, keep in
-  mind these caveats:
+  organization to manage a consistent document style across multiple
+  repos. However, keep in mind these caveats:
     - The entire document is used as the template, even if the URL
       contains a fragment section.
     - No client-side authentication is performed.
@@ -161,9 +160,9 @@ format. The following variables are available to the template:
           commits"
         - `size`: The size of the PR as it applies to the project.
           "major", "minor", etc.
-        - "href": A URL to the PR, if any.
-        - "link": True if and only if the PR has a valid href.
-        - "commits": A list of commits in this PR, as an array of
+        - `href`: A URL to the PR, if any.
+        - `link`: True if and only if the PR has a valid href.
+        - `commits`: A list of commits in this PR, as an array of
           structures:
             - `href`: the URL of the commit, if any.
             - `link`: True if and only if the PR has a valid href.
@@ -212,11 +211,11 @@ simple HTML template might look something like:
 ```
 
 When a changelog is created using the above template, it will start with
-a single `<span>` in the body. Notice the placement of the `old_content`
-variable: this will be set to the empty string if there is no existing
-file, or if the existing file doesn't have the start marker. On
-subsequent releases, it will contain all the existing inner content, so
-new entries appear at the top of the list.
+a single `<span>` in the body for each PR. Notice the placement of the
+`old_content` variable: this will be set to the empty string if there is
+no existing file, or if the existing file doesn't have the start marker.
+On subsequent releases, it will contain all the existing inner content,
+so new entries appear at the top of the list.
 
 The start marker is always the string `### VERSIO BEGIN CONTENT ###`
 regardless of what format the template is, and the end marker is `###

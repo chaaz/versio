@@ -17,9 +17,9 @@ jobs:
       all-matrix: "${{ steps.find-all-matrix.outputs.matrix }}"
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Get versio
-        uses: chaaz/versio-actions/install@v1.2
+        uses: chaaz/versio-actions/install@v1.3
       - name: Find cargo matrix
         id: find-cargo-matrix
         run: "echo \"::set-output name=matrix::{\\\"include\\\":$(versio -l none info -l cargo -R -N)}\""
@@ -31,9 +31,9 @@ jobs:
     if: "!contains(github.event.head_commit.message, 'skip ci')"
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Get versio
-        uses: chaaz/versio-actions/install@v1.2
+        uses: chaaz/versio-actions/install@v1.3
       - name: Fetch history
         run: git fetch --unshallow
       - name: Check projects
@@ -51,7 +51,7 @@ jobs:
         working-directory: "${{ matrix.root }}"
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libgpg-error-dev libgpgme-dev
       - name: Get cargo stable
@@ -86,9 +86,9 @@ jobs:
     if: "!contains(github.event.head_commit.message, 'skip ci')"
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Get versio
-        uses: chaaz/versio-actions/install@v1.2
+        uses: chaaz/versio-actions/install@v1.3
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y libgpg-error-dev libgpgme-dev
       - name: Get cargo stable
@@ -117,7 +117,7 @@ jobs:
         working-directory: "${{ matrix.root }}"
     steps:
       - name: Checkout release
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           ref: main
       - name: Install dependencies
@@ -154,11 +154,11 @@ jobs:
       upload_url: "${{ steps.publish-to-github.outputs.upload_url }}"
     steps:
       - name: Checkout release
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           ref: main
       - name: Get versio
-        uses: chaaz/versio-actions/install@v1.2
+        uses: chaaz/versio-actions/install@v1.3
       - name: Find version
         id: find-version
         run: "echo ::set-output name=version::$(versio -l none info -i 0 -F | jq -r '.[0].full_version')"
@@ -168,7 +168,7 @@ jobs:
         with:
           tag_name: "${{ steps.find-version.outputs.version }}"
           release_name: "(TODO) RELEASE FOR ${{ steps.find-version.outputs.version }}"
-          body: "(TODO) SUMMARY\n- (TODO) FEATURE1\n\nNew to Versio? The [repository](https://github.com/chaaz/versio) is the best place to learn about Versio and what it can do. If you want to report a bug or request a feature, you can do so at our [Issues](https://github.com/chaaz/versio/issues) link, but we ask you first read the [Troubleshooting](https://github.com/chaaz/versio/blob/main/docs/troubleshooting.md) page learn about problems and their solutions.\n\nDEPENDENCIES:\n\nOn MacOS and Linux, you must have GPG tools installed. These tools are installed by default on most distributions of Linux and MacOS. If you can run `git`, then you probably have the necessary tools already installed.\n\nOn Windows, you need to install the GpgME package, which is available [here](https://gnupg.org/ftp/gcrypt/binary/gnupg-w32-2.3.1_20210420.exe) (Signature and checksum available from its [parent directory](https://gnupg.org/ftp/gcrypt/binary/)).\n\nIf you have any questions, you should view the [Dependency page](https://github.com/chaaz/versio/blob/main/docs/dependencies.md) for information about installing and testing dependencies.\n\nINSTALLATION: \n\nTo install, follow the instructions for your platform; some files might be zipped for improved download speed. For example, on MacOS you can do something like this (assuming `~/bin` exists and is in your PATH):\n\n```sh\ncurl -L https://github.com/chaaz/versio/releases/download/${{ steps.find-version.outputs.version }}/versio__x86_64-apple-darwin -o ~/bin/versio\nchmod +x ~/bin/versio\n```\n\n**MacOS:** download `versio__x86_64-apple-darwin`, copy to `versio` in your PATH.\n**GNU Linux 64:** download `versio__x86_64-unknown-linux-gnu`, copy to `versio` in your PATH.\n**Windows:** download `versio__x86_64-pc-win32.exe`, copy to `versio.exe` in your %PATH.\n"
+          body: "(TODO) SUMMARY\n- (TODO) FEATURE1\n\nNew to Versio? The [repository](https://github.com/chaaz/versio) is the best place to learn about Versio and what it can do. If you want to report a bug or request a feature, you can do so at our [Issues](https://github.com/chaaz/versio/issues) link, but we ask you first read the [Troubleshooting](https://github.com/chaaz/versio/blob/main/docs/troubleshooting.md) page learn about problems and their solutions.\n\nDEPENDENCIES:\n\nOn MacOS and Linux, you must have GPG tools installed. These tools are installed by default on most distributions of Linux and MacOS. If you can run `git`, then you probably have the necessary tools already installed.\n\nOn Windows, you need to install the GpgME package, which is available [here](https://gnupg.org/ftp/gcrypt/binary/gnupg-w32-2.3.1_20210420.exe) (Signature and checksum available from its [parent directory](https://gnupg.org/ftp/gcrypt/binary/)).\n\nIf you have any questions, you should view the [Installation page](https://github.com/chaaz/versio/blob/main/docs/installing.md) for information about installing and testing dependencies.\n\nINSTALLATION: \n\nTo install, follow the instructions for your platform; some files might be zipped for improved download speed. For example, on MacOS you can do something like this (assuming `~/bin` exists and is in your PATH):\n\n```sh\ncurl -L https://github.com/chaaz/versio/releases/download/${{ steps.find-version.outputs.version }}/versio__x86_64-apple-darwin -o ~/bin/versio\nchmod +x ~/bin/versio\n```\n\n**MacOS:** download `versio__x86_64-apple-darwin`, copy to `versio` in your PATH.\n**GNU Linux 64:** download `versio__x86_64-unknown-linux-gnu`, copy to `versio` in your PATH.\n**Windows:** download `versio__x86_64-pc-win32.exe`, copy to `versio.exe` in your %PATH.\n"
           draft: true
           prerelease: false
           commitish: main
@@ -196,7 +196,7 @@ jobs:
     runs-on: "${{ matrix.os }}"
     steps:
       - name: Checkout release
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           ref: main
       - name: Install Ubuntu dependencies
@@ -270,9 +270,11 @@ jobs:
           GPGME_INCLUDE: "/usr/local/opt/libassuan/include:/usr/local/opt/gpgme/include"
           GPGME_LIB_DIR: "/usr/local/opt/libassuan/lib:/usr/local/opt/gpgme/lib"
           GPGME_LIBS: "static=gpgme:static=assuan"
-      - name: Add mingw32 to PATH
+      - name: Set up MinGW
         if: "matrix.os == 'windows-latest'"
-        run: "echo \"C:\\msys64\\mingw32\\bin\" >> $env:GITHUB_PATH\n"
+        uses: egor-tensin/setup-mingw@v2
+        with:
+          platform: x86
       - name: Build Windows binary
         if: "matrix.os == 'windows-latest'"
         run: cargo build --release --target i686-pc-windows-gnu

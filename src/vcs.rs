@@ -1,11 +1,11 @@
 //! Simple management of the current VCS level that we're running at.
 
+use crate::bail;
 use crate::errors::Result;
 use crate::git::Repo;
-use error_chain::bail;
-use log::debug;
 use std::cmp::{max, min};
 use std::str::FromStr;
+use tracing::debug;
 
 #[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug)]
 pub struct VcsState {

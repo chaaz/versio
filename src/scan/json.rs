@@ -35,7 +35,7 @@ fn scan_json<P: IntoPartVec>(data: &str, loc: P) -> Result<Mark> {
   let reader = MeteredReader::new(data.as_bytes(), trace.clone());
 
   let value = pop(parts, trace.clone()).deserialize(&mut serde_json::Deserializer::from_reader(reader))?;
-  let index = trace.lock()?.find_start()?;
+  let index = trace.lock().expect("new mutex should be available").find_start()?;
 
   let mark = Mark::new(value, index);
   Ok(mark)

@@ -7,7 +7,7 @@ value:
   if: SNIPPET_not-skip-ci
   steps:
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
     - SNIPPET_versio-actions-install
     - SNIPPET_get-cargo-minimal
     - name: Fetch history

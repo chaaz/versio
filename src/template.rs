@@ -1,10 +1,10 @@
 //! Template and changelog management for Versio.
 
+use crate::bail;
 use crate::errors::Result;
 use crate::mono::{Changelog, ChangelogEntry};
 use crate::output::ProjLine;
 use chrono::prelude::Utc;
-use error_chain::bail;
 use hyper::Client;
 use liquid::ParserBuilder;
 use path_slash::PathBufExt;

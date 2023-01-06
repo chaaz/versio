@@ -27,14 +27,14 @@ pub async fn changes(auth: &Auth, repo: &Repo, baseref: FromTagBuf, headref: Str
 
   let mut discover_order = 0;
   let mut queue = VecDeque::new();
-  let offset = FixedOffset::west(0);
+  let offset = FixedOffset::west_opt(0).expect("0 should be in bounds");
   let pr_zero = FullPr::lookup(
     repo,
     baseref,
     headref.clone(),
     0,
     "".into(),
-    offset.timestamp(Utc::now().timestamp(), 0),
+    offset.timestamp_opt(Utc::now().timestamp(), 0).single().expect("utc/0 in bounds"),
     discover_order
   )?;
   discover_order += 1;
@@ -168,7 +168,7 @@ fragment commitResult on Commit {
     }
   }
 
-  Ok(changes.into_iter().map(|(_, v)| v).collect())
+  Ok(changes.into_values().collect())
 }
 
 pub struct Changes {
@@ -297,8 +297,8 @@ fn deserialize_datetime<'de, D: Deserializer<'de>>(desr: D) -> std::result::Resu
     }
 
     fn visit_none<E: de::Error>(self) -> std::result::Result<Self::Value, E> {
-      let offset = FixedOffset::west(0);
-      Ok(offset.timestamp(Utc::now().timestamp(), 0))
+      let offset = FixedOffset::west_opt(0).expect("0 in bounds");
+      Ok(offset.timestamp_opt(Utc::now().timestamp(), 0).single().expect("utc/0 in bounds"))
     }
 
     fn visit_unit<E: de::Error>(self) -> std::result::Result<Self::Value, E> { self.visit_none() }

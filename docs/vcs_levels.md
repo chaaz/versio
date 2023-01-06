@@ -22,18 +22,18 @@ There are four such levels, ordered from minimal to maximal:
 - **Smart**: As "Remote", but also applies intelligence that requires
   interaction with other VCS-related entities e.g. the GitHub API. For
   example, commits in a GitHub-based repo can be grouped by Pull
-  Request.
+  Request (see [PR Scanning](./pr_scanning.md)).
 
 ### Vs Dry Run
 
 The VCS Level is distinct from the idea of a "dry run". A "dry run" flag
-prohibits a command from writing anything at any level, but makes no
-strictures on what can be read. For example, the flags
-`--vcs-level=smart --dry-run` can still read data from the GitHub remote
-and API, but will not commit any changes. Using `--vcs-level=local`
-without `--dry-run` will not read any data from the remote, nor will it
-write to the remote: however, it may still write to the filesystem, and
-commit and tag any changes to the local repository.
+prohibits a command from writing anything at any level, but doesn't
+affect what is read. For example, the flags `--vcs-level=smart
+--dry-run` can still read data from the GitHub remote and API, but will
+not commit any changes. Using `--vcs-level=local` without `--dry-run`
+will not read any data from the remote, nor will it write to the remote:
+however, it may still write to the filesystem, and commit and tag any
+changes to the local repository.
 
 ### Vs Pause
 
@@ -45,7 +45,7 @@ In fact, you can supply a different VCS level to commands with the
 portion of the operation it applies to.
 
 You could, for example, run `versio -l smart release --pause commit` to
-gather information and write a new versions and changelogs based on pull
+gather information and write new versions and changelogs based on pull
 request information from the remote GitHub API, but then run `versio -l
 local release --resume` to commit and tag only the local repo.
 
@@ -55,8 +55,8 @@ The `--no-current` flag only works on some commands, and only when the
 final VCS level is calculated as "local" (see "Calculation" below).
 Normally all commands at the "local" level will verify that the repo is
 current: i.e., it does not contain local modifications or untracked
-files. These commands don't make any changes though, so it may be safe
-to run them without this check, depending on your workflow.
+files. Some commands don't make any changes though, so it may be safe to
+run them without this check, depending on your workflow.
 
 At a VCS level of "remote" or higher, the check is always done (the
 `--no-current` flag is ignored) because only a current repo can be
@@ -65,8 +65,8 @@ consulted in any case, so the flag is effectively ignored.
 
 ## Calculation
 
-Every Versio command except for `versio init` calculates the final VCS
-level using three inputs, each of which is itself a range of levels:
+Every Versio command except for `init` and `schema` calculates the final
+VCS level using three inputs, each of which is itself a range of levels:
 
 1. The _preferred_ range is given by the user, or by the command itself
    if the user doesn't provide it.
@@ -79,7 +79,7 @@ level using three inputs, each of which is itself a range of levels:
    The min of the detected range is usually the lowest value, "None".
 
 In the presence of these three ranges, the final VCS level is calculated
-as the maximum in the intersection of all three ranges. For example, if
+as the maximum of the intersection of all three ranges. For example, if
 the preferred range is [Local, Remote], and the required range is
 [Local, Smart], and the detected range is [None, Remote], then the
 highest intersected value is 'Remote', which is what the command will
@@ -88,8 +88,8 @@ run as.
 If there is no common intersection of the three ranges, then the command
 will immediately fail without any attempt to read or write anything.
 
-The `versio init` command does not interact with VCS, and so ignores all
-VCS levels.
+The `init` and `schema` commands do not interact with VCS, and so ignore
+all VCS levels.
 
 Most Versio commands try to find the `root` of a repository to run in:
 this is either the base directory of the local VCS (if any is detected),
@@ -141,6 +141,9 @@ command-line options you can use to set the preferred range:
 ## Tips
 
 - Use `vcs-level-max=local` to avoid incurring any network traffic.
+
+- Use `versio -l local -c <command>` to run a versio command without
+  worrying about the state of your repository.
 
 - Use `vcs-level-max=remote` to avoid using the GitHub API. All commands
   can operate at this level, although your changelogs and sizing

@@ -21,10 +21,10 @@ projects that use `version: tags`. The default value is used when no
 existing "projname-v*x.y.z*" tags currently exist. You can use the
 `tag_prefix_separator` property to use a separator other than `-`.
 
-Since `tag_prefix` is used to find older tags of a project, you should
-not change it. If you change the `tag_prefix` or `tag_prefix_separator`,
-you may need to manually re-tag your commit history, or else Versio may
-be unable to locate past version numbers.
+Since `tag_prefix` is also used to find older tags of a project, you
+should not change it. If you change the `tag_prefix` or
+`tag_prefix_separator`, you may need to manually re-tag your commit
+history, or else Versio may be unable to locate past version numbers.
 
 If a project uses `version: tags:`, you may want to use the
 `--vcs-level=max` option while running the `versio set` command for that
@@ -32,13 +32,21 @@ project.
 
 ## Using --lock-tags
 
-The `release` command accepts a `--lock-tags` argument, which is helpful
-if you're using deploy tools that require tags to always refer to the
-same commit, but might mean that users who use your tags don't always
-get the latest changes. If you absolutely need to use `--lock-tags`, you
-consider making most change types have the `patch` increment size,
-rather than `none`: see the sizes documentation in the config file
-section of the [Reference](./reference).
+The `release` command accepts a `--lock-tags` argument. Normally, if
+changes are made to a project that only fall under the `none` size
+(i.e., changes that don't increment a project's version number), the
+project's tag is still advanced to contain all the changes. So, for
+example, the tag `v1.2.3` might move to an new commit, even if that
+commit only contains documentation changes. If you use `--lock-tags`,
+however, a project tag is never advanced: if no version-changing commits
+are made, then the project's tag is unchanged.
+
+This is helpful if you're using deploy tools that require tags to always
+refer to the same commit, but might mean that users who use your tags
+don't always get the latest changes. If you absolutely need to use
+`--lock-tags`, consider making change types fall under the `patch`
+increment size, rather than `none`: see the sizes documentation in the
+config file section of the [Reference](./reference.md).
 
 ## In Go projects
 
@@ -48,8 +56,8 @@ most Go tools. Especially `go get` and `go mod`, which search for
 version tags in that form. If you do use a prefix, you'll need to
 reference your project with the fully-qualified tag: e.g. `go get
 server.io/path/to/proj@prefix-v1.2.3`. Failure to use a tag properly
-will probably just get you the latest commit, which is probably not what
-you want. If you need to also use a major subdirectory (see [Major
+will probably just get you the latest commit, which may not be what you
+want. If you need to also use a major subdirectory (see [Major
 Subdirectories](./subs.md)), you'll need to reference using a full path
 like `server.io/path/to/proj/v3@prefix-v3.2.1`.
 

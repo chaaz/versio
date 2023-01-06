@@ -1,10 +1,9 @@
 //! The mechanisms used to read and write state, both current and historical.
 
 use crate::config::{CommitConfig, HookSet, ProjectId};
-use crate::errors::{Result, ResultExt as _};
+use crate::errors::{Context as _, Result};
 use crate::git::{FromTagBuf, Repo, Slice};
 use crate::mark::{NamedData, Picker};
-use log::{trace, warn};
 use path_slash::{PathBufExt as _, PathExt as _};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -12,6 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs::OpenOptions;
 use std::mem::take;
 use std::path::{Path, PathBuf};
+use tracing::{trace, warn};
 
 pub trait StateRead: FilesRead {
   fn latest_tag(&self, proj: &ProjectId) -> Option<&String>;
@@ -61,7 +61,7 @@ pub struct CurrentFiles {
 
 impl FilesRead for CurrentFiles {
   fn has_file(&self, path: &Path) -> Result<bool> { Ok(self.root.join(path).exists()) }
-  fn read_file(&self, path: &Path) -> Result<String> { Ok(std::fs::read_to_string(&self.root.join(path))?) }
+  fn read_file(&self, path: &Path) -> Result<String> { Ok(std::fs::read_to_string(self.root.join(path))?) }
 
   fn subdirs(&self, root: Option<&String>, regex: &str) -> Result<Vec<String>> {
     let filter = Regex::new(regex)?;
@@ -342,7 +342,7 @@ impl FileWrite {
   pub fn write(&self) -> Result<()> {
     match self {
       FileWrite::Write { path, val, .. } => {
-        Ok(std::fs::write(path, val).chain_err(|| format!("Can't write to {}", path.to_string_lossy()))?)
+        Ok(std::fs::write(path, val).with_context(|| format!("Can't write to {}", path.to_string_lossy()))?)
       }
       // FileWrite::Append { path, val } => {
       //   let mut file = OpenOptions::new().append(true).open(path)?;
@@ -363,8 +363,8 @@ impl PickPath {
   pub fn new(file: PathBuf, picker: Picker) -> PickPath { PickPath { file, picker } }
 
   pub fn write_value(&self, val: &str) -> Result<()> {
-    let data =
-      std::fs::read_to_string(&self.file).chain_err(|| format!("Can't read file {}.", self.file.to_string_lossy()))?;
+    let data = std::fs::read_to_string(&self.file)
+      .with_context(|| format!("Can't read file {}.", self.file.to_string_lossy()))?;
     let data = NamedData::new(self.file.clone(), data);
     let mut mark = self.picker.scan(data)?;
     mark.write_new_value(val)?;
@@ -375,6 +375,6 @@ impl PickPath {
 pub fn read_from_slice<P: AsRef<Path>>(slice: &Slice, path: P) -> Result<String> {
   let path = path.as_ref().to_slash_lossy();
   let blob = slice.blob(&path)?;
-  let cont: &str = std::str::from_utf8(blob.content()).chain_err(|| format!("Not UTF8 content: {}", path))?;
+  let cont: &str = std::str::from_utf8(blob.content()).with_context(|| format!("Not UTF8 content: {}", path))?;
   Ok(cont.to_string())
 }

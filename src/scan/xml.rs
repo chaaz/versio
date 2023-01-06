@@ -1,12 +1,12 @@
 //! Utilities to find a mark in a XML file.
 
+use crate::bail;
 use crate::errors::Result;
 use crate::mark::Mark;
 #[cfg(test)]
 use crate::scan::parts::ToPart;
 use crate::scan::parts::{is_match_str, IntoPartVec, Part};
 use crate::scan::Scanner;
-use error_chain::bail;
 use xmlparser::{ElementEnd, Token, Tokenizer};
 
 pub struct XmlScanner {

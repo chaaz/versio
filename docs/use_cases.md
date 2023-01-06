@@ -6,18 +6,8 @@ please let us know!
 
 ## Quick Start
 
-Get up and running quickly with Versio, and get a brief introduction to
-what it does. This example assumes a standard Node.js/NPM layout, but
-Versio can handle lots of different project types.
+Get up and running quickly with Versio in a new or existing project.
 
-If you don't have Rust installed, you can't use `cargo install`.
-Instead, download a binary for your platform directly from the [Releases
-page](https://github.com/chaaz/versio/releases).
-
-- Install versio:
-  ```
-  $ cargo install versio  # or download a pre-built binary to your PATH
-  ```
 - Create and commit a simple config file:
   ```
   $ git pull
@@ -25,6 +15,7 @@ page](https://github.com/chaaz/versio/releases).
   $ git add .versio.yaml .gitignore
   $ git commit -m "build: add versio management"
   $ git push
+  $ versio release
   ```
 - If you want to use the GitHub API for [PR scanning](./pr_scanning.md),
   you'll need to update your `~/.versio/prefs.toml` file: See the
@@ -38,12 +29,12 @@ page](https://github.com/chaaz/versio/releases).
   Changes committed and pushed.
   ```
 
-## Switching a Repo
+## Add Versio to an existing Repo
 
 If you've been releasing your project for a while before switching to
 Versio, you might not want to scan your entire project history the first
-time you release with Versio. You can tag the commit of your latest
-release to indicate that's where Versio should pick up:
+time you release. You can tag the commit of your latest release to
+indicate that's where Versio should pick up:
 
 ```
 $ git tag -f versio-prev <last_release_commit>
@@ -102,33 +93,29 @@ they were set by the last execution of `versio release`.
   If you rely solely on Versio to update project numbers for you, then
   the last-released version will usually match the current version.
 
-## Change a Project Version (solo project)
+## Change a Project Version
 
-If you have a single project configured, and you want to manually view
-and set its version.
+If you want to manually set a version.
 
 ```
 $ versio set --value 1.2.3
 ```
 
-The next use case: "Change a Project Version (mutliple projects)" has
-caveats to use this command on "version: tags" projects.
-
-## Change a Project Version (multiple projects)
-
-If you have more than one project configured, and you must know the ID
+If you have more than one project configured, and you must supply the ID
 or the name of the project you want to change.
 
 ```
 $ versio set --id 1 --value 1.2.3
+$ versio set --name my_proj --value 1.2.3
+$ versio set --exact my_project --value 1.2.3
 ```
 
 ### Tags projects
 
 By default, `set` has a default VCS level of `none` (see [VCS
 Levels](./vcs_levels.md)), so it won't commit, tag, or push your new
-version to a remote. This works great on most projects, allowing to you
-make quick changes to your manifest file. However, "version: tags"
+version to a remote. This works great for most projects, allowing to you
+make quick local changes to your manifest file. However, "version: tags"
 projects have no manifest, and keep version numbers only in tags; `set`
 by default performs no action for these. To change a version in the VCS,
 you can use a different VCS level, like this:
@@ -158,29 +145,30 @@ directories or files listed in any `.gitignore` files. If you want to
 include projects in hidden or ignored locations, you'll have to add
 those by hand to the resulting `.versio.yaml` file.
 
-## Using Gitflow / Oneflow
+## Gitflow / Oneflow
 
 If you're using
 [Gitflow](https://www.atlassian.com/git/tutorials/comparing-workflows/gitflow-workflow),
 [Oneflow](https://www.endoflineblog.com/oneflow-a-git-branching-model-and-workflow),
-or a similar process, you may want to have separate branchs for hotfixes
-or maintained versions.
+or a similar process, you may have separate branchs for hotfixes or
+maintained versions.
 
-To do this, you can use the "prev tag" option. What you want to do for a
-hotfix is have the hotfix branch use a different tag than the tag on
-your main branch (which is `versio-prev` by default). Here's what to do:
+To use Versio in these flows, you can use the "prev tag" option. What
+you want is have the hotfix branch use a different "prev tag" (default
+`versio-prev`) than your main branch. Here's what to do:
 
 1. Create a new branch as normal for a hotfix: this will be at a
    branch-point, where the branch diverges from the main release trunk.
-   E.g. `git checkout -b hotfix-1234 v1.0.0`
-2. Tag the branch-point with a unique "prev" tag; something based on the
+   E.g. `git switch -c hotfix-1234 v1.0.0` (`git checkout -b hotfix-1234
+   v1.0.0` for older versions of git)
+2. Tag the branch-point with a unique "prev tag"; something based on the
    branch name would be ideal. E.g. `git tag versio-prev-hotfix-1234`.
    If there are specific project versions you want that branch to start
    from, you can help the process by annotating the tag: `git tag -f -a
    -m '{"versions":{"1":"0.1.2","2":"5.2.1"}}' versio-prev-hotfix-1234`.
    Otherwise, Versio will try to figure it out.
-3. Change the `prev-tag` option in the `.versio.yaml` file in that new
-   branch to point to your new "prev tag":
+3. Change the `prev-tag` option in the `.versio.yaml` file **in the new
+   branch** to point to your new "prev tag":
    ```
    options:
      prev_tag: "versio-prev-hotfix-1234"
@@ -221,12 +209,12 @@ jobs:
       npm-matrix: "${{ steps.find-npm-matrix.outputs.matrix }}"
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Get versio
-        uses: chaaz/versio-actions/install@v1.2
+        uses: chaaz/versio-actions/install@v1.3
       - name: Find npm matrix
         id: find-npm-matrix
-        run: "echo \"::set-output name=matrix::{\\\"include\\\":$(versio -l none info -l npm -R -N)}\""
+        run: echo matrix={\"include\":$(versio -l none info -l npm -R -N)} >> $GITHUB_OUTPUT
   npm-tests:
     needs: project-matrixes
     runs-on: ubuntu-latest
@@ -234,7 +222,7 @@ jobs:
       matrix: "${{ fromJson(needs.project-matrixes.outputs.npm-matrix) }}"
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Run local tests
         run: npm test
         working-directory: "${{ matrix.root }}"
@@ -265,13 +253,13 @@ plan` to log the version changes which will be applied once merged.
 
 Use the example snippet to build a workflow for pull requests that can
 verify that Versio is configured correctly for all projects, and which
-will print out all changes in the pr, and their possible effect on the
+will print out all changes in the PR, and their possible effect on the
 project(s) version numbers.
 
-Note the use of `checkout@v2`, and the following `git fetch --unshallow`
+Note the use of `checkout@v3`, and the following `git fetch --unshallow`
 command, which is necessary to fill in the git history before `versio`
 is asked to analyze it. Also, we've provided a
-`versio-actions/install@v1.2` command which installs the `versio`
+`versio-actions/install@v1.3` command which installs the `versio`
 command into the job. (Currently, the `versio-actions/install` action
 only works for linux-based runners.)
 
@@ -289,9 +277,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Get versio
-        uses: chaaz/versio-actions/install@v1.2
+        uses: chaaz/versio-actions/install@v1.3
       - name: Fetch history
         run: git fetch --unshallow
       - name: Check projects
@@ -302,23 +290,22 @@ jobs:
 
 ## CI Release
 
-As part of your CI (continuous integration)/CD (continuous deployment)
-pipeline, you can create an action to execute `versio release`, which
-will update the version numbers, generate changelogs, and commit and
-push all changes. You can set this action to run automatically when a
-branch has been merged to a release branch, or at any other time you
-want your software to be released.
+As part of your CI/CD pipeline, you can create an action to execute
+`versio release`, which will update the version numbers, generate
+changelogs, and commit and push all changes. You can set this action to
+run automatically when a branch has been merged to a release branch, or
+at any other time you want your software to be released.
 
 ### About Timing
 
 It's important to note that nothing can be pushed to the release branch
-during the short time that Versio is running, or else `versio release`
-will fail. There are a number of ways you can deal with this: from
-locking the branch while Versio is running; to creating a pre-release
-branch to separate merges from the release process; to simply ignoring
-the problem and manually re-running the CI action if it gets stuck; and
-more. The strategy you use is dependent on the specifics of your
-organization and CI/CD process.
+during the short time that `versio release` is running, or else it will
+fail. There are a number of ways you can deal with this: from locking
+the branch while Versio is running; to creating a pre-release branch to
+separate merges from the release process; to simply ignoring the problem
+and manually re-running the CI action if it gets stuck; and more. The
+strategy you use is dependent on the specifics of your organization and
+CI/CD process.
 
 ### GitHub Actions
 
@@ -331,9 +318,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - name: Get versio
-        uses: chaaz/versio-actions/install@v1.2
+        uses: chaaz/versio-actions/install@v1.3
       - name: Fetch history
         run: git fetch --unshallow
       - name: Generate release

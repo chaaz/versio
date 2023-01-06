@@ -7,7 +7,7 @@ value:
     all-matrix: ${{ steps.find-all-matrix.outputs.matrix }}
   steps: 
     - name: Checkout code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
     - SNIPPET_versio-actions-install
     - name: Find cargo matrix
       id: find-cargo-matrix
