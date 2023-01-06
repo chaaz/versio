@@ -1,14 +1,14 @@
 //! The command-line options for the executable.
 
+use crate::bail;
 use crate::config::{Config, ConfigFile, ProjectId, Size};
-use crate::errors::{Result, ResultExt};
+use crate::errors::{Context as _, Result};
 use crate::git::Repo;
 use crate::mono::{Mono, Plan};
 use crate::output::{Output, ProjLine};
 use crate::state::{CommitState, StateRead};
 use crate::template::read_template;
 use crate::vcs::{VcsLevel, VcsRange, VcsState};
-use error_chain::bail;
 use std::collections::HashMap;
 use std::fs::{remove_file, File};
 use std::io::BufReader;
@@ -319,9 +319,9 @@ pub async fn release(
 
     let curt_vers = curt_config
       .get_value(id)
-      .chain_err(|| format!("Unable to find project {} value.", id))?
+      .with_context(|| format!("Unable to find project {} value.", id))?
       .unwrap_or_else(|| panic!("No such project {}.", id));
-    let prev_vers = prev_config.get_value(id).chain_err(|| format!("Unable to find prev {} value.", id))?;
+    let prev_vers = prev_config.get_value(id).with_context(|| format!("Unable to find prev {} value.", id))?;
     let new_vers = if size == &Size::Empty {
       output.write_no_change(all, false, name.clone(), prev_vers.clone(), curt_vers.clone());
       curt_vers

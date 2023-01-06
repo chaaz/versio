@@ -3,7 +3,7 @@
 use crate::analyze::Analysis;
 use crate::commands::{failed_hashes, InfoShow};
 use crate::config::{Project, ProjectId, Size};
-use crate::errors::{Result, ResultExt};
+use crate::errors::{Context as _, Result};
 use crate::github::Changes;
 use crate::mono::ChangelogEntry;
 use crate::mono::{Mono, Plan};
@@ -372,10 +372,10 @@ impl PlanOutput {
 
       let curt_config = mono.config();
       let prev_config = curt_config.slice_to_prev(mono.repo())?;
-      let prev_vers = prev_config.get_value(id).chain_err(|| format!("Unable to find prev {} value.", id))?;
+      let prev_vers = prev_config.get_value(id).with_context(|| format!("Unable to find prev {} value.", id))?;
       let curt_vers = curt_config
         .get_value(id)
-        .chain_err(|| format!("Unable to find project {} value.", id))?
+        .with_context(|| format!("Unable to find project {} value.", id))?
         .unwrap_or_else(|| panic!("No such project {}.", id));
 
       if let Some(prev_vers) = prev_vers {
@@ -465,7 +465,7 @@ impl PlanOutput {
       let curt_config = mono.config();
       let curt_vers = curt_config
         .get_value(id)
-        .chain_err(|| format!("Unable to find project {} value.", id))?
+        .with_context(|| format!("Unable to find project {} value.", id))?
         .unwrap_or_else(|| panic!("No such project {}.", id));
 
       let proj = curt_config.get_project(id).ok_or_else(|| bad!("No such project ID {}", id))?;

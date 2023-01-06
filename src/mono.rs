@@ -1,6 +1,7 @@
 //! A monorepo can read and alter the current state of all projects.
 
 use crate::analyze::{analyze, Analysis};
+use crate::bail;
 use crate::config::{Config, ConfigFile, Depends, FsConfig, Project, ProjectId, Size};
 use crate::either::{IterEither2 as E2, IterEither3 as E3};
 use crate::errors::Result;
@@ -9,13 +10,12 @@ use crate::github::{changes, line_commits_head, Changes};
 use crate::state::{CommitArgs, CurrentState, OldTags, PrevFiles, PrevTagMessage, StateRead, StateWrite};
 use crate::vcs::VcsState;
 use chrono::{DateTime, FixedOffset};
-use error_chain::bail;
-use log::trace;
 use serde::Deserialize;
 use std::cmp::{max, Ordering};
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::iter::{empty, once};
 use std::path::{Path, PathBuf};
+use tracing::trace;
 
 const USER_PREFS_DIR: &str = ".versio";
 const USER_PREFS_FILE: &str = "prefs.toml";

@@ -2,18 +2,17 @@
 
 use crate::config::{CommitConfig, CONFIG_FILENAME};
 use crate::either::IterEither2 as E2;
-use crate::errors::{Result, ResultExt};
+use crate::errors::{Context as _, Result};
 use crate::vcs::{VcsLevel, VcsState};
+use crate::{bad, bail};
 use chrono::offset::Utc;
 use chrono::{DateTime, FixedOffset, TimeZone};
-use error_chain::bail;
 use git2::build::CheckoutBuilder;
 use git2::string_array::StringArray;
 use git2::{AnnotatedCommit, AutotagOption, Blob, Commit, Cred, CredentialType, Diff, DiffOptions, FetchOptions, Index,
            Object, ObjectType, Oid, PushOptions, Reference, ReferenceType, Remote, RemoteCallbacks, Repository,
            RepositoryOpenFlags, RepositoryState, ResetType, Revwalk, Signature, Sort, Status, StatusOptions, Time};
 use gpgme::{Context, Protocol};
-use log::{error, info, trace, warn};
 use path_slash::PathBufExt as _;
 use regex::Regex;
 use serde::Deserialize;
@@ -26,6 +25,7 @@ use std::fmt;
 use std::io::{stdout, Write};
 use std::iter::empty;
 use std::path::{Path, PathBuf};
+use tracing::{error, info, trace, warn};
 
 pub struct Repo {
   vcs: GitVcsLevel,
@@ -139,7 +139,7 @@ impl Repo {
   pub fn revparse_oid(&self, spec: FromTag) -> Result<String> {
     let repo = self.repo()?;
     if !self.ignore_current {
-      verify_current(repo).chain_err(|| "Can't complete revparse.")?;
+      verify_current(repo).context("Can't complete revparse.")?;
     }
     Ok(repo.revparse_single(spec.tag())?.id().to_string())
   }
@@ -153,7 +153,7 @@ impl Repo {
       GitVcsLevel::Remote { repo, remote_name, .. } | GitVcsLevel::Smart { repo, remote_name, .. } => {
         let fetch_pat = if let Some(pat) = pattern { pat } else { "*" };
         let specs: &[&str] = &[&format!("refs/tags/{pat}:refs/tags/{pat}", pat = fetch_pat)];
-        safe_fetch(repo, remote_name, specs, false).chain_err(|| format!("Can't fetch tags \"{}\"", fetch_pat))?;
+        safe_fetch(repo, remote_name, specs, false).with_context(|| format!("Can't fetch tags \"{}\"", fetch_pat))?;
         Ok(IterString::Git(repo.tag_names(pattern)?))
       }
     }
@@ -233,7 +233,7 @@ impl Repo {
       GitVcsLevel::None { .. } => bail!("Can't get OID at `none`."),
       GitVcsLevel::Local { repo, .. } => {
         if !self.ignore_current {
-          verify_current(repo).chain_err(|| "Can't complete get.")?;
+          verify_current(repo).context("Can't complete get.")?;
         }
         get_oid_local(repo, spec)
       }
@@ -241,7 +241,7 @@ impl Repo {
       | GitVcsLevel::Smart { repo, branch_name, remote_name, fetches } => {
         if spec == "HEAD" {
           if !self.ignore_current {
-            verify_current(repo).chain_err(|| "Can't complete HEAD get.")?;
+            verify_current(repo).context("Can't complete HEAD get.")?;
           }
           get_oid_local(repo, spec)
         } else {
@@ -333,7 +333,7 @@ impl Repo {
       ctx.set_armor(true);
       ctx.sign_detached(&*buf, &mut outbuf)?;
 
-      let contents = buf.as_str().ok_or("Buffer was not valid UTF-8")?;
+      let contents = buf.as_str().ok_or_else(|| bad!("Buffer was not valid UTF-8"))?;
       let out = std::str::from_utf8(&outbuf)?;
 
       repo.commit_signed(contents, out, Some("gpgsig"))?
@@ -580,8 +580,8 @@ impl CommitInfoBuf {
   }
 
   pub fn guess(id: String) -> CommitInfoBuf {
-    let offset = FixedOffset::west(0);
-    let now = offset.timestamp(Utc::now().timestamp(), 0);
+    let offset = FixedOffset::west_opt(0).expect("0 should be in bounds");
+    let now = offset.timestamp_opt(Utc::now().timestamp(), 0).single().expect("utc/0 in bounds");
     CommitInfoBuf::new(id, "-".into(), "-".into(), "".into(), Vec::new(), now)
   }
 
@@ -962,7 +962,7 @@ fn hide_from<'r>(repo: &'r Repository, revwalk: &mut Revwalk<'r>, from: FromTag)
     Ok(oid) => Ok(revwalk.hide(oid.id())?),
     Err(err) => {
       if !else_none {
-        Err(err).chain_err(|| format!("Can't find commits start {}", tag))
+        Err(err).with_context(|| format!("Can't find commits start {}", tag))
       } else {
         Ok(())
       }
@@ -981,7 +981,7 @@ fn hide_from_parents<'r>(repo: &'r Repository, revwalk: &mut Revwalk<'r>, from: 
     }
     Err(err) => {
       if !else_none {
-        Err(err).chain_err(|| format!("Can't find inclusive commits start {}", tag))
+        Err(err).with_context(|| format!("Can't find inclusive commits start {}", tag))
       } else {
         Ok(())
       }
@@ -1137,7 +1137,7 @@ fn get_oid_remote<'r>(
 fn verified_fetch<'r>(
   repo: &'r Repository, remote_name: &str, fetches: &RefCell<HashMap<String, Oid>>, spec: &str
 ) -> Result<(AnnotatedCommit<'r>, bool)> {
-  verify_current(repo).chain_err(|| "Can't start fetch.")?;
+  verify_current(repo).context("Can't start fetch.")?;
 
   if let Some(oid) = fetches.borrow().get(spec).cloned() {
     info!("No fetch for \"{}\": already fetched.", spec);
@@ -1167,7 +1167,7 @@ fn verified_fetch<'r>(
   let fetch_commit = repo.find_annotated_commit(oid)?;
   assert!(fetch_commit.id() == oid);
 
-  verify_current(repo).chain_err(|| "Can't complete fetch.")?;
+  verify_current(repo).context("Can't complete fetch.")?;
 
   Ok((fetch_commit, false))
 }
@@ -1306,7 +1306,11 @@ pub fn do_push(repo: &Repository, remote_name: &str, specs: &[String]) -> Result
 
 pub fn time_to_datetime(time: &Time) -> DateTime<FixedOffset> {
   const MINUTES: i32 = 60;
-  FixedOffset::east(time.offset_minutes() * MINUTES).timestamp(time.seconds(), 0)
+  FixedOffset::east_opt(time.offset_minutes() * MINUTES)
+    .expect("legal time")
+    .timestamp_opt(time.seconds(), 0)
+    .single()
+    .expect("time/0 in bounds")
 }
 
 #[cfg(test)]

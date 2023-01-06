@@ -1,12 +1,11 @@
 //! Simple implementation of the `init` command.
 
+use crate::bail;
 use crate::config::CONFIG_FILENAME;
 use crate::errors::{Error, Result};
 use crate::mark::Mark;
 use crate::scan::{find_reg_data, JsonScanner, Scanner, TomlScanner, XmlScanner};
-use error_chain::bail;
 use ignore::WalkBuilder;
-use log::warn;
 use path_slash::PathExt;
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
@@ -14,6 +13,7 @@ use std::fmt::Write as _;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::Path;
+use tracing::warn;
 
 pub fn init(max_depth: u16) -> Result<()> {
   if Path::new(CONFIG_FILENAME).exists() {

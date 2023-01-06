@@ -1,8 +1,9 @@
 //! The configuration and top-level commands for Versio.
 
 use crate::analyze::AnnotatedMark;
+use crate::bail;
 use crate::either::IterEither2 as E2;
-use crate::errors::{Result, ResultExt};
+use crate::errors::{Context as _, Result};
 use crate::git::{FromTagBuf, Repo, Slice};
 use crate::mark::{FilePicker, LinePicker, Picker, ScanningPicker};
 use crate::mono::Changelog;
@@ -11,10 +12,8 @@ use crate::scan::parts::{deserialize_parts, Part};
 use crate::state::{CurrentFiles, CurrentState, FilesRead, OldTags, PickPath, PrevFiles, PrevState, StateRead,
                    StateWrite};
 use crate::template::{construct_changelog_html, extract_old_content, read_template};
-use error_chain::bail;
 use glob::{glob_with, MatchOptions, Pattern};
 use liquid::ParserBuilder;
-use log::trace;
 use path_slash::PathBufExt as _;
 use regex::{escape, Regex};
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, SeqAccess, Unexpected, Visitor};
@@ -27,6 +26,7 @@ use std::fmt;
 use std::iter::once;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use tracing::trace;
 
 pub const CONFIG_FILENAME: &str = ".versio.yaml";
 
@@ -566,7 +566,7 @@ impl Project {
         .cloned()
         .map(|dir| {
           let caps = regex.captures(&dir).ok_or_else(|| bad!("Unable to capture major from {}", dir))?;
-          let major: u32 = caps[1].parse().chain_err(|| format!("Can't parse dir {} as major.", dir))?;
+          let major: u32 = caps[1].parse().with_context(|| format!("Can't parse dir {} as major.", dir))?;
           Ok((dir, major))
         })
         .collect::<Result<_>>()?;
@@ -1144,7 +1144,7 @@ impl Size {
       .split('.')
       .map(|p| p.parse())
       .collect::<std::result::Result<_, _>>()
-      .chain_err(|| format!("Couldn't split {} into parts", v))?;
+      .with_context(|| format!("Couldn't split {} into parts", v))?;
     if parts.len() != 3 {
       return err!("Not a 3-part version: {}", v);
     }
