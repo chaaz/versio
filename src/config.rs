@@ -17,8 +17,7 @@ use liquid::ParserBuilder;
 use path_slash::PathBufExt as _;
 use regex::{escape, Regex};
 use schemars::gen::SchemaGenerator;
-use schemars::schema::{ArrayValidation, InstanceType, NumberValidation, ObjectValidation, Schema, SchemaObject,
-                       SingleOrVec, StringValidation};
+use schemars::schema::{ArrayValidation, InstanceType, ObjectValidation, Schema, SchemaObject, SingleOrVec};
 use schemars::JsonSchema;
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, SeqAccess, Unexpected, Visitor};
 use serde::ser::Serializer;
@@ -126,24 +125,10 @@ impl JsonSchema for ProjectId {
 
   fn json_schema(_gen: &mut SchemaGenerator) -> Schema {
     Schema::Object(SchemaObject {
-      metadata: None,
       instance_type: Some(SingleOrVec::Vec(vec![InstanceType::Number, InstanceType::String])),
-      format: None,
-      enum_values: None,
-      const_value: None,
-      subschemas: None,
-      number: Some(Box::new(NumberValidation {
-        multiple_of: None,
-        maximum: None,
-        exclusive_maximum: None,
-        minimum: None,
-        exclusive_minimum: None
-      })),
-      string: Some(Box::new(StringValidation { max_length: None, min_length: None, pattern: None })),
-      array: None,
-      object: None,
-      reference: None,
-      extensions: schemars::Map::new()
+      number: Some(Box::default()),
+      string: Some(Box::default()),
+      ..Default::default()
     })
   }
 }
@@ -692,26 +677,16 @@ impl JsonSchema for ChangelogConfig {
     properties.insert("template".into(), template_schema.into());
 
     Schema::Object(SchemaObject {
-      metadata: None,
       instance_type: Some(SingleOrVec::Vec(vec![InstanceType::String, InstanceType::Object])),
-      format: None,
-      enum_values: None,
-      const_value: None,
-      subschemas: None,
-      number: None,
-      string: Some(Box::new(StringValidation { max_length: None, min_length: None, pattern: None })),
-      array: None,
+      string: Some(Box::default()),
       object: Some(Box::new(ObjectValidation {
         max_properties: Some(2),
         min_properties: Some(1),
         required,
         properties,
-        pattern_properties: schemars::Map::new(),
-        additional_properties: None,
-        property_names: None
+        ..Default::default()
       })),
-      reference: None,
-      extensions: schemars::Map::new()
+      ..Default::default()
     })
   }
 }
@@ -1072,25 +1047,13 @@ impl JsonSchema for Location {
         let item_schema: SchemaObject = <String>::json_schema(gen).into();
 
         Schema::Object(SchemaObject {
-          metadata: None,
           instance_type: Some(SingleOrVec::Vec(vec![InstanceType::String, InstanceType::Array])),
-          format: None,
-          enum_values: None,
-          const_value: None,
-          subschemas: None,
-          number: None,
-          string: Some(Box::new(StringValidation { max_length: None, min_length: None, pattern: None })),
+          string: Some(Box::default()),
           array: Some(Box::new(ArrayValidation {
             items: Some(SingleOrVec::Single(Box::new(item_schema.into()))),
-            additional_items: None,
-            max_items: None,
-            min_items: None,
-            unique_items: None,
-            contains: None
+            ..Default::default()
           })),
-          object: None,
-          reference: None,
-          extensions: schemars::Map::new()
+          ..Default::default()
         })
       }
     }
@@ -1408,25 +1371,13 @@ fn schema_labels(gen: &mut SchemaGenerator) -> Schema {
   let item_schema: SchemaObject = <String>::json_schema(gen).into();
 
   Schema::Object(SchemaObject {
-    metadata: None,
     instance_type: Some(SingleOrVec::Vec(vec![InstanceType::String, InstanceType::Array])),
-    format: None,
-    enum_values: None,
-    const_value: None,
-    subschemas: None,
-    number: None,
-    string: Some(Box::new(StringValidation { max_length: None, min_length: None, pattern: None })),
+    string: Some(Box::default()),
     array: Some(Box::new(ArrayValidation {
       items: Some(SingleOrVec::Single(Box::new(item_schema.into()))),
-      additional_items: None,
-      max_items: None,
-      min_items: None,
-      unique_items: None,
-      contains: None
+      ..Default::default()
     })),
-    object: None,
-    reference: None,
-    extensions: schemars::Map::new()
+    ..Default::default()
   })
 }
 
