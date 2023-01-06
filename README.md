@@ -1,10 +1,11 @@
 # Versio
 
 Versio (pronounced _vir_-zhee-oh) is a tool that manages your project's
-version evolution. It intelligently updates version numbers based on
-[conventional commits](https://www.conventionalcommits.org/). It can
-handle changelogs, project tags, release subdirectories, GPG signing,
-pull requests, and more.
+version evolution. It intelligently updates [semantic version
+numbers](https://semver.org/) based on [conventional
+commits](https://www.conventionalcommits.org/). It can handle
+changelogs, project tags, release subdirectories, GPG signing, pull
+requests, and more.
 
 Versio is especially intelligent when dealing with
 [monorepos](https://en.wikipedia.org/wiki/Monorepo), allowing not only

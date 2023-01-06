@@ -14,7 +14,7 @@ way, you'll end up bumping your core version number, and re-releasing
 the new core library with the new library.
 
 But then, maybe you have a top-level application that uses your core
-lib. You'll do the same thing: change the core version in your
+lib. You'll do the same thing: change the core version in your app's
 dependency list to match, bump the app's own version, and re-release it.
 
 Of course, once you do _that_, you might also have a Helm chart that
@@ -24,12 +24,12 @@ to match the new application release, then bump the chart's own version,
 and re-release *it*.
 
 And so on, and so forth, to your Dockerfiles, other sub-projects,
-packging projects, Terraform modules, etc. etc.
+packging projects, Terraform modules, and beyond.
 
-Now, imagine that your core project, top-level app, and your chart all
-lived in the same monorepo, and that the release process occurs only
-when you merge to the release branch using conventional commits.
-Running this dependency process would mean that:
+Now, imagine that your core project, top-level app, your chart, and
+other related projects all lived in the same monorepo, and that the
+release numbers are updated only when you merge to the release branch
+using conventional commits. Running this dependency process would mean:
 
 1. You change your core library `package.json`, and commit it with a
    message like "fix: update 3rd party".
@@ -45,9 +45,10 @@ lot of waiting for your pipeline to generate releases.
 
 ## The Solution
 
-If you're managing your release via Versio, then you can list explicit
+If you're managing your monorepo via Versio, then you can list explicit
 dependencies between the projects, so that all versions get
-automatically updated during the same release.
+automatically updated during the same release. This is called **version
+chaining**.
 
 Here's a snippet from `.versio.yaml` that has version chaining:
 
@@ -80,6 +81,13 @@ to project 1. The `size: patch` means that any time `proj_1` changes,
 options are `none`, `minor`, `major`, or `match`). Also, it lists the
 location in files that need to change to match the new version of
 `proj_1`, which have the same format as the `version` property of files.
+
+Now, when Versio performs a release: if it detects that the version
+number of proj_1 is changing, it will write the new proj_1 version
+number in proj_2's package.json. It will also increment the patch number
+of proj_2's version, even if proj_2 contained no other changes. If
+proj_2 had a changelog, it would be updated to show the dependency on
+proj_1 as a reason for the version bump.
 
 ### Formatting output
 
