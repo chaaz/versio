@@ -42,7 +42,9 @@ fn find_project(name: &OsStr, file: &Path) -> Result<Option<ProjSummary>> {
   if fname == "package.json" {
     let name = extract_name(file, |d| JsonScanner::new("name").find(&d))?;
     let dir = file.parent().unwrap();
-    return Ok(Some(ProjSummary::new_file(name, dir.to_slash_lossy(), "package.json", "json", "version", &["npm"])));
+    let mut proj = ProjSummary::new_file(name, dir.to_slash_lossy(), "package.json", "json", "version", &["npm"]);
+    proj.hook("post_write", "npm install --package-lock-only");
+    return Ok(Some(proj));
   }
 
   if fname == "Cargo.toml" {
