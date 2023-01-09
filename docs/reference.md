@@ -275,7 +275,10 @@ Here's a listing of the files that `versio init` searches for:
 [The config file]: #the-config-file
 
 A config file named `.versio.yaml` must be located at the base directory
-of your repository. Here's an example:
+of your repository. If you use [JSON Schema](https://json-schema.org/)
+to validate or help edit your YAML files, you can use the `versio
+schema` command (see above) to generate a schema document for the config
+file. Here's an example `.versio.yaml`:
 
 ```yaml
 options:
