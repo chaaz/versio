@@ -159,7 +159,7 @@ impl Repo {
     }
   }
 
-  pub fn github_info(&self, auth: &Auth) -> Result<GithubInfo> {
+  pub fn github_info(&self, auth: &Option<Auth>) -> Result<GithubInfo> {
     find_github_info(self.repo()?, self.remote_name()?, auth)
   }
 
@@ -934,7 +934,7 @@ fn find_branch_name(repo: &Repository) -> Result<Option<String>> {
   }
 }
 
-fn find_github_info(repo: &Repository, remote_name: &str, auth: &Auth) -> Result<GithubInfo> {
+fn find_github_info(repo: &Repository, remote_name: &str, auth: &Option<Auth>) -> Result<GithubInfo> {
   let remote = repo.find_remote(remote_name)?;
 
   let url = remote.url().ok_or_else(|| bad!("Invalid utf8 remote url."))?;
@@ -951,7 +951,8 @@ fn find_github_info(repo: &Repository, remote_name: &str, auth: &Auth) -> Result
   let slash = path.char_indices().find(|(_, c)| *c == '/').map(|(i, _)| i);
   let slash = slash.ok_or_else(|| bad!("No slash found in github path \"{}\".", path))?;
 
-  Ok(GithubInfo::new(path[0 .. slash].to_string(), path[slash + 1 ..].to_string(), auth.github_token().clone()))
+  let token = auth.as_ref().and_then(|auth| auth.github_token().clone());
+  Ok(GithubInfo::new(path[0 .. slash].to_string(), path[slash + 1 ..].to_string(), token))
 }
 
 /// Hide ancestors of `from` from the revwalk, but don't hide anything if the commit-ish can't be found and

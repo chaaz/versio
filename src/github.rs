@@ -21,7 +21,7 @@ use std::fmt;
 /// rebase). The squash commit is excluded from all PRs: instead the PR's own commits are examined normally. In
 /// this way, the original type and size information from the PR is preserved.
 #[allow(clippy::map_entry)]
-pub async fn changes(auth: &Auth, repo: &Repo, baseref: FromTagBuf, headref: String) -> Result<Changes> {
+pub async fn changes(auth: &Option<Auth>, repo: &Repo, baseref: FromTagBuf, headref: String) -> Result<Changes> {
   let mut all_commits = HashSet::new();
   let mut all_prs = HashMap::new();
 

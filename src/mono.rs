@@ -212,7 +212,9 @@ impl Mono {
 fn read_env_prefs() -> Result<UserPrefs> {
   read_user_prefs().map(|mut prefs| {
     if let Ok(token) = std::env::var("GITHUB_TOKEN") {
-      prefs.auth_mut().set_github_token(Some(token))
+      if let Some(auth) = prefs.auth_mut() {
+        auth.set_github_token(Some(token))
+      }
     }
     prefs
   })
@@ -234,12 +236,12 @@ fn read_user_prefs() -> Result<UserPrefs> {
 
 #[derive(Deserialize, Debug, Default)]
 struct UserPrefs {
-  auth: Auth
+  auth: Option<Auth>
 }
 
 impl UserPrefs {
-  fn auth(&self) -> &Auth { &self.auth }
-  fn auth_mut(&mut self) -> &mut Auth { &mut self.auth }
+  fn auth(&self) -> &Option<Auth> { &self.auth }
+  fn auth_mut(&mut self) -> &mut Option<Auth> { &mut self.auth }
 }
 
 /// Find the last covering commit ID, if any, for each current project.
@@ -416,7 +418,7 @@ struct PlanBuilder<'s> {
 }
 
 impl<'s> PlanBuilder<'s> {
-  fn create(repo: &'s Repo, current: &'s ConfigFile, auth: &Auth) -> PlanBuilder<'s> {
+  fn create(repo: &'s Repo, current: &'s ConfigFile, auth: &Option<Auth>) -> PlanBuilder<'s> {
     let prev = Slicer::init(repo);
     let github_info = repo.github_info(auth).ok();
     PlanBuilder {
