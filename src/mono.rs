@@ -685,8 +685,10 @@ fn find_old_tags<'s, I: Iterator<Item = &'s Project>>(projects: I, prev_tag: &st
       for tag in repo.tag_names(Some(fnmatch.as_str()))?.iter().flatten() {
         let oid = repo.revparse_oid(FromTag::new(&format!("{}^{{}}", tag), false))?;
         trace!("Found proj {} tag {} at {}.", proj.id(), tag, oid);
-        let by_id = by_proj_oid.entry(proj.id().clone()).or_insert_with(HashMap::new);
-        by_id.entry(oid).or_insert_with(Vec::new).push(tag.to_string());
+        let by_id = by_proj_oid
+          .entry(proj.id().clone())
+          .or_insert_with(|| (proj.tag_prefix_separator().to_string(), HashMap::new()));
+        by_id.1.entry(oid).or_insert_with(Vec::new).push(tag.to_string());
       }
     }
   }
@@ -694,9 +696,9 @@ fn find_old_tags<'s, I: Iterator<Item = &'s Project>>(projects: I, prev_tag: &st
   let mut current = HashMap::new();
   for commit_oid in repo.commits_to_head(FromTag::new(prev_tag, true), false)?.map(|c| c.map(|c| c.id())) {
     let commit_oid = commit_oid?;
-    by_proj_oid.retain(|proj_id, by_id| {
+    by_proj_oid.retain(|proj_id, (sep, by_id)| {
       if let Some(tags) = by_id.remove(&commit_oid) {
-        let mut versions = tags_to_versions(&tags);
+        let mut versions = tags_to_versions(sep, &tags);
         versions.sort_unstable_by(version_sort);
         current.insert(proj_id.clone(), versions[0].clone());
         false
@@ -761,11 +763,11 @@ fn tag_fnmatches(proj: &Project) -> impl Iterator<Item = String> + '_ {
   }
 }
 
-fn tags_to_versions(tags: &[String]) -> Vec<String> {
+fn tags_to_versions(prefix_sep: &str, tags: &[String]) -> Vec<String> {
   tags
     .iter()
     .map(|tag| {
-      let v = tag.rfind('-').map(|d| d + 1).unwrap_or(0);
+      let v = tag.rfind(prefix_sep).map(|d| d + 1).unwrap_or(0);
       tag[v + 1 ..].to_string()
     })
     .filter(|v| Size::parts(v).is_ok())

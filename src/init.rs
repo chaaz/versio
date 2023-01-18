@@ -336,7 +336,7 @@ impl TagVersionSummary {
 fn tag_sanitize(name: &str) -> String {
   // match the logic of `config::legal_tag`
   let mut prefix: String =
-    name.chars().filter(|c| c.is_ascii() && (*c == '_' || *c == '-' || c.is_alphanumeric())).collect();
+    name.chars().filter(|c| c.is_ascii() && (*c == '/' || *c == '_' || *c == '-' || c.is_alphanumeric())).collect();
 
   if prefix.is_empty() {
     return "_".into();
