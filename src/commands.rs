@@ -9,6 +9,7 @@ use crate::output::{Output, ProjLine};
 use crate::state::{CommitState, StateRead};
 use crate::template::read_template;
 use crate::vcs::{VcsLevel, VcsRange, VcsState};
+use schemars::schema_for;
 use std::collections::HashMap;
 use std::fs::{remove_file, File};
 use std::io::BufReader;
@@ -218,6 +219,12 @@ pub fn info(
   }
 
   output.commit()?;
+  Ok(())
+}
+
+pub fn schema() -> Result<()> {
+  let schema = schema_for!(ConfigFile);
+  println!("{}", serde_json::to_string_pretty(&schema).unwrap());
   Ok(())
 }
 

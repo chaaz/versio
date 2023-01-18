@@ -234,6 +234,13 @@ along with their options and flags. You can always use `versio help` or
   using the `release --pause` command. `init` will skip any hidden
   directories and files, as well as directories and files listed in
   `.gitignore` files.
+- `schema`: Output a JSON schema document for the config file. This
+  feature is in-progress, and may be altered/enhanced in future
+  releases. Most JSON schema validators require JSON input, but you can
+  use a yaml-to-json converter (ex:
+  https://crates.io/crates/record-query) to convert your input. Also
+  note that many JSON documents are valid YAML, if you want to keep your
+  `.versio.yaml` file in JSON format.
 - `template`: Output a changelog template.
   - `--template` (`-t <url>`, required): pick which changelog template
     (such as `builtin:json`) to output. See [Changelog
@@ -268,7 +275,10 @@ Here's a listing of the files that `versio init` searches for:
 [The config file]: #the-config-file
 
 A config file named `.versio.yaml` must be located at the base directory
-of your repository. Here's an example:
+of your repository. If you use [JSON Schema](https://json-schema.org/)
+to validate or help edit your YAML files, you can use the `versio
+schema` command (see above) to generate a schema document for the config
+file. Here's an example `.versio.yaml`:
 
 ```yaml
 options:
