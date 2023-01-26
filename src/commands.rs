@@ -6,7 +6,7 @@ use crate::errors::{Context as _, Result};
 use crate::git::Repo;
 use crate::mono::{Mono, Plan};
 use crate::output::{Output, ProjLine};
-use crate::state::{CommitState, StateRead};
+use crate::state::{CommitState, ResumeArgs, StateRead};
 use crate::template::read_template;
 use crate::vcs::{VcsLevel, VcsRange, VcsState};
 use schemars::schema_for;
@@ -397,6 +397,7 @@ pub async fn release(
 
 pub fn resume(user_pref_vcs: Option<VcsRange>) -> Result<()> {
   let vcs = combine_vcs(user_pref_vcs, VcsLevel::None, VcsLevel::Smart, VcsLevel::Local, VcsLevel::Smart)?;
+
   let output = Output::new();
   let mut output = output.resume();
 
@@ -409,8 +410,10 @@ pub fn resume(user_pref_vcs: Option<VcsRange>) -> Result<()> {
     remove_file(".versio-paused")?;
     commit
   };
+
   let repo = Repo::open(".", VcsState::new(vcs.max(), false), commit.commit_config().clone())?;
-  commit.resume(&repo)?;
+  let file = ConfigFile::from_dir(repo.root())?;
+  commit.resume(&repo, ResumeArgs::new(&file.hooks()))?;
 
   output.write_done()?;
   output.commit()?;

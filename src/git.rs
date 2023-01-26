@@ -50,6 +50,7 @@ impl Repo {
   // returns successfully at the Smart level.
 
   pub fn commit_config(&self) -> &CommitConfig { &self.commit_config }
+  pub fn root(&self) -> &Path { self.vcs.root() }
 
   /// Return the vcs level that this repository can support.
   pub fn detect<P: AsRef<Path>>(path: P) -> Result<VcsLevel> {
@@ -820,6 +821,15 @@ impl GitVcsLevel {
       VcsLevel::Local => GitVcsLevel::Local { repo, branch_name },
       VcsLevel::Remote => GitVcsLevel::Remote { repo, branch_name, remote_name, fetches },
       VcsLevel::Smart => GitVcsLevel::Smart { repo, branch_name, remote_name, fetches }
+    }
+  }
+
+  fn root(&self) -> &Path {
+    match self {
+      Self::None { root } => root,
+      Self::Local { repo, .. } => repo.workdir().unwrap(),
+      Self::Remote { repo, .. } => repo.workdir().unwrap(),
+      Self::Smart { repo, .. } => repo.workdir().unwrap()
     }
   }
 }

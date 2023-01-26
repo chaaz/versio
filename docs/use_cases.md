@@ -145,6 +145,31 @@ directories or files listed in any `.gitignore` files. If you want to
 include projects in hidden or ignored locations, you'll have to add
 those by hand to the resulting `.versio.yaml` file.
 
+## Perform a Release
+
+This is the most commonly-used command: `release` will scan for
+conventional commits, increment all project version numbers accordingly,
+update changelogs, add and move tags, and commit and push all changes.
+
+```
+$ versio release
+```
+
+### Release dry-run
+
+You can run `versio -l local -c release -d` to run a "dry-run" release,
+which won't actually write or commit anything, but will print out the
+new version numbers that are expected. Using `-l local -c` will cause
+versio to run only on the local repository, and ignore problems with
+local changes: no network or remote operations will be consulted (see
+[VCS Levels](./vcs_levels.md)). This command can be used while
+performing edits to see that changes have the expected effect on a
+project version.
+
+Note that the actual release may calculate different version numbers
+than any given dry-run, especially if the configuration, network, or
+commit/PR history is different than found in the dry-run environment.
+
 ## Gitflow / Oneflow
 
 If you're using
@@ -286,6 +311,7 @@ jobs:
         run: versio check
       - name: Print changes
         run: versio plan
+      - any other pr actions...
 ```
 
 ## CI Release
@@ -325,4 +351,5 @@ jobs:
         run: git fetch --unshallow
       - name: Generate release
         run: versio release
+      - any other release actions...
 ```

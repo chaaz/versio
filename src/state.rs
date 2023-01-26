@@ -190,7 +190,19 @@ impl StateWrite {
     Ok(())
   }
 
-  pub fn commit(&mut self, repo: &Repo, data: CommitArgs) -> Result<()> {
+  pub fn commit(&mut self, repo: &Repo, args: CommitArgs) -> Result<()> {
+    for proj_id in &self.proj_writes {
+      if let Some((root, hooks)) = args.hooks.get(proj_id) {
+        hooks.execute_pre_begin(root)?;
+      }
+    }
+
+    for proj_id in &self.proj_writes {
+      if let Some((root, hooks)) = args.hooks.get(proj_id) {
+        hooks.execute_pre_write(root)?;
+      }
+    }
+
     for write in &self.writes {
       write.write()?;
     }
@@ -198,30 +210,30 @@ impl StateWrite {
     self.writes.clear();
 
     for proj_id in &self.proj_writes {
-      if let Some((root, hooks)) = data.hooks.get(proj_id) {
+      if let Some((root, hooks)) = args.hooks.get(proj_id) {
         hooks.execute_post_write(root)?;
       }
     }
 
     let me = take(self);
-    let prev_tag = data.prev_tag.to_string();
-    let last_commits = data.last_commits.clone();
-    let old_tags = data.old_tags.clone();
+    let prev_tag = args.prev_tag.to_string();
+    let last_commits = args.last_commits.clone();
+    let old_tags = args.old_tags.clone();
     let mut commit_state = CommitState::new(
       me,
       did_write,
       prev_tag,
       last_commits,
       old_tags,
-      data.advance_prev,
+      args.advance_prev,
       repo.commit_config().clone()
     );
 
-    if data.pause {
+    if args.pause {
       let file = OpenOptions::new().create(true).write(true).truncate(true).open(".versio-paused")?;
       Ok(serde_json::to_writer(file, &commit_state)?)
     } else {
-      commit_state.resume(repo)
+      commit_state.resume(repo, args.into_resume_args())
     }
   }
 }
@@ -241,6 +253,18 @@ impl<'a> CommitArgs<'a> {
     advance_prev: bool, hooks: &'a HashMap<ProjectId, (Option<&'a String>, &'a HookSet)>, pause: bool
   ) -> CommitArgs<'a> {
     CommitArgs { prev_tag, last_commits, old_tags, advance_prev, hooks, pause }
+  }
+
+  pub fn into_resume_args(self) -> ResumeArgs<'a> { ResumeArgs { hooks: self.hooks } }
+}
+
+pub struct ResumeArgs<'a> {
+  hooks: &'a HashMap<ProjectId, (Option<&'a String>, &'a HookSet)>
+}
+
+impl<'a> ResumeArgs<'a> {
+  pub fn new(hooks: &'a HashMap<ProjectId, (Option<&'a String>, &'a HookSet)>) -> ResumeArgs<'a> {
+    ResumeArgs { hooks }
   }
 }
 
@@ -274,12 +298,18 @@ impl CommitState {
 
   pub fn commit_config(&self) -> &CommitConfig { &self.commit_config }
 
-  pub fn resume(&mut self, repo: &Repo) -> Result<()> {
+  pub fn resume(&mut self, repo: &Repo, args: ResumeArgs) -> Result<()> {
     if self.did_write {
       trace!("Wrote files, so committing.");
       repo.commit()?;
     } else {
       trace!("No files written, so not committing.");
+    }
+
+    for proj_id in &self.write.proj_writes {
+      if let Some((root, hooks)) = args.hooks.get(proj_id) {
+        hooks.execute_post_commit(root)?;
+      }
     }
 
     for tag in &self.write.tag_head {
@@ -298,7 +328,6 @@ impl CommitState {
       }
     }
     self.write.tag_head_or_last.clear();
-    self.write.proj_writes.clear();
 
     for (tag, oid) in &self.write.tag_commit {
       repo.update_tag(tag, oid)?;
@@ -310,6 +339,20 @@ impl CommitState {
       let msg = serde_json::to_string(&PrevTagMessage::new(std::mem::take(&mut self.write.new_tags)))?;
       repo.update_tag_head_anno(&self.prev_tag, &msg)?;
     }
+
+    for proj_id in &self.write.proj_writes {
+      if let Some((root, hooks)) = args.hooks.get(proj_id) {
+        hooks.execute_post_tag(root)?;
+      }
+    }
+
+    for proj_id in &self.write.proj_writes {
+      if let Some((root, hooks)) = args.hooks.get(proj_id) {
+        hooks.execute_post_end(root)?;
+      }
+    }
+
+    self.write.proj_writes.clear();
 
     Ok(())
   }
