@@ -137,6 +137,8 @@ impl OldTags {
 pub struct StateWrite {
   writes: Vec<FileWrite>,
   proj_writes: HashSet<ProjectId>,
+  commands: Vec<SetCommand>,
+  proj_commands: HashSet<ProjectId>,
   tag_head: Vec<String>,
   tag_commit: HashMap<String, String>,
   tag_head_or_last: Vec<(String, ProjectId)>,
@@ -151,10 +153,12 @@ impl StateWrite {
   pub fn new() -> StateWrite {
     StateWrite {
       writes: Vec::new(),
+      proj_writes: HashSet::new(),
+      commands: Vec::new(),
+      proj_commands: HashSet::new(),
       tag_head: Vec::new(),
       tag_commit: HashMap::new(),
       tag_head_or_last: Vec::new(),
-      proj_writes: HashSet::new(),
       new_tags: HashMap::new()
     }
   }
@@ -170,6 +174,12 @@ impl StateWrite {
   pub fn update_mark<C: ToString>(&mut self, pick: PickPath, content: C, proj_id: &ProjectId) -> Result<()> {
     self.writes.push(FileWrite::Update { pick, val: content.to_string() });
     self.proj_writes.insert(proj_id.clone());
+    Ok(())
+  }
+
+  pub fn send_cmd(&mut self, cmd: String, val: String, root: Option<String>, proj_id: &ProjectId) -> Result<()> {
+    self.commands.push(SetCommand::new(cmd, val, root));
+    self.proj_commands.insert(proj_id.clone());
     Ok(())
   }
 
@@ -196,6 +206,11 @@ impl StateWrite {
     }
     let did_write = !self.writes.is_empty();
     self.writes.clear();
+
+    for cmd in &self.commands {
+      cmd.exec()?;
+    }
+    self.commands.clear();
 
     for proj_id in &self.proj_writes {
       if let Some((root, hooks)) = data.hooks.get(proj_id) {
@@ -275,6 +290,14 @@ impl CommitState {
   pub fn commit_config(&self) -> &CommitConfig { &self.commit_config }
 
   pub fn resume(&mut self, repo: &Repo) -> Result<()> {
+    // TODO: executing a setter command may have changed the local filesystem: should we check the repo state
+    // for _MODIFIED instead of relying on did_write ?
+    //
+    //  repo.statuses(Some(&mut status_opts))?.iter().filter(|s| {
+    //    let s = s.status();
+    //    s.is_wt_modified() || s.is_wt_deleted() || s.is_wt_renamed() || s.is_wt_typechange() || s.is_wt_new()
+    //  }).any()
+
     if self.did_write {
       trace!("Wrote files, so committing.");
       repo.commit()?;
@@ -349,6 +372,33 @@ impl FileWrite {
       //   Ok(file.write_all(val.as_bytes())?)
       // }
       FileWrite::Update { pick, val } => pick.write_value(val)
+    }
+  }
+}
+
+#[derive(Deserialize, Serialize)]
+struct SetCommand {
+  root: Option<String>,
+  cmd: String,
+  val: String
+}
+
+impl SetCommand {
+  pub fn new(cmd: String, val: String, root: Option<String>) -> SetCommand { SetCommand { cmd, val, root } }
+
+  pub fn exec(&self) -> Result<()> {
+    use std::process::Command;
+
+    let mut command = Command::new("bash");
+    if let Some(root) = self.root.as_ref() {
+      command.current_dir(root);
+    }
+    let full_command = format!("{} {}", self.cmd, self.val);
+    let status = command.args(["-e", "-c", &full_command]).status()?;
+    if !status.success() {
+      bail!("Unable to run hook {}.", self.cmd);
+    } else {
+      Ok(())
     }
   }
 }

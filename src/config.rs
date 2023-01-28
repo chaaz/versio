@@ -906,7 +906,49 @@ impl SubExtent {
 // #[serde(untagged)]
 enum Location {
   File(FileLocation),
-  Tag(TagLocation)
+  Tag(TagLocation),
+  Cmd(Getter, Setter)
+}
+
+#[derive(Clone, Debug)]
+struct Getter {
+  cmd: String
+}
+
+impl From<&str> for Getter {
+  fn from(v: &str) -> Getter { Getter { cmd: v.into() } }
+}
+
+impl Getter {
+  pub fn exec(&self, root: Option<&String>) -> Result<String> {
+    use std::process::Command;
+
+    let mut command = Command::new("bash");
+    if let Some(root) = root {
+      command.current_dir(root);
+    }
+    let output = command.args(["-e", "-c", &self.cmd]).output()?;
+    if !output.status.success() {
+      bail!("Unable to run getter {}.", &self.cmd);
+    } else {
+      Ok(String::from_utf8(output.stdout)?.trim().to_string())
+    }
+  }
+}
+
+#[derive(Clone, Debug)]
+struct Setter {
+  cmd: String
+}
+
+impl From<&str> for Setter {
+  fn from(v: &str) -> Setter { Setter { cmd: v.into() } }
+}
+
+impl Setter {
+  pub fn exec(&self, write: &mut StateWrite, root: Option<&String>, vers: &str, id: &ProjectId) -> Result<()> {
+    write.send_cmd(self.cmd.clone(), vers.to_string(), root.cloned(), id)
+  }
 }
 
 impl Location {
@@ -915,6 +957,7 @@ impl Location {
   pub fn tag_majors(&self) -> Option<&[u32]> {
     match self {
       Location::File(_) => None,
+      Location::Cmd(..) => None,
       Location::Tag(tagl) => tagl.majors()
     }
   }
@@ -922,14 +965,16 @@ impl Location {
   pub fn write_value(&self, write: &mut StateWrite, root: Option<&String>, vers: &str, id: &ProjectId) -> Result<()> {
     match self {
       Location::File(l) => l.write_value(write, root, vers, id),
-      Location::Tag(_) => Ok(())
+      Location::Tag(_) => Ok(()),
+      Location::Cmd(_, setter) => setter.exec(write, root, vers, id)
     }
   }
 
   pub fn read_value<S: StateRead>(&self, read: &S, root: Option<&String>, proj: &ProjectId) -> Result<String> {
     match self {
       Location::File(l) => l.read_value(read, root),
-      Location::Tag(l) => Ok(l.read_value(read, proj))
+      Location::Tag(l) => Ok(l.read_value(read, proj)),
+      Location::Cmd(getter, _) => getter.exec(root)
     }
   }
 
@@ -975,9 +1020,17 @@ impl<'de> Deserialize<'de> for Location {
         let mut tags: Option<TagSpec> = None;
         let mut code: Option<String> = None;
         let mut format: Option<String> = None;
+        let mut set: Option<String> = None;
+        let mut get: Option<String> = None;
 
         while let Some(key) = map.next_key::<String>()? {
           match key.as_str() {
+            "get" => {
+              get = Some(map.next_value()?);
+            }
+            "set" => {
+              set = Some(map.next_value()?);
+            }
             "file" => {
               file = Some(map.next_value()?);
             }
@@ -1001,6 +1054,8 @@ impl<'de> Deserialize<'de> for Location {
         if let Some(file) = file {
           if tags.is_some() {
             Err(de::Error::custom("cant have both 'file' and 'tags' for location"))
+          } else if get.is_some() || set.is_some() {
+            Err(de::Error::custom("cant have both 'file' and 'get'/'set' for location"))
           } else if pattern.is_none() && parts.is_none() {
             Ok(Location::File(FileLocation { file, format, picker: Picker::File(FilePicker {}) }))
           } else if let Some(pattern) = pattern {
@@ -1023,11 +1078,21 @@ impl<'de> Deserialize<'de> for Location {
         } else if let Some(tags) = tags {
           if format.is_some() {
             Err(de::Error::custom("cant have 'format' in 'tags' location"))
+          } else if get.is_some() || set.is_some() {
+            Err(de::Error::custom("cant have both 'tags' and 'get'/'set' for location"))
           } else {
             Ok(Location::Tag(TagLocation { tags }))
           }
+        } else if let Some(get) = get {
+          if let Some(set) = set {
+            Ok(Location::Cmd(get.trim().into(), set.trim().into()))
+          } else {
+            Err(de::Error::custom("must have 'set' with 'get' for location"))
+          }
+        } else if set.is_some() {
+          Err(de::Error::custom("must have 'get' with 'set' for location"))
         } else {
-          Err(de::Error::custom("must have 'file' or 'tags' for location"))
+          Err(de::Error::custom("must have 'file', 'tags', or 'get'/'set' for location"))
         }
       }
     }
