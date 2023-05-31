@@ -1,5 +1,5 @@
 condense_wildcard_suffixes = true
-fn_args_layout = "Compressed"
+fn_params_layout = "Compressed"
 fn_single_line = true
 force_multiline_blocks = false
 format_strings = true
