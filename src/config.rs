@@ -783,7 +783,12 @@ impl HookSet {
     Ok(())
   }
 
+  pub fn execute_pre_begin(&self, root: &Option<&String>) -> Result<()> { self.execute("pre_begin", root) }
+  pub fn execute_pre_write(&self, root: &Option<&String>) -> Result<()> { self.execute("pre_write", root) }
   pub fn execute_post_write(&self, root: &Option<&String>) -> Result<()> { self.execute("post_write", root) }
+  pub fn execute_post_commit(&self, root: &Option<&String>) -> Result<()> { self.execute("post_commit", root) }
+  pub fn execute_post_tag(&self, root: &Option<&String>) -> Result<()> { self.execute("post_tag", root) }
+  pub fn execute_post_end(&self, root: &Option<&String>) -> Result<()> { self.execute("post_end", root) }
 }
 
 impl<'de> Deserialize<'de> for HookSet {

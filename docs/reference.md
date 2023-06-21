@@ -390,10 +390,29 @@ relative to the base of the repo; other paths are relative to that root
     arbitrary labels to you projects, which is useful when using the
     `info` command.
   - `hooks`: (optional) A set of hooks that run at certain points of the
-    release process. Currently, only the `post_write` hook is supported:
-    this hook runs after local file changes are made, but before any VCS
-    commits/push/tagging is performed; it's useful to make additional
-    file changes that need to be committed with the release.
+    release process. Hooks are not run if the `dry-run` or
+    `changelog-only` flags are set. Note that commits, tags, and other
+    release operations are not executed on a project-by-project basis,
+    so all project hooks of the same type will be run together. Here are
+    the hooks you can use:
+    - `pre_begin`: runs before any other release activity is performed.
+      You can use this hook to perform any preperation for the release
+      process.
+    - `pre_write`: runs before any data is written to the local
+      filesystem; you can use this to prep files or record the fs state.
+    - `post_write`: runs after local file changes are made,
+      but before any VCS commits/push/tagging is performed; it's useful
+      to make additional file changes that need to be committed with the
+      release.
+    - `post_commit`: runs after local file changes are committed and/or
+      pushed to the VCS, but before tags are added/changed. Use this if
+      you want to perform additional VCS operations before tagging.
+    - `post_tag`: runs after tags are added/changed and pushed to the
+      VCS. Useful if you want to add your own tags, or perform final VCS
+      operations.
+    - `post_end`: runs after any other release activity. Use this if you
+      have cleanup operations that you want to run after your release is
+      done.
 
 - `commit`
 
