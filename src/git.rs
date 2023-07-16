@@ -26,11 +26,21 @@ use std::io::{stdout, Write};
 use std::iter::empty;
 use std::path::{Path, PathBuf};
 use tracing::{error, info, trace, warn};
+use std::sync::{Arc, Mutex};
 
 pub struct Repo {
   vcs: GitVcsLevel,
   ignore_current: bool,
-  commit_config: CommitConfig
+  commit_config: CommitConfig,
+  cache: Arc<Mutex<RepoCache>>
+}
+
+pub struct RepoCache {
+  pulled_tags: bool,
+}
+
+impl RepoCache {
+  pub fn new() -> Arc<Mutex<RepoCache>> { Arc::new(Mutex::new(RepoCache { pulled_tags: false })) }
 }
 
 impl Repo {
@@ -50,6 +60,7 @@ impl Repo {
   // returns successfully at the Smart level.
 
   pub fn commit_config(&self) -> &CommitConfig { &self.commit_config }
+  pub fn cache(&self) -> Arc<Mutex<RepoCache>> { self.cache.clone() }
 
   /// Return the vcs level that this repository can support.
   pub fn detect<P: AsRef<Path>>(path: P) -> Result<VcsLevel> {
@@ -103,9 +114,11 @@ impl Repo {
 
   pub fn open<P: AsRef<Path>>(path: P, vcs: VcsState, commit_config: CommitConfig) -> Result<Repo> {
     let ignore_current = vcs.ignore_current();
+    let cache = RepoCache::new();
+
     if vcs.level().is_none() {
       let root = find_root_blind(path)?;
-      return Ok(Repo { ignore_current, vcs: GitVcsLevel::None { root }, commit_config });
+      return Ok(Repo { ignore_current, vcs: GitVcsLevel::None { root }, commit_config, cache });
     }
 
     let flags = RepositoryOpenFlags::empty();
@@ -113,7 +126,7 @@ impl Repo {
     let branch_name = find_branch_name(&repo)?;
 
     if vcs.level().is_local() {
-      return Ok(Repo { ignore_current, vcs: GitVcsLevel::Local { repo, branch_name }, commit_config });
+      return Ok(Repo { ignore_current, vcs: GitVcsLevel::Local { repo, branch_name }, commit_config, cache });
     }
 
     let remote_name = find_remote_name(&repo, &branch_name)?;
@@ -123,7 +136,8 @@ impl Repo {
     Ok(Repo {
       ignore_current,
       vcs: GitVcsLevel::from(vcs.level(), root, repo, branch_name, remote_name, fetches),
-      commit_config
+      commit_config,
+      cache
     })
   }
 
@@ -151,9 +165,19 @@ impl Repo {
       GitVcsLevel::None { .. } => Ok(IterString::Empty),
       GitVcsLevel::Local { repo, .. } => Ok(IterString::Git(repo.tag_names(pattern)?)),
       GitVcsLevel::Remote { repo, remote_name, .. } | GitVcsLevel::Smart { repo, remote_name, .. } => {
-        let fetch_pat = if let Some(pat) = pattern { pat } else { "*" };
-        let specs: &[&str] = &[&format!("refs/tags/{pat}:refs/tags/{pat}", pat = fetch_pat)];
-        safe_fetch(repo, remote_name, specs, false).with_context(|| format!("Can't fetch tags \"{}\"", fetch_pat))?;
+        // For performance, make sure we have pulled _all_ the tags, and then we can just get the one(s) we want
+        // from local.
+
+        {
+          let cache = self.cache();
+          let mut cache = cache.lock().unwrap();
+          if !cache.pulled_tags {
+            let specs: &[&str] = &["refs/tags/*:refs/tags/*"];
+            safe_fetch(repo, remote_name, specs, false).with_context(|| "Can't fetch all tags")?;
+            cache.pulled_tags = true;
+          }
+        }
+
         Ok(IterString::Git(repo.tag_names(pattern)?))
       }
     }
@@ -440,7 +464,13 @@ impl Repo {
     do_push(repo, remote_name, &refs)
   }
 
-  fn push_tag(&self, tag: &str) -> Result<()> {
+  fn push_tag(&self, _tag: &str) -> Result<()> {
+    // don't actually push here: wait for `finish_tags` to push all tags
+    // do_push(repo, remote_name, &[format!("+refs/tags/{}", tag)])
+    Ok(())
+  }
+
+  pub fn finish_tags(&self) -> Result<()> {
     let (repo, remote_name) = match &self.vcs {
       GitVcsLevel::None { .. } | GitVcsLevel::Local { .. } => return Ok(()),
       GitVcsLevel::Remote { repo, remote_name, .. } | GitVcsLevel::Smart { repo, remote_name, .. } => {
@@ -448,7 +478,7 @@ impl Repo {
       }
     };
 
-    do_push(repo, remote_name, &[format!("+refs/tags/{}", tag)])
+    do_push(repo, remote_name, &["+refs/tags/*".to_string()])
   }
 
   pub fn branch_name(&self) -> Result<&Option<String>> {

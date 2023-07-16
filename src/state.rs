@@ -290,8 +290,8 @@ impl CommitState {
   pub fn commit_config(&self) -> &CommitConfig { &self.commit_config }
 
   pub fn resume(&mut self, repo: &Repo) -> Result<()> {
-    // TODO: executing a setter command may have changed the local filesystem: should we check the repo state
-    // for _MODIFIED instead of relying on did_write ?
+    // TODO(later): executing a setter command may have changed the local filesystem: should we check the repo
+    // state for _MODIFIED instead of relying on did_write ?
     //
     //  repo.statuses(Some(&mut status_opts))?.iter().filter(|s| {
     //    let s = s.status();
@@ -333,6 +333,8 @@ impl CommitState {
       let msg = serde_json::to_string(&PrevTagMessage::new(std::mem::take(&mut self.write.new_tags)))?;
       repo.update_tag_head_anno(&self.prev_tag, &msg)?;
     }
+
+    repo.finish_tags()?;
 
     Ok(())
   }

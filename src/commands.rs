@@ -342,6 +342,7 @@ pub async fn release(
         proj.verify_restrictions(&target)?;
         mono.set_by_id(id, &target)?;
         output.write_changed(name.clone(), prev_vers.clone(), curt_vers.clone(), target.clone());
+        target
       } else {
         proj.verify_restrictions(&curt_vers)?;
         if locktags {
@@ -350,8 +351,8 @@ pub async fn release(
           mono.forward_by_id(id, &curt_vers)?;
           output.write_forward(all, name.clone(), prev_vers.clone(), curt_vers.clone(), target.clone());
         }
+        curt_vers
       }
-      target
     } else {
       proj.verify_restrictions(&curt_vers)?;
       if locktags {
