@@ -25,8 +25,8 @@ use std::fmt;
 use std::io::{stdout, Write};
 use std::iter::empty;
 use std::path::{Path, PathBuf};
-use tracing::{error, info, trace, warn};
 use std::sync::{Arc, Mutex};
+use tracing::{error, info, trace, warn};
 
 pub struct Repo {
   vcs: GitVcsLevel,
