@@ -456,9 +456,16 @@ relative to the base of the repo; other paths are relative to that root
 
 The "version" property is used both to look up a project's old version,
 and to decide where to write the new version. Broadly speaking, there
-are two places a project's version can be found: either a structured
-manifest file, or some VCS tagging scheme. If the version number is
-found in a manifest file, you can list that using something like:
+are three places a project's version can be found:
+
+- a structured manifest file
+- some VCS tagging scheme
+- a pair of get/set shell commands.
+
+#### Manifest file
+
+If the version number is found in a manifest file, you can list that
+using something like:
 
 ```yaml
 version:
@@ -521,6 +528,8 @@ file. Or, provide just the "file" property, and Versio will assume
 version number makes up the file contents in their entirety (See "File
 parsing" below).
 
+#### Tagging scheme
+
 If you are using VCS tagging to track your project version number (which
 is common in Go and Terraform projects), then you can use something like
 this instead:
@@ -534,6 +543,23 @@ version:
 
 See [Version Tags](./version_tags.md) for more info on the benefits and
 pitfalls of this technique.
+
+#### Get/Set commands
+
+If you are using a custom get/set shell commands to get and set the
+version, you can configure them this way:
+
+```yaml
+version:
+  get: "find-version"
+  set: "set-version"
+```
+
+When the current version number needs to be looked up, then Versio will
+execute the `get` command: its output to stdout will be assumed as the
+version number. When Versio needs to set the current version, it will
+run the `set` command adding a single command-line argument, which is
+the new version number itself.
 
 ### Also
 
