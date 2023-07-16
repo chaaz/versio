@@ -37,10 +37,13 @@ pub struct Repo {
 
 pub struct RepoCache {
   pulled_tags: bool,
+  tags_to_push: Vec<String>
 }
 
 impl RepoCache {
-  pub fn new() -> Arc<Mutex<RepoCache>> { Arc::new(Mutex::new(RepoCache { pulled_tags: false })) }
+  pub fn new() -> Arc<Mutex<RepoCache>> {
+    Arc::new(Mutex::new(RepoCache { pulled_tags: false, tags_to_push: Default::default() }))
+  }
 }
 
 impl Repo {
@@ -464,9 +467,11 @@ impl Repo {
     do_push(repo, remote_name, &refs)
   }
 
-  fn push_tag(&self, _tag: &str) -> Result<()> {
+  fn push_tag(&self, tag: &str) -> Result<()> {
     // don't actually push here: wait for `finish_tags` to push all tags
-    // do_push(repo, remote_name, &[format!("+refs/tags/{}", tag)])
+    let cache = self.cache();
+    let mut cache = cache.lock().unwrap();
+    cache.tags_to_push.push(tag.to_string());
     Ok(())
   }
 
@@ -478,7 +483,12 @@ impl Repo {
       }
     };
 
-    do_push(repo, remote_name, &[format!("+refs/remote/{}/tags/*:refs/tags/*", remote_name)])
+    let specs: Vec<_> = {
+      let cache = self.cache();
+      let mut cache = cache.lock().unwrap();
+      cache.tags_to_push.drain(..).map(|t| format!("+refs/tags/{}", t)).collect()
+    };
+    do_push(repo, remote_name, &specs)
   }
 
   pub fn branch_name(&self) -> Result<&Option<String>> {
