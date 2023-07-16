@@ -478,7 +478,7 @@ impl Repo {
       }
     };
 
-    do_push(repo, remote_name, &["+refs/tags/*:refs/tags/*".to_string()])
+    do_push(repo, remote_name, &["+refs/tags/:".to_string()])
   }
 
   pub fn branch_name(&self) -> Result<&Option<String>> {
