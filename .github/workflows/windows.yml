@@ -7,8 +7,8 @@ env:
   GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
   GITHUB_USER: "${{ github.actor }}"
 jobs:
-  publish-versio:
-    needs: project-matrixes
+  build:
+    strategy:
       matrix:
         include:
           - os: windows-latest
