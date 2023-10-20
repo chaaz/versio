@@ -599,17 +599,17 @@ impl PartialEq for CommitInfoBuf {
 }
 
 impl PartialOrd for CommitInfoBuf {
-  fn partial_cmp(&self, other: &CommitInfoBuf) -> Option<Ordering> {
-    if self.id == other.id {
-      Some(Ordering::Equal)
-    } else {
-      Some(self.time.cmp(&other.time))
-    }
-  }
+  fn partial_cmp(&self, other: &CommitInfoBuf) -> Option<Ordering> { Some(self.cmp(other)) }
 }
 
 impl Ord for CommitInfoBuf {
-  fn cmp(&self, other: &CommitInfoBuf) -> Ordering { self.partial_cmp(other).unwrap() }
+  fn cmp(&self, other: &CommitInfoBuf) -> Ordering {
+    if self.id == other.id {
+      Ordering::Equal
+    } else {
+      self.time.cmp(&other.time)
+    }
+  }
 }
 
 impl CommitInfoBuf {
@@ -1089,7 +1089,7 @@ fn extract_kind(message: &str) -> String {
   }
 
   match message.char_indices().find(|(_, c)| *c == ':' || *c == '\n') {
-    Some((i, c)) if c == ':' => {
+    Some((i, ':')) => {
       let kind = &message[.. i].trim();
       if kind.ends_with('!') {
         return "!".into();

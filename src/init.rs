@@ -104,7 +104,7 @@ fn add_gemspec(fname: &str, file: &Path) -> Result<Option<ProjSummary>> {
   let spec_suffix = ".gemspec";
   if let Some(fname_pref) = fname.strip_suffix(spec_suffix) {
     let name_reg = r#"spec\.name *= *['"]([^'"]*)['"]"#;
-    let version_reg = r#"spec\.version *= *(\S*)"#;
+    let version_reg = r"spec\.version *= *(\S*)";
     let name = extract_name(file, |d| find_reg_data(&d, name_reg))?;
     let mut vers = extract_name(file, |d| find_reg_data(&d, version_reg))?;
     let dir = file.parent().unwrap();

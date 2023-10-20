@@ -535,7 +535,7 @@ impl<'s> PlanBuilder<'s> {
     let mut dependents: HashMap<ProjectId, HashMap<ProjectId, Depends>> = HashMap::new();
     for project in self.current.projects() {
       for (dep_id, dep) in project.depends() {
-        dependents.entry(dep_id.clone()).or_insert_with(HashMap::new).insert(project.id().clone(), dep.clone());
+        dependents.entry(dep_id.clone()).or_default().insert(project.id().clone(), dep.clone());
       }
 
       if project.depends().is_empty() {
