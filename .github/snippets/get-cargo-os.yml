@@ -16,8 +16,6 @@ value:
     # ensure that the $env:PATH doesn't run out of characters when
     # running choco.
     run: |
-      $env:PATH = "C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\ProgramData\chocolatey\bin"
-      [Environment]::SetEnvironmentVariable("Path", $env:PATH, "Machine")
       choco install -y gnupg
       echo "C:\Program Files (x86)\GnuPG\bin" >> $env:GITHUB_PATH
   - name: Get cargo stable

@@ -127,7 +127,7 @@ impl ProjOutput {
         if self.vers_only {
           println!("{}", line.version);
         } else if self.wide {
-          println!("{:>id_width$}. {:width$} : {}", line.id, line.name, line.version, id_width = id_width, width = name_width);
+          println!("{:>id_width$}. {:name_width$} : {}", line.id.to_string(), line.name, line.version);
         } else {
           println!("{:width$} : {}", line.name, line.version, width = name_width);
         }

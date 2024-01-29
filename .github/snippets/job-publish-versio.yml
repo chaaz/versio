@@ -15,7 +15,7 @@ value:
           rustflags: '-D warnings'
           bin_name: 'versio'
         - os: windows-latest
-          target: 'x86_64-pc-win32.exe'
+          target: 'x86_64-pc-windows-msvc'
           root: '.'
           rustflags: '-D warnings'
           bin_name: 'versio.exe'
