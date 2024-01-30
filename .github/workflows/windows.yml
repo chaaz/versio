@@ -4,15 +4,27 @@ name: windows
   - workflow_dispatch
 env:
   RUSTFLAGS: "-D warnings"
-  GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+  GITHUB_TOKEN: "${{ secrets.FULL_GITHUB_TOKEN }}"
   GITHUB_USER: "${{ github.actor }}"
 jobs:
+  versio-checks:
+    runs-on: windows-latest
+    if: "!contains(github.event.head_commit.message, 'skip ci')"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Get versio
+        uses: chaaz/versio-actions/install@v1.3
+      - name: Fetch history
+        run: git fetch --unshallow
+      - name: Output plan
+        run: versio plan
   build:
     strategy:
       matrix:
         include:
           - os: windows-latest
-            target: x86_64-pc-win32.exe
+            target: x86_64-pc-windows-msvc
             root: "."
             rustflags: "-D warnings"
             bin_name: versio.exe
@@ -25,9 +37,12 @@ jobs:
           ref: main
       - name: Install Windows dependencies
         if: "matrix.os == 'windows-latest'"
+        # echo "C:\msys64\mingw32\bin" >> $GITHUB_PATH
         run: |
+          $env:PATH = "C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\ProgramData\chocolatey\bin"
+          [Environment]::SetEnvironmentVariable("Path", $env:PATH, "Machine")
           choco install -y Gpg4win
-          echo "C:\msys64\mingw32\bin" >> $GITHUB_PATH
+          echo "C:\Program Files (x86)\Gpg4win\..\GnuPG\bin" >> $env:GITHUB_PATH
       - name: Get Windows cargo stable
         if: "matrix.os == 'windows-latest'"
         uses: actions-rs/toolchain@v1
