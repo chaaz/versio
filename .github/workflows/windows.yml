@@ -7,20 +7,6 @@ env:
   GITHUB_TOKEN: "${{ secrets.FULL_GITHUB_TOKEN }}"
   GITHUB_USER: "${{ github.actor }}"
 jobs:
-  versio-checks:
-    runs-on: ubuntu-latest
-    if: "!contains(github.event.head_commit.message, 'skip ci')"
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-      - name: Get versio
-        uses: chaaz/versio-actions/install@v1.3
-      - name: Fetch history
-        run: git fetch --unshallow
-      - name: Check projects
-        run: versio check
-      - name: Output plan
-        run: versio plan
   build:
     strategy:
       matrix:

@@ -214,6 +214,8 @@ fn read_env_prefs() -> Result<UserPrefs> {
     if let Ok(token) = std::env::var("GITHUB_TOKEN") {
       if let Some(auth) = prefs.auth_mut() {
         auth.set_github_token(Some(token))
+      } else {
+        prefs.auth = Some(Auth::new(Some(token)));
       }
     }
     prefs

@@ -918,6 +918,7 @@ pub struct Auth {
 }
 
 impl Auth {
+  pub fn new(github_token: Option<String>) -> Auth { Auth { github_token } }
   pub fn github_token(&self) -> &Option<String> { &self.github_token }
   pub fn set_github_token(&mut self, token: Option<String>) { self.github_token = token; }
 }
