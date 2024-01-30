@@ -8,7 +8,7 @@ env:
   GITHUB_USER: "${{ github.actor }}"
 jobs:
   versio-checks:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     if: "!contains(github.event.head_commit.message, 'skip ci')"
     steps:
       - name: Checkout code
@@ -17,6 +17,8 @@ jobs:
         uses: chaaz/versio-actions/install@v1.3
       - name: Fetch history
         run: git fetch --unshallow
+      - name: Check projects
+        run: versio check
       - name: Output plan
         run: versio plan
   build:
@@ -35,14 +37,13 @@ jobs:
         uses: actions/checkout@v3
         with:
           ref: main
+      - name: Install winget
+        if: "matrix.os == 'windows-latest'"
+        uses: Cyberboss/install-winget@v1
       - name: Install Windows dependencies
         if: "matrix.os == 'windows-latest'"
-        # echo "C:\msys64\mingw32\bin" >> $GITHUB_PATH
         run: |
-          $env:PATH = "C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0\;C:\ProgramData\chocolatey\bin"
-          [Environment]::SetEnvironmentVariable("Path", $env:PATH, "Machine")
-          choco install -y Gpg4win
-          echo "C:\Program Files (x86)\Gpg4win\..\GnuPG\bin" >> $env:GITHUB_PATH
+          winget install --id GnuPG.Gpg4win --disable-interactivity --accept-source-agreements
       - name: Get Windows cargo stable
         if: "matrix.os == 'windows-latest'"
         uses: actions-rs/toolchain@v1
