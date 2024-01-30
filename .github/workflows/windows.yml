@@ -29,7 +29,7 @@ jobs:
       - name: Install Windows dependencies
         if: "matrix.os == 'windows-latest'"
         run: |
-          winget install --id GnuPG.Gpg4win --disable-interactivity --accept-source-agreements
+          winget install --id GnuPG.Gpg4win --silent --disable-interactivity --accept-source-agreements --accept-package-agreements --no-upgrade --force
       - name: Get Windows cargo stable
         if: "matrix.os == 'windows-latest'"
         uses: actions-rs/toolchain@v1
