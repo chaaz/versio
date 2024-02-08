@@ -12,8 +12,16 @@ use git2::string_array::StringArray;
 use git2::{AnnotatedCommit, AutotagOption, Blob, Commit, Cred, CredentialType, Diff, DiffOptions, FetchOptions, Index,
            Object, ObjectType, Oid, PushOptions, Reference, ReferenceType, Remote, RemoteCallbacks, Repository,
            RepositoryOpenFlags, RepositoryState, ResetType, Revwalk, Signature, Sort, Status, StatusOptions, Time};
+use openpgp::armor;
+use openpgp::serialize::stream::{Armorer, Message, Signer};
 use path_slash::PathBufExt as _;
 use regex::Regex;
+use sequoia_openpgp as openpgp;
+use sequoia_openpgp::crypto::KeyPair;
+use sequoia_openpgp::packet::key::SecretKeyMaterial;
+use sequoia_openpgp::parse::Parse;
+use sequoia_openpgp::policy::NullPolicy;
+use sequoia_openpgp::Cert;
 use serde::Deserialize;
 use std::cell::RefCell;
 use std::cmp::{min, Ord, Ordering, PartialOrd};
@@ -26,14 +34,6 @@ use std::iter::empty;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tracing::{error, info, trace, warn};
-use sequoia_openpgp::parse::Parse;
-use sequoia_openpgp::policy::NullPolicy;
-use sequoia_openpgp::Cert;
-use sequoia_openpgp::crypto::KeyPair;
-use sequoia_openpgp::packet::key::SecretKeyMaterial;
-use sequoia_openpgp as openpgp;
-use openpgp::armor;
-use openpgp::serialize::stream::{Message, Armorer, Signer};
 
 pub struct Repo {
   vcs: GitVcsLevel,
@@ -194,7 +194,12 @@ impl Repo {
   }
 
   pub fn github_info(&self, auth: &Option<Auth>) -> Result<GithubInfo> {
-    find_github_info(self.repo()?, self.remote_name()?, auth)
+    match &self.vcs {
+      GitVcsLevel::Smart { repo, .. } => find_github_info(repo, self.remote_name()?, auth),
+      GitVcsLevel::None { .. } | GitVcsLevel::Local { .. } | GitVcsLevel::Remote { .. } => {
+        bail!("No github info at currnet level")
+      }
+    }
   }
 
   /// Return all commits as in `git rev-list from..to_sha`, along with the earliest time in that range.
@@ -1350,12 +1355,12 @@ pub fn find_keypair_for_id(keypath: &Path) -> Result<KeyPair> {
   let policy = NullPolicy::new();
 
   let key = cert
-		.keys()
-		.with_policy(&policy, None)
-		.alive()
-		.revoked(false)
-		.for_signing()
-		.supported()
+    .keys()
+    .with_policy(&policy, None)
+    .alive()
+    .revoked(false)
+    .for_signing()
+    .supported()
     .map(|ka| ka.key())
     .next()
     .ok_or_else(|| bad!("No suitable signing key in cert file"))?;
