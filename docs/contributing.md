@@ -179,14 +179,6 @@ the resulting executable is a reasonable size: without that option, the
 binary easily expand to over 100M. If you forget to include this option,
 you should manually run `strip` on the resulting executable.
 
-You also need to install some gpg libraries first:
-
-```
-sudo apt update
-sudo apt install libgpg-error-dev
-sudo apt install libgpgme-dev
-```
-
 ### Windows
 
 [windows]: #windows
@@ -199,55 +191,10 @@ have Visual Studio installed. Otherwise, you'll need to install MSVC
 Visual Studio (Community Edition 2017 is tested) or its runtime
 components yourself.
 
-Because of the distribution of the GnuPG libraries for Windows, we build
-using the MSVC 32-bit toolchain to cross-compile for the GNU 32-bit
-target. It may be possible to build solely with the GNU toolchain via
-MSYS2 and/or Mingw32, but this is currently untested. Additionally,
-statically linking in the GnuPG libraries is problematic, even if you
-can get it to work, and is not recommended.
-
-In order to cross-compile to the windows-gnu target, the Gnu toolset
-must be installed: the best way for that is to install
-[MinGW](https://www.mingw-w64.org/) (Minimum Gnu for Windows).
-
-Additionally, you need to have the GpgME (GnuPG Made Easy) libraries
-installed to build. We've tested building with MinGW version 8.1.0.
-
-Using [Chocolatey](https://chocolatey.org/) to install both GpgME and
-MinGW is probably the easiest. Once you've installed Rust and
-Chocolatey, you can run the following commands. For more details,
-examine our GitHub Actions "release" workflow, which generates binaries
-for all platforms.
-
-```
-choco install -y gnupg
-choco install mingw --version 8.1.0 --x86 -y
-choco install pkgconfiglite -y
-
-rustup toolchain add stable-i686-pc-windows-msvc
-rustup target add --toolchain stable-i686-pc-windows-msvc i686-pc-windows-gnu
-rustup default stable-i686-pc-windows-msvc
-rustup set default-host i686-pc-windows-gnu
-
-refreshenv  # or just restart the terminal window
-
-# to install:
-cargo +stable-i686-pc-windows-msvc install --target i686-pc-windows-gnu versio
-
-# or just build:
-cd VERSIO_REPO
-cargo +stable-i686-pc-windows-msvc build --target i686-pc-windows-gnu
-```
-
 ### MacOS
 
 [macos]: #macos
 
-You need to install the GpgME (GnuPG Made Easy) libraries before running
-`cargo build` or `cargo install`; [homebrew](https://brew.sh/) is
-probably the easiest:
-
-```
-brew update
-brew install gpgme
-```
+No additional configuration is needed to build Versio for MacOS
+platforms, although you may want to set `RUSTFLAGS='-D warnings'` to
+ensure the highest-quality build.
