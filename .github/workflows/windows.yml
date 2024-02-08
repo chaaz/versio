@@ -25,16 +25,13 @@ jobs:
           ref: main
       - name: Get Windows cargo stable
         if: "matrix.os == 'windows-latest'"
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable-i686-pc-windows-msvc
           components: clippy
-          default: true
       - name: Get Windows cargo nightly
         if: "matrix.os == 'windows-latest'"
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-i686-pc-windows-msvc
           components: rustfmt
       - name: Find paths
         id: cargo-find-paths
