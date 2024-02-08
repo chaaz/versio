@@ -96,8 +96,6 @@ jobs:
         run: git fetch --unshallow
       - name: Generate release
         run: versio -l local release
-      - name: Commit release
-        run: "git commit -am 'build(deploy): Versio manual update'"
       - name: Push release
         run: git push
       - name: Push release tags
