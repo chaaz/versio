@@ -13,4 +13,4 @@ value:
     - name: Fetch history
       run: git fetch --unshallow
     - name: Generate release
-      run: versio release
+      run: versio -l remote release

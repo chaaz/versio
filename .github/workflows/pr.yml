@@ -6,7 +6,7 @@ name: pr
   - workflow_dispatch
 env:
   RUSTFLAGS: "-D warnings"
-  GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+  GITHUB_TOKEN: "${{ secrets.FULL_GITHUB_TOKEN }}"
   GITHUB_USER: "${{ github.actor }}"
 jobs:
   project-matrixes:
@@ -37,9 +37,9 @@ jobs:
       - name: Fetch history
         run: git fetch --unshallow
       - name: Check projects
-        run: versio check
+        run: versio -l remote check
       - name: Output plan
-        run: versio plan
+        run: versio -l remote plan
   cargo-checks:
     needs: project-matrixes
     runs-on: ubuntu-latest

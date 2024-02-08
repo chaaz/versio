@@ -1,5 +1,5 @@
 key: common-env
 value:
   RUSTFLAGS: '-D warnings'
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  GITHUB_TOKEN: ${{ secrets.FULL_GITHUB_TOKEN }}
   GITHUB_USER: ${{ github.actor }}
