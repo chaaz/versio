@@ -1,13 +1,13 @@
 key: get-cargo
 value:
-  - name: Get cargo stable
-    uses: dtolnay/rust-toolchain@stable
-    with:
-      components: clippy
   - name: Get cargo nightly
     uses: dtolnay/rust-toolchain@nightly
     with:
       components: rustfmt
+  - name: Get cargo stable
+    uses: dtolnay/rust-toolchain@stable
+    with:
+      components: clippy
   - name: Find paths
     id: cargo-find-paths
     run: 'echo ::set-output name=cargo-lock-glob::"${{ matrix.root }}"/**/Cargo.lock'
