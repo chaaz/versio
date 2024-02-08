@@ -52,17 +52,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y libgpg-error-dev libgpgme-dev
       - name: Get cargo stable
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           components: clippy
       - name: Get cargo nightly
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly
           components: rustfmt
       - name: Find paths
         id: cargo-find-paths
