@@ -216,7 +216,6 @@ jobs:
           path: "~/.cargo/registry\n~/.cargo/git\n${{ matrix.root }}/target\n"
           key: "${{ runner.os }}-cargo-${{ hashFiles(steps.cargo-find-paths.outputs.cargo-lock-glob) }}"
       - name: Build binary
-        if: "matrix.os == 'ubuntu-latest'"
         run: cargo build --release
         working-directory: "${{ matrix.root }}"
         env:

@@ -29,7 +29,6 @@ value:
         ref: main
     - SNIPPET_get-cargo
     - name: Build binary
-      if: matrix.os == 'ubuntu-latest'
       run: cargo build --release
       working-directory: ${{ matrix.root }}
       env:
