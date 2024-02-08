@@ -1,6 +1,6 @@
 [package]
 name = "versio"
-version = "0.8.2"
+version = "0.8.3"
 authors = ["Charlie Ozinga <ozchaz@gmail.com>"]
 edition = "2021"
 description = "Versio is a tool to manage and publish project versions."
