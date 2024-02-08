@@ -17,7 +17,7 @@ jobs:
       all-matrix: "${{ steps.find-all-matrix.outputs.matrix }}"
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Get versio
         uses: chaaz/versio-actions/install@v1.3
       - name: Find cargo matrix
@@ -31,7 +31,7 @@ jobs:
     if: "!contains(github.event.head_commit.message, 'skip ci')"
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Get versio
         uses: chaaz/versio-actions/install@v1.3
       - name: Fetch history
@@ -51,7 +51,7 @@ jobs:
         working-directory: "${{ matrix.root }}"
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Get cargo nightly
         uses: dtolnay/rust-toolchain@nightly
         with:
