@@ -27,20 +27,15 @@ jobs:
         if: "matrix.os == 'windows-latest'"
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable-i686-pc-windows-gnu
-          target: i686-pc-windows-gnu
+          toolchain: stable-i686-pc-windows-msvc
           components: clippy
           default: true
       - name: Get Windows cargo nightly
         if: "matrix.os == 'windows-latest'"
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: nightly-i686-pc-windows-gnu
-          target: i686-pc-windows-gnu
+          toolchain: nightly-i686-pc-windows-msvc
           components: rustfmt
-      - name: Update Windows target configuration
-        if: "matrix.os == 'windows-latest'"
-        run: rustup set default-host i686-pc-windows-gnu
       - name: Find paths
         id: cargo-find-paths
         run: "echo ::set-output name=cargo-lock-glob::\"${{ matrix.root }}\"/**/Cargo.lock"
@@ -51,7 +46,7 @@ jobs:
           key: "${{ runner.os }}-cargo-${{ hashFiles(steps.cargo-find-paths.outputs.cargo-lock-glob) }}"
       - name: Build Windows binary
         if: "matrix.os == 'windows-latest'"
-        run: cargo build --release --target i686-pc-windows-gnu
+        run: cargo build --release
         working-directory: "${{ matrix.root }}"
         env:
           RUSTFLAGS: "${{ matrix.rustflags }}"
