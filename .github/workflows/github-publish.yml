@@ -37,9 +37,9 @@ jobs:
       - name: Fetch history
         run: git fetch --unshallow
       - name: Check projects
-        run: versio -l remote check
+        run: versio -l local check
       - name: Output plan
-        run: versio -l remote plan
+        run: versio -l local plan
   cargo-checks:
     needs: project-matrixes
     runs-on: ubuntu-latest

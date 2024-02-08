@@ -37,9 +37,9 @@ jobs:
       - name: Fetch history
         run: git fetch --unshallow
       - name: Check projects
-        run: versio -l remote check
+        run: versio -l local check
       - name: Output plan
-        run: versio -l remote plan
+        run: versio -l local plan
   cargo-checks:
     needs: project-matrixes
     runs-on: ubuntu-latest
@@ -95,7 +95,13 @@ jobs:
       - name: Fetch history
         run: git fetch --unshallow
       - name: Generate release
-        run: versio -l remote release
+        run: versio -l local release
+      - name: Commit release
+        run: "git commit -am 'build(deploy): Versio manual update'"
+      - name: Push release
+        run: git push
+      - name: Push release tags
+        run: git push --tags --force
   cratesio-publish:
     needs:
       - project-matrixes
