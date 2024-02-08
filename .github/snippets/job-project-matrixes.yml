@@ -1,6 +1,7 @@
 key: job-project-matrixes
 value:
   runs-on: ubuntu-latest
+  environment: Build
   if: SNIPPET_not-skip-ci
   outputs:
     cargo-matrix: ${{ steps.find-cargo-matrix.outputs.matrix }}

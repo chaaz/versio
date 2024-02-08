@@ -4,6 +4,7 @@ value:
     - versio-checks
     - cargo-checks
   runs-on: ubuntu-latest
+  environment: Build
   if: SNIPPET_not-skip-ci
   outputs:
     upload_url: ${{ steps.publish-to-github.outputs.upload_url }}

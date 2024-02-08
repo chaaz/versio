@@ -1,6 +1,7 @@
 key: job-versio-checks
 value:
   runs-on: ubuntu-latest
+  environment: Build
   if: SNIPPET_not-skip-ci
   steps:
     - name: Checkout code

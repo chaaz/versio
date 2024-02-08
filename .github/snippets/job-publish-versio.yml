@@ -21,6 +21,7 @@ value:
           bin_name: 'versio.exe'
   if: SNIPPET_not-skip-ci
   runs-on: ${{ matrix.os }}
+  environment: Build
   steps:
     - name: Checkout release
       uses: actions/checkout@v4

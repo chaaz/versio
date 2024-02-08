@@ -2,6 +2,7 @@ key: job-cargo-checks
 value:
   needs: project-matrixes
   runs-on: ubuntu-latest
+  environment: Build
   strategy:
     matrix: ${{ fromJson(needs.project-matrixes.outputs.cargo-matrix) }}
   if: SNIPPET_not-skip-ci

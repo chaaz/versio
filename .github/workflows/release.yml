@@ -11,6 +11,7 @@ env:
 jobs:
   project-matrixes:
     runs-on: ubuntu-latest
+    environment: Build
     if: "!contains(github.event.head_commit.message, 'skip ci')"
     outputs:
       cargo-matrix: "${{ steps.find-cargo-matrix.outputs.matrix }}"
@@ -28,6 +29,7 @@ jobs:
         run: "echo \"::set-output name=matrix::{\\\"include\\\":$(versio -l none info -a -R -N)}\""
   versio-checks:
     runs-on: ubuntu-latest
+    environment: Build
     if: "!contains(github.event.head_commit.message, 'skip ci')"
     steps:
       - name: Checkout code
@@ -43,6 +45,7 @@ jobs:
   cargo-checks:
     needs: project-matrixes
     runs-on: ubuntu-latest
+    environment: Build
     strategy:
       matrix: "${{ fromJson(needs.project-matrixes.outputs.cargo-matrix) }}"
     if: "!contains(github.event.head_commit.message, 'skip ci')"
@@ -79,6 +82,7 @@ jobs:
       - cargo-checks
       - versio-checks
     runs-on: ubuntu-latest
+    environment: Build
     if: "!contains(github.event.head_commit.message, 'skip ci')"
     steps:
       - name: Checkout code
@@ -105,6 +109,7 @@ jobs:
       - project-matrixes
       - versio-release
     runs-on: ubuntu-latest
+    environment: Build
     strategy:
       matrix: "${{fromJson(needs.project-matrixes.outputs.cargo-matrix)}}"
     if: "!contains(github.event.head_commit.message, 'skip ci')"
@@ -141,6 +146,7 @@ jobs:
   github-publish:
     needs: versio-release
     runs-on: ubuntu-latest
+    environment: Build
     if: "!contains(github.event.head_commit.message, 'skip ci')"
     outputs:
       upload_url: "${{ steps.publish-to-github.outputs.upload_url }}"
@@ -187,6 +193,7 @@ jobs:
             bin_name: versio.exe
     if: "!contains(github.event.head_commit.message, 'skip ci')"
     runs-on: "${{ matrix.os }}"
+    environment: Build
     steps:
       - name: Checkout release
         uses: actions/checkout@v4
