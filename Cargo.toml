@@ -3,7 +3,7 @@ name = "versio"
 version = "0.7.6"
 authors = ["Charlie Ozinga <ozchaz@gmail.com>"]
 edition = "2021"
-description = "Versio is a tool to manage and publish projects."
+description = "Versio is a tool to manage and publish project versions."
 homepage = "https://github.com/chaaz/versio/"
 repository = "https://github.com/chaaz/versio/"
 license-file = "LICENSE.txt"
@@ -17,7 +17,6 @@ clap = { version = "4.0.18", features = ["wrap_help", "cargo", "derive"] }
 dirs = "4.0.0"
 git2 = "0.15.0"
 glob = "0.3.0"
-gpgme = "0.11.0"
 hyper = { version = "0.14.22", features = ["client", "http1", "http2", "tcp"] }
 ignore = "0.4.18"
 liquid = "0.26.0"
@@ -34,6 +33,11 @@ tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
 xmlparser = "0.13.5"
 yaml-rust = "0.4.5"
+
+[dependencies.sequoia-openpgp]
+version = "1.18.0"
+default-features = false
+features = ["crypto-rust", "allow-experimental-crypto", "allow-variable-time-crypto"]
 
 [lib]
 name = "versio"

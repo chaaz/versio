@@ -12,7 +12,6 @@ use git2::string_array::StringArray;
 use git2::{AnnotatedCommit, AutotagOption, Blob, Commit, Cred, CredentialType, Diff, DiffOptions, FetchOptions, Index,
            Object, ObjectType, Oid, PushOptions, Reference, ReferenceType, Remote, RemoteCallbacks, Repository,
            RepositoryOpenFlags, RepositoryState, ResetType, Revwalk, Signature, Sort, Status, StatusOptions, Time};
-use gpgme::{Context, Protocol};
 use path_slash::PathBufExt as _;
 use regex::Regex;
 use serde::Deserialize;
@@ -27,6 +26,14 @@ use std::iter::empty;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tracing::{error, info, trace, warn};
+use sequoia_openpgp::parse::Parse;
+use sequoia_openpgp::policy::NullPolicy;
+use sequoia_openpgp::Cert;
+use sequoia_openpgp::crypto::KeyPair;
+use sequoia_openpgp::packet::key::SecretKeyMaterial;
+use sequoia_openpgp as openpgp;
+use openpgp::armor;
+use openpgp::serialize::stream::{Message, Armorer, Signer};
 
 pub struct Repo {
   vcs: GitVcsLevel,
@@ -333,6 +340,8 @@ impl Repo {
   }
 
   fn commit_tree(&self, tree_oid: Oid) -> Result<()> {
+    // Based roughly on https://github.com/rust-lang/git2-rs/issues/507, but using sequoia/rust-crypto.
+
     let repo = self.repo()?;
     let tree = repo.find_tree(tree_oid)?;
     let parent_commit = self.find_last_commit()?;
@@ -343,27 +352,13 @@ impl Repo {
     let msg = self.commit_config.message();
 
     let commit_oid = if repo.config()?.get_bool("commit.gpgSign").unwrap_or(false) {
-      let mut ctx = Context::from_protocol(Protocol::OpenPgp)?;
-
-      let signid = repo.config()?.get_string("user.signingKey").ok();
-      if let Some(signid) = signid {
-        let key = ctx
-          .keys()?
-          .find(|k| k.as_ref().map(|k| k.id().map(|id| id == signid).unwrap_or(false)).unwrap_or(false))
-          .ok_or_else(|| bad!("No key found with ID: {}", signid))??;
-        ctx.add_signer(&key)?;
-      }
-
+      let keypath = repo.config()?.get_path("versio.keypath").with_context(|| "No versio.keypath")?;
+      let keypair = find_keypair_for_id(&keypath)?;
       let buf = repo.commit_create_buffer(&sig, &sig, msg, &tree, &[&parent_commit])?;
+      let out = sign_armored_detached(keypair, &buf)?;
 
-      let mut outbuf = Vec::new();
-      ctx.set_armor(true);
-      ctx.sign_detached(&*buf, &mut outbuf)?;
-
-      let contents = buf.as_str().ok_or_else(|| bad!("Buffer was not valid UTF-8"))?;
-      let out = std::str::from_utf8(&outbuf)?;
-
-      repo.commit_signed(contents, out, Some("gpgsig"))?
+      let contents = buf.as_str().ok_or_else(|| bad!("Commit buffer was not UTF-8"))?;
+      repo.commit_signed(contents, std::str::from_utf8(&out)?, Some("gpgsig"))?
     } else {
       repo.commit(head, &sig, &sig, msg, &tree, &[&parent_commit])?
     };
@@ -424,23 +419,11 @@ impl Repo {
       let first_oid = repo.tag(tag, &obj, &tagger, &msg_string, true)?;
       let odb = repo.odb()?;
       let tag_obj = odb.read(first_oid)?;
-      let raw = std::str::from_utf8(tag_obj.data())?;
 
-      let mut ctx = Context::from_protocol(Protocol::OpenPgp)?;
+      let keypath = repo.config()?.get_path("versio.keypath").with_context(|| "No versio.keypath")?;
 
-      let signid = repo.config()?.get_string("user.signingKey").ok();
-      if let Some(signid) = signid {
-        let key = ctx
-          .keys()?
-          .find(|k| k.as_ref().map(|k| k.id().map(|id| id == signid).unwrap_or(false)).unwrap_or(false))
-          .ok_or_else(|| bad!("No key found with ID: {}", signid))??;
-        ctx.add_signer(&key)?;
-      }
-
-      let mut outbuf = Vec::new();
-      ctx.set_armor(true);
-      ctx.sign_detached(raw, &mut outbuf)?;
-
+      let keypair = find_keypair_for_id(&keypath)?;
+      let outbuf = sign_armored_detached(keypair, tag_obj.data())?;
       let detached_sig = std::str::from_utf8(&outbuf)?;
 
       repo.tag(tag, &obj, &tagger, &format!("{}{}", msg_string, detached_sig), true)?;
@@ -1353,6 +1336,55 @@ pub fn time_to_datetime(time: &Time) -> DateTime<FixedOffset> {
     .timestamp_opt(time.seconds(), 0)
     .single()
     .expect("time/0 in bounds")
+}
+
+pub fn find_keypair_for_id(keypath: &Path) -> Result<KeyPair> {
+  // This is based on sequoia docs here:
+  // https://docs.rs/sequoia-openpgp/1.18.0/sequoia_openpgp/serialize/stream/struct.Armorer.html#method.kind and
+  // here: https://docs.rs/sequoia-ipc/latest/sequoia_ipc/keybox/struct.Keybox.html
+  //
+  // Also on use in gitui support: https://github.com/extrawurst/gitui/pull/910
+
+  let cert = Cert::from_file(keypath)?;
+  // TODO: find out why StandardPolicy is not working with the versio_tester key
+  let policy = NullPolicy::new();
+
+  let key = cert
+		.keys()
+		.with_policy(&policy, None)
+		.alive()
+		.revoked(false)
+		.for_signing()
+		.supported()
+    .map(|ka| ka.key())
+    .next()
+    .ok_or_else(|| bad!("No suitable signing key in cert file"))?;
+
+  if let Some(secret) = key.optional_secret() {
+    let unencrypted = match secret {
+      SecretKeyMaterial::Unencrypted(ref u) => u.clone(),
+      SecretKeyMaterial::Encrypted(_) => {
+        bail!("Signing of commits with encrypted secret not currently supported")
+      }
+    };
+
+    Ok(KeyPair::new(key.clone(), unencrypted)?)
+  } else {
+    err!("No secret found in cert key")
+  }
+}
+
+pub fn sign_armored_detached(signing_keypair: KeyPair, buf: &[u8]) -> Result<Vec<u8>> {
+  let mut out = vec![];
+  {
+    let message = Message::new(&mut out);
+    let message = Armorer::new(message).kind(armor::Kind::Signature).build()?;
+    let mut signer = Signer::new(message, signing_keypair).detached().build()?;
+
+    signer.write_all(buf)?;
+    signer.finalize()?;
+  }
+  Ok(out)
 }
 
 #[cfg(test)]

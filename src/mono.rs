@@ -134,7 +134,7 @@ impl Mono {
     if self.current.projects().len() != 1 {
       bail!("No solo project.");
     }
-    let id = self.current.projects().get(0).unwrap().id().clone();
+    let id = self.current.projects().first().unwrap().id().clone();
     self.set_by_id(&id, val)
   }
 

@@ -95,7 +95,7 @@ fn get_using_cfg<R: StateRead>(
     if cfg.projects().len() != 1 {
       bail!("No solo project.");
     }
-    let id = cfg.projects().get(0).unwrap().id();
+    let id = cfg.projects().first().unwrap().id();
     output.write_project(ProjLine::from(cfg.get_project(id).ok_or_else(ensure)?, reader)?)?;
   }
 
