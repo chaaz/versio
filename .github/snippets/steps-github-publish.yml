@@ -10,10 +10,11 @@ value:
     run: 'echo ::set-output name=version::$(versio -l none info -i 0 -F | jq -r ''.[0].full_version'')'
   - name: Publish to GitHub
     id: publish-to-github
-    uses: actions/create-release@v1
+    uses: softprops/action-gh-release@v1
     with:
+      token: ${{ secrets.FULL_GITHUB_TOKEN }}
       tag_name: ${{ steps.find-version.outputs.version }}
-      release_name: (TODO) RELEASE FOR ${{ steps.find-version.outputs.version }}
+      name: (TODO) RELEASE FOR ${{ steps.find-version.outputs.version }}
       body: |
         (TODO) SUMMARY
         - (TODO) FEATURE1
@@ -36,4 +37,4 @@ value:
         If you have any questions, you should view the [Installation page](https://github.com/chaaz/versio/blob/main/docs/installing.md) for information about installing and testing dependencies.
       draft: true
       prerelease: false
-      commitish: main
+      target_commitish: main
