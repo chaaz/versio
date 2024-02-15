@@ -22,7 +22,7 @@ $ cargo install versio
 ```
 
 There may be caveats building for your particular platform: see
-[Platform-specific help](./docs/contributing.md#platform-specific-help)
+[Platform-specific help](./contributing.md#platform-specific-help)
 in our contributions document.
 
 ## GnuPG
@@ -40,7 +40,7 @@ use with Versio.
 
 ### MacOS
 
-The first time you run the `versio` binary, you may need to allow MacOs
+The first time you run the `versio` binary, you may need to allow MacOS
 to run it.
 
 ## Windows
