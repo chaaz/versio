@@ -775,10 +775,10 @@ impl Serialize for HookSet {
 impl JsonSchema for HookSet {
   fn schema_name() -> Cow<'static, str> { "HookSet".into() }
 
-  fn json_schema(_gen: &mut SchemaGenerator) -> Schema {
+  fn json_schema(gen: &mut SchemaGenerator) -> Schema {
     json_schema!({
       "type": "object",
-      "additionalProperties": { "$ref": "#/definitions/Hook" }
+      "additionalProperties": gen.subschema_for::<Hook>()
     })
   }
 }
