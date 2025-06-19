@@ -16,9 +16,7 @@ use glob::{glob_with, MatchOptions, Pattern};
 use liquid::ParserBuilder;
 use path_slash::PathBufExt as _;
 use regex::{escape, Regex};
-use schemars::gen::SchemaGenerator;
-use schemars::schema::{ArrayValidation, InstanceType, ObjectValidation, Schema, SchemaObject, SingleOrVec};
-use schemars::JsonSchema;
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, SeqAccess, Unexpected, Visitor};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
@@ -80,7 +78,7 @@ impl<'de> Deserialize<'de> for ProjectId {
 
     type DeResult<E> = std::result::Result<ProjectId, E>;
 
-    impl<'de> Visitor<'de> for ProjectIdVisitor {
+    impl Visitor<'_> for ProjectIdVisitor {
       type Value = ProjectId;
 
       fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result { formatter.write_str("a project id") }
@@ -121,15 +119,10 @@ impl<'de> Deserialize<'de> for ProjectId {
 }
 
 impl JsonSchema for ProjectId {
-  fn schema_name() -> String { "ProjectId".into() }
+  fn schema_name() -> Cow<'static, str> { "ProjectId".into() }
 
   fn json_schema(_gen: &mut SchemaGenerator) -> Schema {
-    Schema::Object(SchemaObject {
-      instance_type: Some(SingleOrVec::Vec(vec![InstanceType::Number, InstanceType::String])),
-      number: Some(Box::default()),
-      string: Some(Box::default()),
-      ..Default::default()
-    })
+    json_schema!({ "type": ["number", "string"] })
   }
 }
 
@@ -664,29 +657,18 @@ impl<'de> Deserialize<'de> for ChangelogConfig {
 }
 
 impl JsonSchema for ChangelogConfig {
-  fn schema_name() -> String { "ChangelogConfig".into() }
+  fn schema_name() -> Cow<'static, str> { "ChangelogConfig".into() }
 
-  fn json_schema(gen: &mut SchemaGenerator) -> Schema {
-    let mut required = schemars::Set::new();
-    required.insert("file".into());
-
-    let mut properties = schemars::Map::new();
-    let file_schema: SchemaObject = <String>::json_schema(gen).into();
-    let template_schema: SchemaObject = <String>::json_schema(gen).into();
-    properties.insert("file".into(), file_schema.into());
-    properties.insert("template".into(), template_schema.into());
-
-    Schema::Object(SchemaObject {
-      instance_type: Some(SingleOrVec::Vec(vec![InstanceType::String, InstanceType::Object])),
-      string: Some(Box::default()),
-      object: Some(Box::new(ObjectValidation {
-        max_properties: Some(2),
-        min_properties: Some(1),
-        required,
-        properties,
-        ..Default::default()
-      })),
-      ..Default::default()
+  fn json_schema(_gen: &mut SchemaGenerator) -> Schema {
+    json_schema!({
+      "type": ["string", "object"],
+      "maxProperties": 2,
+      "minProperties": 1,
+      "required": ["file"],
+      "properties": {
+        "file": { "type": "string" },
+        "template": { "type": "string" }
+      }
     })
   }
 }
@@ -726,7 +708,7 @@ impl<'de> Deserialize<'de> for RelativeSize {
 
     type DeResult<E> = std::result::Result<RelativeSize, E>;
 
-    impl<'de> Visitor<'de> for StrVisitor {
+    impl Visitor<'_> for StrVisitor {
       type Value = RelativeSize;
 
       fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result { formatter.write_str("a relative size") }
@@ -748,12 +730,8 @@ impl<'de> Deserialize<'de> for RelativeSize {
 }
 
 impl JsonSchema for RelativeSize {
-  fn schema_name() -> String { "RelativeSize".into() }
-
-  fn json_schema(gen: &mut SchemaGenerator) -> Schema {
-    let string_schema: SchemaObject = <String>::json_schema(gen).into();
-    string_schema.into()
-  }
+  fn schema_name() -> Cow<'static, str> { "RelativeSize".into() }
+  fn json_schema(_gen: &mut SchemaGenerator) -> Schema { json_schema!({ "type": "string" }) }
 }
 
 impl RelativeSize {
@@ -797,11 +775,13 @@ impl Serialize for HookSet {
 }
 
 impl JsonSchema for HookSet {
-  fn schema_name() -> String { "HookSet".into() }
+  fn schema_name() -> Cow<'static, str> { "HookSet".into() }
 
-  fn json_schema(gen: &mut SchemaGenerator) -> Schema {
-    let map_schema: SchemaObject = <HashMap<String, Hook>>::json_schema(gen).into();
-    map_schema.into()
+  fn json_schema(_gen: &mut SchemaGenerator) -> Schema {
+    json_schema!({
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/Hook" }
+    })
   }
 }
 
@@ -838,12 +818,8 @@ impl Serialize for Hook {
 }
 
 impl JsonSchema for Hook {
-  fn schema_name() -> String { "Hook".into() }
-
-  fn json_schema(gen: &mut SchemaGenerator) -> Schema {
-    let string_schema: SchemaObject = <String>::json_schema(gen).into();
-    string_schema.into()
-  }
+  fn schema_name() -> Cow<'static, str> { "Hook".into() }
+  fn json_schema(_gen: &mut SchemaGenerator) -> Schema { json_schema!({ "type": "string" }) }
 }
 
 fn expand_name(name: &str, sub: &SubExtent) -> String {
@@ -1102,23 +1078,16 @@ impl<'de> Deserialize<'de> for Location {
 }
 
 impl JsonSchema for Location {
-  fn schema_name() -> String { "Location".into() }
+  fn schema_name() -> Cow<'static, str> { "Location".into() }
 
   fn json_schema(gen: &mut SchemaGenerator) -> Schema {
     struct PartSpec;
     impl JsonSchema for PartSpec {
-      fn schema_name() -> String { "PartSpec".into() }
-      fn json_schema(gen: &mut SchemaGenerator) -> Schema {
-        let item_schema: SchemaObject = <String>::json_schema(gen).into();
-
-        Schema::Object(SchemaObject {
-          instance_type: Some(SingleOrVec::Vec(vec![InstanceType::String, InstanceType::Array])),
-          string: Some(Box::default()),
-          array: Some(Box::new(ArrayValidation {
-            items: Some(SingleOrVec::Single(Box::new(item_schema.into()))),
-            ..Default::default()
-          })),
-          ..Default::default()
+      fn schema_name() -> Cow<'static, str> { "PartSpec".into() }
+      fn json_schema(_gen: &mut SchemaGenerator) -> Schema {
+        json_schema!({
+          "type": ["string", "array"],
+          "items": { "type": "string" }
         })
       }
     }
@@ -1136,8 +1105,7 @@ impl JsonSchema for Location {
       format: Option<String>
     }
 
-    let my_schema: SchemaObject = <InnerLoc>::json_schema(gen).into();
-    my_schema.into()
+    <InnerLoc>::json_schema(gen)
   }
 }
 
@@ -1281,18 +1249,18 @@ impl Subs {
 ///
 /// - **Empty**: The project was untouched, so the version will not change.
 /// - **None**: Non-altering / cosmetic changes were made. The new version of the project is operationally
-/// identical to the old version, or close enough to make no difference. The version number will not change.
+///   identical to the old version, or close enough to make no difference. The version number will not change.
 /// - **Patch**: Bugs were fixed and/or slightly-more-than-cosmetic changes were made; the new version of the
-/// project is fully backwards-compatible with the old, and probably operationally similar. The "patch" part of
-/// the version number will increment.
+///   project is fully backwards-compatible with the old, and probably operationally similar. The "patch" part
+///   of the version number will increment.
 /// - **Minor**: New features were added and/or other significant changes were made; the new version of the
-/// project is backwards-compatible with the old, but possibly expanded or operationally dissimilar. The "minor"
-/// part of the version number will be incremented, and the "patch" part will be reset.
+///   project is backwards-compatible with the old, but possibly expanded or operationally dissimilar. The
+///   "minor" part of the version number will be incremented, and the "patch" part will be reset.
 /// - **Major**: Breaking changes were made: anything from pruning APIs to a full restructuring of the code; the
-/// new version of the project is incompatible with the the old version, and can't be expected to act as a
-/// drop-in replacement. The "major" part of the version number will be incremented, and other parts reset.
+///   new version of the project is incompatible with the the old version, and can't be expected to act as a
+///   drop-in replacement. The "major" part of the version number will be incremented, and other parts reset.
 /// - **Fail**: A change occured to the project that could not be understood. No changes will be made to any
-/// version numbers; in fact, the entire process is prematurely halted.
+///   version numbers; in fact, the entire process is prematurely halted.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, JsonSchema, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Size {
@@ -1432,17 +1400,11 @@ fn deser_labels<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<Vec<S
   desr.deserialize_any(StringsVisitor)
 }
 
-fn schema_labels(gen: &mut SchemaGenerator) -> Schema {
-  let item_schema: SchemaObject = <String>::json_schema(gen).into();
-
-  Schema::Object(SchemaObject {
-    instance_type: Some(SingleOrVec::Vec(vec![InstanceType::String, InstanceType::Array])),
-    string: Some(Box::default()),
-    array: Some(Box::new(ArrayValidation {
-      items: Some(SingleOrVec::Single(Box::new(item_schema.into()))),
-      ..Default::default()
-    })),
-    ..Default::default()
+fn schema_labels(_gen: &mut SchemaGenerator) -> Schema {
+  json_schema!({
+    "default": [],
+    "type": ["string", "array"],
+    "items": { "type": "string" }
   })
 }
 
@@ -1507,8 +1469,7 @@ fn schema_sizes(gen: &mut SchemaGenerator) -> Schema {
     empty: Option<Vec<String>>
   }
 
-  let my_schema: SchemaObject = <InnerSizes>::json_schema(gen).into();
-  my_schema.into()
+  <InnerSizes>::json_schema(gen)
 }
 
 fn insert_angular(result: &mut HashMap<String, Size>) {

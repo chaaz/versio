@@ -11,31 +11,32 @@ keywords = ["publish", "version", "development", "deploy", "release"]
 categories = ["command-line-utilities", "config"]
 
 [dependencies]
-anyhow = "1.0.68"
-chrono = "0.4.22"
-clap = { version = "4.0.18", features = ["wrap_help", "cargo", "derive"] }
-dirs = "4.0.0"
-git2 = "0.15.0"
-glob = "0.3.0"
-hyper = { version = "0.14.22", features = ["client", "http1", "http2", "tcp"] }
-ignore = "0.4.18"
-liquid = "0.26.0"
-octocrab = "0.17.0"
+anyhow = "1.0.98"
+chrono = "0.4.41"
+clap = { version = "4.5.40", features = ["wrap_help", "cargo", "derive"] }
+dirs = "6.0.0"
+git2 = "0.20.2"
+glob = "0.3.2"
+hyper = { version = "1.6.0", features = ["server", "client", "http1", "http2"] }
+ignore = "0.4.23"
+liquid = "0.26.11"
+octocrab = "0.44.1"
 path-slash = "0.2.1"
-regex = "1.6.0"
-schemars = "0.8.11"
-serde_json = "1.0.87"
-serde = { version = "1.0.147", features = ["derive"] }
-serde_yaml = "0.9.14"
-tokio = { version = "1.21.2", features = ["rt", "rt-multi-thread"] }
-toml = "0.5.9"
-tracing = "0.1.37"
-tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
-xmlparser = "0.13.5"
+regex = "1.11.1"
+reqwest = { version = "0.12.15" }
+schemars = "0.9.0"
+serde_json = "1.0.140"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_yaml = "0.9.34"
+tokio = { version = "1.45.1", features = ["rt", "rt-multi-thread"] }
+toml = "0.8.23"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+xmlparser = "0.13.6"
 yaml-rust = "0.4.5"
 
 [dependencies.sequoia-openpgp]
-version = "1.18.0"
+version = "2.0.0"
 default-features = false
 features = ["crypto-rust", "allow-experimental-crypto", "allow-variable-time-crypto"]
 

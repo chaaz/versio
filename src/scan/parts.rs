@@ -95,7 +95,7 @@ impl<'de> Deserialize<'de> for Part {
   fn deserialize<D: Deserializer<'de>>(desr: D) -> std::result::Result<Part, D::Error> {
     struct PartVisitor;
 
-    impl<'de> Visitor<'de> for PartVisitor {
+    impl Visitor<'_> for PartVisitor {
       type Value = Part;
 
       fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result { formatter.write_str("a target part") }

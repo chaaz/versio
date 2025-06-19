@@ -5,7 +5,6 @@ use crate::errors::Result;
 use crate::mono::{Changelog, ChangelogEntry};
 use crate::output::ProjLine;
 use chrono::prelude::Utc;
-use hyper::Client;
 use liquid::ParserBuilder;
 use path_slash::PathBufExt;
 use std::path::{Path, PathBuf};
@@ -132,13 +131,11 @@ pub async fn read_template(tmpl_url: &str, base_path: Option<&Path>, forward_sla
         }
       }
       "http" | "https" => {
-        let resp = Client::new().get(tmpl_url.parse()?).await?;
+        let resp = reqwest::get(tmpl_url).await?;
         if !resp.status().is_success() {
           bail!("Unsuccessful request to {}: {}", tmpl_url, resp.status().as_u16());
         }
-
-        let body = hyper::body::to_bytes(resp.into_body()).await?;
-        Ok(String::from_utf8(body.to_vec())?)
+        Ok(resp.text().await?)
       }
       _ => bail!("Unrecognized template protocol: {}", parts[0])
     }

@@ -177,10 +177,10 @@ struct MeteredReader<'a> {
 }
 
 impl<'a> MeteredReader<'a> {
-  pub fn new(data: &'a [u8], trace: TraceRef) -> MeteredReader { MeteredReader { data, got: 0, trace } }
+  pub fn new(data: &'a [u8], trace: TraceRef) -> Self { Self { data, got: 0, trace } }
 }
 
-impl<'a> std::io::Read for MeteredReader<'a> {
+impl std::io::Read for MeteredReader<'_> {
   fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
     let amt = self.data.read(buf)?;
     self.trace.lock().unwrap().accept(buf, amt, self.got);

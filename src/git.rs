@@ -663,7 +663,7 @@ struct DeltaIter<'repo> {
   on_new: bool
 }
 
-impl<'repo> Iterator for DeltaIter<'repo> {
+impl Iterator for DeltaIter<'_> {
   type Item = PathBuf;
 
   fn next(&mut self) -> Option<PathBuf> {
@@ -875,7 +875,7 @@ impl<'a> From<&'a str> for FromTag<'a> {
 //   fn into(self) -> FromTag<'a> { FromTag::new(self, false) }
 // }
 
-impl<'a> fmt::Display for FromTag<'a> {
+impl fmt::Display for FromTag<'_> {
   fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
     write!(f, "[from {}{}]", self.tag, if self.else_none { " (else none)" } else { "" })
   }
@@ -1352,7 +1352,7 @@ pub fn find_keypair_for_id(keypath: &Path) -> Result<KeyPair> {
 
   let cert = Cert::from_file(keypath)?;
   // TODO: find out why StandardPolicy is not working with the versio_tester key
-  let policy = NullPolicy::new();
+  let policy = unsafe { NullPolicy::new() };
 
   let key = cert
     .keys()
@@ -1384,7 +1384,7 @@ pub fn sign_armored_detached(signing_keypair: KeyPair, buf: &[u8]) -> Result<Vec
   {
     let message = Message::new(&mut out);
     let message = Armorer::new(message).kind(armor::Kind::Signature).build()?;
-    let mut signer = Signer::new(message, signing_keypair).detached().build()?;
+    let mut signer = Signer::new(message, signing_keypair)?.detached().build()?;
 
     signer.write_all(buf)?;
     signer.finalize()?;

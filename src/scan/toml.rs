@@ -29,8 +29,8 @@ fn scan_toml<P: IntoPartVec>(data: &str, loc: P) -> Result<Mark> {
   let mut parts = loc.into_part_vec();
   parts.reverse();
 
-  let value = pop(parts).deserialize(&mut toml::Deserializer::new(data))?;
-  let index = value.span().0;
+  let value = pop(parts).deserialize(toml::Deserializer::new(data))?;
+  let index = value.span().start;
 
   Ok(Mark::new(value.into_inner(), index + 1))
 }

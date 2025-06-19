@@ -84,25 +84,25 @@ pub struct PrevState<'r> {
   tags: OldTags
 }
 
-impl<'r> FilesRead for PrevState<'r> {
+impl FilesRead for PrevState<'_> {
   fn has_file(&self, path: &Path) -> Result<bool> { self.files.has_file(path) }
   fn read_file(&self, path: &Path) -> Result<String> { self.files.read_file(path) }
   fn subdirs(&self, root: Option<&String>, regex: &str) -> Result<Vec<String>> { self.files.subdirs(root, regex) }
 }
 
-impl<'r> StateRead for PrevState<'r> {
+impl StateRead for PrevState<'_> {
   fn latest_tag(&self, proj: &ProjectId) -> Option<&String> { self.tags.latest(proj) }
 }
 
 impl<'r> PrevState<'r> {
-  pub fn new(slice: Slice<'r>, tags: OldTags) -> PrevState { PrevState { files: PrevFiles::new(slice), tags } }
+  pub fn new(slice: Slice<'r>, tags: OldTags) -> Self { Self { files: PrevFiles::new(slice), tags } }
 }
 
 pub struct PrevFiles<'r> {
   slice: Slice<'r>
 }
 
-impl<'r> FilesRead for PrevFiles<'r> {
+impl FilesRead for PrevFiles<'_> {
   fn has_file(&self, path: &Path) -> Result<bool> { self.slice.has_blob(&path.to_slash_lossy()) }
   fn read_file(&self, path: &Path) -> Result<String> { read_from_slice(&self.slice, path) }
 
@@ -110,9 +110,9 @@ impl<'r> FilesRead for PrevFiles<'r> {
 }
 
 impl<'r> PrevFiles<'r> {
-  pub fn from_slice(slice: Slice<'r>) -> Result<PrevFiles> { Ok(PrevFiles::new(slice)) }
+  pub fn from_slice(slice: Slice<'r>) -> Result<Self> { Ok(Self::new(slice)) }
 
-  pub fn new(slice: Slice<'r>) -> PrevFiles { PrevFiles { slice } }
+  pub fn new(slice: Slice<'r>) -> Self { Self { slice } }
   pub fn slice_to(&self, spec: FromTagBuf) -> Result<PrevFiles<'r>> { PrevFiles::from_slice(self.slice.slice(spec)) }
 }
 

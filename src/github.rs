@@ -284,7 +284,7 @@ impl PrEdgeNode {
 fn deserialize_datetime<'de, D: Deserializer<'de>>(desr: D) -> std::result::Result<DateTime<FixedOffset>, D::Error> {
   struct DateTimeVisitor;
 
-  impl<'de> Visitor<'de> for DateTimeVisitor {
+  impl Visitor<'_> for DateTimeVisitor {
     type Value = DateTime<FixedOffset>;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result { formatter.write_str("an RFC 3339 datetime") }
