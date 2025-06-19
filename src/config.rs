@@ -16,7 +16,7 @@ use glob::{glob_with, MatchOptions, Pattern};
 use liquid::ParserBuilder;
 use path_slash::PathBufExt as _;
 use regex::{escape, Regex};
-use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
+use schemars::{json_schema, JsonSchema, Schema, SchemaGenerator};
 use serde::de::{self, DeserializeSeed, Deserializer, MapAccess, SeqAccess, Unexpected, Visitor};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
@@ -121,9 +121,7 @@ impl<'de> Deserialize<'de> for ProjectId {
 impl JsonSchema for ProjectId {
   fn schema_name() -> Cow<'static, str> { "ProjectId".into() }
 
-  fn json_schema(_gen: &mut SchemaGenerator) -> Schema {
-    json_schema!({ "type": ["number", "string"] })
-  }
+  fn json_schema(_gen: &mut SchemaGenerator) -> Schema { json_schema!({ "type": ["number", "string"] }) }
 }
 
 pub struct Config<S: StateRead> {

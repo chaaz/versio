@@ -1,4 +1,4 @@
-use std::io::{Error, ErrorKind};
+use std::io::Error;
 use std::process::Command;
 
 fn main() {
@@ -21,6 +21,6 @@ fn main() {
     .unwrap();
 }
 
-fn err(msg: String) -> Error { Error::new(ErrorKind::Other, msg) }
+fn err(msg: String) -> Error { Error::other(msg) }
 
 fn conv_err<E: ::std::error::Error>(e: E) -> Error { err(e.to_string()) }
