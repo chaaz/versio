@@ -67,7 +67,7 @@ jobs:
         id: cargo-find-paths
         run: "echo ::set-output name=cargo-lock-glob::\"${{ matrix.root }}\"/**/Cargo.lock"
       - name: Cache cargo and target
-        uses: actions/cache@v1
+        uses: actions/cache@v3
         with:
           path: "~/.cargo/registry\n~/.cargo/git\n${{ matrix.root }}/target\n"
           key: "${{ runner.os }}-cargo-${{ hashFiles(steps.cargo-find-paths.outputs.cargo-lock-glob) }}"
@@ -147,7 +147,7 @@ jobs:
         id: cargo-find-paths
         run: "echo ::set-output name=cargo-lock-glob::\"${{ matrix.root }}\"/**/Cargo.lock"
       - name: Cache cargo and target
-        uses: actions/cache@v1
+        uses: actions/cache@v3
         with:
           path: "~/.cargo/registry\n~/.cargo/git\n${{ matrix.root }}/target\n"
           key: "${{ runner.os }}-cargo-${{ hashFiles(steps.cargo-find-paths.outputs.cargo-lock-glob) }}"
